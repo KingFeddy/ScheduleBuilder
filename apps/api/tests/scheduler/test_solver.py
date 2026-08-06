@@ -167,6 +167,73 @@ class TestGapCount:
         assert compute_gap_minutes(one_big_gap) == 90
 
 
+# ── TestGapSignificanceThreshold ────────────────────────────────────────────────
+
+class TestGapSignificanceThreshold:
+    """
+    A gap of MIN_SIGNIFICANT_GAP_MINUTES (10) or less is a normal passing
+    period, not a real break — it must not contribute to either gap_count or
+    gap_minutes at all. Only gaps strictly greater than the threshold count.
+    """
+
+    def test_exactly_ten_minute_gap_does_not_count(self):
+        """A 10-minute passing period is excluded entirely, not just from the count."""
+        s1 = section("A", "CS101", [make_meeting("M", "09:00", "09:50")])
+        s2 = section("B", "CS201", [make_meeting("M", "10:00", "10:50")])
+        assert compute_gap_count([s1, s2]) == 0
+        assert compute_gap_minutes([s1, s2]) == 0
+
+    def test_eleven_minute_gap_counts(self):
+        """One minute over the threshold — this IS a real gap."""
+        s1 = section("A", "CS101", [make_meeting("M", "09:00", "09:50")])
+        s2 = section("B", "CS201", [make_meeting("M", "10:01", "10:51")])
+        assert compute_gap_count([s1, s2]) == 1
+        assert compute_gap_minutes([s1, s2]) == 11
+
+    def test_mix_of_small_and_large_gaps_only_large_ones_count(self):
+        """
+        Real-world case reported by a user: CS351 (MW 11:30-12:50) + CS341
+        (WF 13:00-14:20) + CS375 (MR 14:30-15:50) + CS288 (F 14:30-17:20) +
+        ECE231 (R 18:00-22:05), with CS350 as the only variable —
+
+        Schedule 1: CS350 meets M 16:00-17:20 AND R 16:00-17:20 (two rows).
+          Mon: CS351(11:30-12:50) -[100min]- CS375(14:30-15:50) -[10min]- CS350(16:00-17:20)
+          Wed: CS351(11:30-12:50) -[10min]- CS341(13:00-14:20)
+          Thu: CS375(14:30-15:50) -[10min]- CS350(16:00-17:20) -[40min]- ECE231(18:00-22:05)
+          Fri: CS341(13:00-14:20) -[10min]- CS288(14:30-17:20)
+          Only the 100-min and 40-min gaps exceed the threshold → gap_count=2.
+
+        Schedule 2: CS350 meets MR 13:00-14:20 (one row).
+          Mon: CS351(11:30-12:50) -[10min]- CS350(13:00-14:20) -[10min]- CS375(14:30-15:50)
+          Wed: CS351(11:30-12:50) -[10min]- CS341(13:00-14:20)
+          Thu: CS350(13:00-14:20) -[10min]- CS375(14:30-15:50) -[130min]- ECE231(18:00-22:05)
+          Fri: CS341(13:00-14:20) -[10min]- CS288(14:30-17:20)
+          Only the 130-min gap exceeds the threshold → gap_count=1.
+
+        Before this threshold existed, both schedules tied at gap_count=6 and
+        gap_minutes=180 (every 10-min passing period counted equally with the
+        100/130/40-min real gaps), which is what prompted this fix.
+        """
+        cs351 = section("A", "CS351", [make_meeting("MW", "11:30", "12:50")])
+        cs341 = section("B", "CS341", [make_meeting("WF", "13:00", "14:20")])
+        cs375 = section("C", "CS375", [make_meeting("MR", "14:30", "15:50")])
+        cs288 = section("D", "CS288", [make_meeting("F", "14:30", "17:20")])
+        ece231 = section("E", "ECE231", [make_meeting("R", "18:00", "22:05")])
+
+        cs350_two_rows = section("F1", "CS350", [
+            make_meeting("M", "16:00", "17:20"),
+            make_meeting("R", "16:00", "17:20"),
+        ])
+        schedule1 = [cs351, cs341, cs375, cs288, ece231, cs350_two_rows]
+        assert compute_gap_count(schedule1) == 2
+        assert compute_gap_minutes(schedule1) == 140  # 100 + 40, the two real gaps only
+
+        cs350_one_row = section("F2", "CS350", [make_meeting("MR", "13:00", "14:20")])
+        schedule2 = [cs351, cs341, cs375, cs288, ece231, cs350_one_row]
+        assert compute_gap_count(schedule2) == 1
+        assert compute_gap_minutes(schedule2) == 130  # the Thursday gap only
+
+
 # ── TestSolverCorrectness ─────────────────────────────────────────────────────
 
 class TestSolverCorrectness:

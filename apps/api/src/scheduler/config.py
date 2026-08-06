@@ -9,3 +9,6 @@ MAX_RESULTS = 30      # Maximum schedules returned to the client — kept above
 EXPLORE_LIMIT = 25    # Backtracker stops after finding this many valid schedules
 SOLVE_TIME_BUDGET_MS = 800   # Hard wall-clock limit per request (milliseconds)
 NODE_CHECK_INTERVAL = 500    # Check the time budget every N nodes explored
+MIN_SIGNIFICANT_GAP_MINUTES = 10   # Gaps at or under this are a normal passing
+                                    # period, not a real break — excluded from
+                                    # both gap_count and gap_minutes entirely

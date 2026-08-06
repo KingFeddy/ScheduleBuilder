@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections import defaultdict
 
+from .config import MIN_SIGNIFICANT_GAP_MINUTES
 from .models import SectionSlot
 
 
@@ -29,8 +30,9 @@ def compute_gap_minutes(sections: list[SectionSlot]) -> int:
     Total waiting-time minutes across all campus days.
 
     For each day: collect all timed class blocks, sort by start time, then sum
-    the gaps between consecutive blocks. Back-to-back (gap == 0) and async
-    meetings (no times) are both excluded from the total.
+    the gaps between consecutive blocks. Back-to-back (gap == 0), a normal
+    passing period (gap <= MIN_SIGNIFICANT_GAP_MINUTES), and async meetings
+    (no times) are all excluded from the total.
 
     Example — MATH340 (TR 10-11:20, F lab 14-16:50) + CS101 (F 12-13):
       Tuesday:  one block → 0 gap
@@ -43,7 +45,7 @@ def compute_gap_minutes(sections: list[SectionSlot]) -> int:
         sessions.sort()
         for i in range(1, len(sessions)):
             gap = sessions[i][0] - sessions[i - 1][1]
-            if gap > 0:
+            if gap > MIN_SIGNIFICANT_GAP_MINUTES:
                 total += gap
     return total
 
@@ -53,12 +55,14 @@ def compute_gap_count(sections: list[SectionSlot]) -> int:
     Number of distinct gap occurrences across all campus days — how many
     times a student's day is broken up by dead time, not how long the dead
     time adds up to. Same per-day session grouping as compute_gap_minutes;
-    counts gap>0 occurrences instead of summing gap size.
+    counts occurrences exceeding MIN_SIGNIFICANT_GAP_MINUTES instead of
+    summing gap size. A gap at or under the threshold is a normal passing
+    period, not a real break, and doesn't count at all.
 
     Example — MATH340 (TR 10-11:20, F lab 14-16:50) + CS101 (F 12-13):
       Tuesday:  one block → no gap
       Thursday: one block → no gap
-      Friday:   [(720,780), (840,1010)] sorted → one gap (840-780=60 > 0)
+      Friday:   [(720,780), (840,1010)] sorted → one gap (840-780=60 > 10)
       Total: 1 gap occurrence
     """
     count = 0
@@ -66,7 +70,7 @@ def compute_gap_count(sections: list[SectionSlot]) -> int:
         sessions.sort()
         for i in range(1, len(sessions)):
             gap = sessions[i][0] - sessions[i - 1][1]
-            if gap > 0:
+            if gap > MIN_SIGNIFICANT_GAP_MINUTES:
                 count += 1
     return count
 

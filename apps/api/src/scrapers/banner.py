@@ -288,24 +288,67 @@ async def _upsert_section_with_meetings(
             )
 
 
+async def _delete_stale_sections(
+    session: AsyncSession,
+    subject: str,
+    term: str,
+    seen_crns: set[str],
+) -> int:
+    """
+    Remove sections for this subject+term that Banner did not return in a
+    completed scrape — cancelled/removed CRNs that upserts alone would
+    otherwise leave sitting in the DB forever, since upserts only ever
+    add or update, never remove. Meetings cascade-delete via their FK to
+    sections. Only call this after a subject's scrape has fully completed;
+    "not seen" only means "removed" when the whole subject was checked.
+
+    course_code is matched as "{subject}" followed by a digit, not a plain
+    prefix — a plain 'LIKE subject%' would wrongly match a subject whose
+    code happens to start with this one (e.g. a hypothetical 'CSE' matching
+    a 'CS' prefix search).
+    """
+    async with session.begin():
+        result = await session.execute(
+            text("""
+                DELETE FROM sections
+                WHERE term = :term
+                  AND course_code ~ :pattern
+                  AND NOT (crn = ANY(:seen_crns))
+            """),
+            {
+                "term":      term,
+                "pattern":   f"^{subject}[0-9]",
+                "seen_crns": list(seen_crns),
+            },
+        )
+        return result.rowcount
+
+
 # ─── Subject scrape ───────────────────────────────────────────────────────────
 
 async def scrape_subject(
     session: AsyncSession,
     subject: str,
     term: str,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """
     Scrape all sections for one subject+term via Playwright.
-    Returns (sections_upserted, sections_failed).
+    Returns (sections_upserted, sections_failed, sections_deleted).
 
     Raises BannerBlockedError or BannerSchemaError on unrecoverable failures.
     Timeouts and transient errors are retried per RETRY_DELAYS.
+
+    Stale-section cleanup only runs when every page for this subject was
+    successfully fetched (the `complete` flag) — a block or exhausted
+    retries mid-scrape must never be treated as "Banner removed these",
+    since we simply never got far enough to know.
     """
     upserted          = 0
     failed            = 0
     offset            = 0
     schema_error_count = 0
+    seen_crns: set[str] = set()
+    complete           = False
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -420,6 +463,7 @@ async def scrape_subject(
                         _validate_section_schema(raw)
                         await _upsert_section_with_meetings(session, raw, term)
                         upserted += 1
+                        seen_crns.add(raw["courseReferenceNumber"])
                     except BannerSchemaError as exc:
                         schema_error_count += 1
                         logger.error(
@@ -440,14 +484,24 @@ async def scrape_subject(
 
                 offset += PAGE_SIZE
                 if offset >= total:
+                    complete = True
                     break
 
                 await asyncio.sleep(2)
 
+            deleted = 0
+            if complete:
+                deleted = await _delete_stale_sections(session, subject, term, seen_crns)
+                if deleted:
+                    logger.info(
+                        "Banner/%s: removed %d stale section(s) no longer returned by Banner",
+                        subject, deleted,
+                    )
+
         finally:
             await browser.close()
 
-    return upserted, failed
+    return upserted, failed, deleted
 
 
 # ─── Full run ─────────────────────────────────────────────────────────────────
@@ -489,16 +543,18 @@ async def run_banner_scrape(
 
         total_upserted = 0
         total_failed   = 0
+        total_deleted  = 0
 
         for subject in subjects:
             t0 = time_module.monotonic()
             try:
-                upserted, failed = await scrape_subject(session, subject, term)
+                upserted, failed, deleted = await scrape_subject(session, subject, term)
                 total_upserted += upserted
                 total_failed   += failed
+                total_deleted  += deleted
                 logger.info(
-                    "Banner/%s: %d upserted, %d failed, %.1fs",
-                    subject, upserted, failed, time_module.monotonic() - t0,
+                    "Banner/%s: %d upserted, %d failed, %d deleted, %.1fs",
+                    subject, upserted, failed, deleted, time_module.monotonic() - t0,
                 )
 
             except BannerBlockedError as exc:
@@ -554,6 +610,6 @@ async def run_banner_scrape(
         )
         await session.commit()
         logger.info(
-            "Banner scrape complete: %d upserted, %d failed, status=%s",
-            total_upserted, total_failed, final_status,
+            "Banner scrape complete: %d upserted, %d failed, %d deleted, status=%s",
+            total_upserted, total_failed, total_deleted, final_status,
         )

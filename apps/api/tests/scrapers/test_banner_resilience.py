@@ -254,6 +254,158 @@ async def test_uncatalogued_course_gets_stub_row_before_section_insert(db_sessio
     assert section_row.mappings().first() is not None, "Section must be inserted, not silently dropped"
 
 
+# ─── Stale section cleanup ────────────────────────────────────────────────────
+
+def _mock_playwright_returning(sections: list[dict], total: int | None = None):
+    """
+    Build a mocked async_playwright context manager whose page navigates
+    through term-selection successfully, then _fetch_page (patched
+    separately by the caller) is the only thing that needs configuring for
+    the actual section data.
+    """
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock()
+
+    mock_term_resp = AsyncMock()
+    mock_term_resp.status = 200
+    mock_term_resp.text = AsyncMock(return_value='{"fwdURL": ""}')
+    mock_page.request.post = AsyncMock(return_value=mock_term_resp)
+
+    mock_context = AsyncMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_browser = AsyncMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+    mock_pw = AsyncMock()
+    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+    mock_pw_cm = AsyncMock()
+    mock_pw_cm.__aenter__ = AsyncMock(return_value=mock_pw)
+    mock_pw_cm.__aexit__ = AsyncMock(return_value=False)
+    return mock_pw_cm
+
+
+# Reserved fake subject for these tests only — NOT a real NJIT subject code.
+# _delete_stale_sections matches by subject prefix across the WHOLE subject,
+# so a test that used a real subject (e.g. "CS") would delete every real
+# section for that subject the mocked response didn't happen to include.
+# This exact mistake shipped once and deleted all 598 real CS sections from
+# production before being caught and recovered — never reuse a real subject
+# code here, and the assertion below is a second guardrail against it
+# happening silently again.
+_FAKE_SUBJECT = "ZZZ"
+
+
+async def _assert_fake_subject_is_actually_empty(db_session) -> None:
+    from sqlalchemy import text
+    result = await db_session.execute(
+        text("SELECT COUNT(*) FROM sections WHERE course_code ~ :pattern"),
+        {"pattern": f"^{_FAKE_SUBJECT}[0-9]"},
+    )
+    count = result.scalar()
+    assert count == 0, (
+        f"Test subject '{_FAKE_SUBJECT}' has {count} real row(s) in the database — "
+        "STOP. Do not run this test until a genuinely unused subject prefix is chosen; "
+        "this test deletes everything matching it."
+    )
+
+
+@pytest.mark.asyncio
+async def test_stale_section_removed_after_complete_scrape(db_session):
+    """
+    A section Banner no longer returns for a subject it fully, successfully
+    scraped must be deleted — upserts alone never remove anything, so a
+    cancelled/removed CRN would otherwise sit stale in the DB forever.
+    """
+    from src.scrapers.banner import scrape_subject
+    from sqlalchemy import text
+
+    await _assert_fake_subject_is_actually_empty(db_session)
+
+    # Seed the stub courses these sections need (FK), then a stale section
+    # Banner will NOT return in the mocked response below.
+    await db_session.execute(text("""
+        INSERT INTO courses (course_code, title, credits) VALUES
+            ('ZZZ997', 'Test Stale Course', 3),
+            ('ZZZ996', 'Test Seen Course', 3)
+        ON CONFLICT (course_code) DO NOTHING
+    """))
+    await db_session.execute(text("""
+        INSERT INTO sections (crn, term, course_code, total_seats, open_seats, scraped_at)
+        VALUES ('77777', '202690', 'ZZZ997', 30, 10, NOW())
+        ON CONFLICT (crn, term) DO NOTHING
+    """))
+    await db_session.commit()
+
+    banner_section = {
+        "courseReferenceNumber": "89999",
+        "subject": _FAKE_SUBJECT,
+        "courseNumber": "996",
+        "seatsAvailable": 5,
+        "maximumEnrollment": 20,
+        "meetingsFaculty": [],
+    }
+    mock_pw_cm = _mock_playwright_returning([banner_section])
+
+    async def fake_fetch_page(page, url, params, timeout_ms=30_000):
+        return {"data": [banner_section], "totalCount": 1}
+
+    with patch("src.scrapers.banner.async_playwright", return_value=mock_pw_cm):
+        with patch("src.scrapers.banner._fetch_page", side_effect=fake_fetch_page):
+            upserted, failed, deleted = await scrape_subject(db_session, _FAKE_SUBJECT, "202690")
+
+    assert upserted == 1
+    assert failed == 0
+    assert deleted == 1, "The stale ZZZ997 section must be counted as deleted"
+
+    stale = await db_session.execute(
+        text("SELECT 1 FROM sections WHERE crn = '77777' AND term = '202690'")
+    )
+    assert stale.first() is None, "Stale section must be removed after a complete scrape"
+
+    seen = await db_session.execute(
+        text("SELECT 1 FROM sections WHERE crn = '89999' AND term = '202690'")
+    )
+    assert seen.first() is not None, "Section Banner did return must still exist"
+
+
+@pytest.mark.asyncio
+async def test_stale_sections_survive_an_incomplete_scrape(db_session):
+    """
+    If the scrape is blocked before completing, "not seen this run" doesn't
+    mean "Banner removed it" — it means we never got far enough to check.
+    Deleting here would silently corrupt data on every transient block.
+    """
+    from src.scrapers.banner import scrape_subject, BannerBlockedError
+    from sqlalchemy import text
+
+    await _assert_fake_subject_is_actually_empty(db_session)
+
+    await db_session.execute(text("""
+        INSERT INTO courses (course_code, title, credits) VALUES ('ZZZ995', 'Test Course', 3)
+        ON CONFLICT (course_code) DO NOTHING
+    """))
+    await db_session.execute(text("""
+        INSERT INTO sections (crn, term, course_code, total_seats, open_seats, scraped_at)
+        VALUES ('66666', '202690', 'ZZZ995', 30, 10, NOW())
+        ON CONFLICT (crn, term) DO NOTHING
+    """))
+    await db_session.commit()
+
+    mock_pw_cm = _mock_playwright_returning([])
+
+    with patch("src.scrapers.banner.async_playwright", return_value=mock_pw_cm):
+        with patch(
+            "src.scrapers.banner._fetch_page",
+            side_effect=BannerBlockedError("403"),
+        ):
+            with pytest.raises(BannerBlockedError):
+                await scrape_subject(db_session, _FAKE_SUBJECT, "202690")
+
+    still_there = await db_session.execute(
+        text("SELECT 1 FROM sections WHERE crn = '66666' AND term = '202690'")
+    )
+    assert still_there.first() is not None, "Nothing must be deleted on an incomplete scrape"
+
+
 # ─── Concurrency guard ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -318,7 +470,7 @@ async def test_successful_scrape_creates_completed_record(db_session):
     from src.scrapers.banner import run_banner_scrape
     from sqlalchemy import text
 
-    with patch("src.scrapers.banner.scrape_subject", return_value=(5, 0)):
+    with patch("src.scrapers.banner.scrape_subject", return_value=(5, 0, 0)):
         await run_banner_scrape(db_session, ["CS"], "202690")
 
     result = await db_session.execute(
@@ -365,7 +517,7 @@ async def test_one_blocked_subject_continues_remaining_subjects(db_session):
         call_log.append(subject)
         if subject == "CS":
             raise BannerBlockedError("blocked")
-        return (3, 0)
+        return (3, 0, 0)
 
     with patch("src.scrapers.banner.scrape_subject", side_effect=mock_scrape):
         await run_banner_scrape(db_session, ["CS", "MATH"], "202690")
@@ -384,7 +536,7 @@ async def test_schema_change_aborts_remaining_subjects(db_session):
         call_log.append(subject)
         if subject == "CS":
             raise BannerSchemaError("key missing")
-        return (3, 0)
+        return (3, 0, 0)
 
     with patch("src.scrapers.banner.scrape_subject", side_effect=mock_scrape):
         await run_banner_scrape(db_session, ["CS", "MATH", "PHYS"], "202690")

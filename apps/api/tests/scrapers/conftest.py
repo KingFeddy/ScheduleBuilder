@@ -78,6 +78,23 @@ async def db_session():
             text("DELETE FROM courses WHERE course_code = 'CS998'")
         )
 
+        # Remove rows created by the stale-section-cleanup tests. ZZZ997/77777
+        # is expected to already be gone (that's what the test verifies) —
+        # these deletes are idempotent safety nets, not the primary cleanup.
+        # ZZZ is a reserved fake subject prefix, never a real NJIT subject —
+        # see _FAKE_SUBJECT in test_banner_resilience.py for why that matters.
+        for crn in ("77777", "89999", "66666"):
+            await session.execute(
+                text("DELETE FROM meetings WHERE crn = :crn"), {"crn": crn}
+            )
+            await session.execute(
+                text("DELETE FROM sections WHERE crn = :crn"), {"crn": crn}
+            )
+        for code in ("ZZZ997", "ZZZ996", "ZZZ995"):
+            await session.execute(
+                text("DELETE FROM courses WHERE course_code = :code"), {"code": code}
+            )
+
         # Remove scraper_runs created in the last 5 minutes (test runs are fast)
         await session.execute(
             text("""

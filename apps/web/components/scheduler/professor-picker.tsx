@@ -122,7 +122,7 @@ export function ProfessorPicker({ courseCode }: ProfessorPickerProps) {
     <div ref={containerRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1 text-xs text-faint hover:text-muted transition-colors duration-150"
+        className="inline-flex items-center gap-1 text-xs text-text hover:text-muted transition-colors duration-150"
       >
         <ChevronDown className="w-3 h-3 flex-shrink-0" />
         <span>{triggerLabel}</span>

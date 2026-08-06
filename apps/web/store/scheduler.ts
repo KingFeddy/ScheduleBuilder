@@ -12,12 +12,13 @@ export interface CommuterOptions {
 // earliest_start/latest_end are hard filters on the backend — a section is
 // dropped entirely if it starts before earliest_start or ends after
 // latest_end. Defaults must sit outside the real data range (earliest
-// scraped class starts 08:30, latest ends 22:00) so an untouched control
-// never silently filters anything out.
+// scraped class starts 08:30, latest actually ends 22:05 — CHEM/ECE evening
+// labs — not 22:00 as first assumed) so an untouched control never silently
+// filters anything out.
 const defaultCommuterOptions: CommuterOptions = {
   compact_week: false,
   earliest_start: '07:00',
-  latest_end: '22:00',
+  latest_end: '22:30',
   minimize_gaps: true,
 }
 
@@ -129,7 +130,7 @@ export const useSchedulerStore = create<SchedulerState>()(
     {
       name: 'njit-scheduler',
       storage: createJSONStorage(() => safeStorage),
-      version: 4,
+      version: 5,
       partialize: (s) => ({
         selectedCourses: s.selectedCourses,
         term: s.term,
@@ -138,7 +139,7 @@ export const useSchedulerStore = create<SchedulerState>()(
         activeResultIndex: s.activeResultIndex,
       }),
       migrate(state, version) {
-        if (version < 4) {
+        if (version < 5) {
           return {
             ...(state as Partial<SchedulerState>),
             commuterOptions: defaultCommuterOptions,

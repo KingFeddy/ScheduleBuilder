@@ -6,7 +6,6 @@ function buildTimeOptions(): { value: string; label: string }[] {
   const opts: { value: string; label: string }[] = []
   for (let h = 7; h <= 22; h++) {
     for (const m of [0, 30]) {
-      if (h === 22 && m === 30) break
       const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
       const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h
       const ampm = h < 12 ? 'AM' : 'PM'
@@ -32,7 +31,7 @@ export function CommuterToggles() {
         <p className="text-sm font-medium text-text">Class Hours</p>
         <div className="flex gap-2">
           <div className="flex flex-col gap-1 flex-1 min-w-0">
-            <p className="text-xs text-faint">Not before</p>
+            <p className="text-xs text-muted">Not before</p>
             <select
               value={earliest_start}
               onChange={(e) => setCommuterOptions({ earliest_start: e.target.value })}
@@ -46,7 +45,7 @@ export function CommuterToggles() {
             </select>
           </div>
           <div className="flex flex-col gap-1 flex-1 min-w-0">
-            <p className="text-xs text-faint">Not after</p>
+            <p className="text-xs text-muted">Not after</p>
             <select
               value={latest_end}
               onChange={(e) => setCommuterOptions({ latest_end: e.target.value })}

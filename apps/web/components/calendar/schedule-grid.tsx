@@ -123,8 +123,8 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
               ))}
 
               {/* Course blocks */}
-              {slots.map((slot) => (
-                <CourseBlock key={`${slot.crn}-${slot.start_time}-${colIdx}`} slot={slot} />
+              {slots.map((slot, i) => (
+                <CourseBlock key={`${slot.crn}-${slot.start_time}-${colIdx}-${i}`} slot={slot} />
               ))}
             </div>
           ))}

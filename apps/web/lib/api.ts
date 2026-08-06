@@ -43,6 +43,11 @@ export interface ScheduleResult {
 export interface SolveRequest {
   course_codes: string[]
   term: string
+  options: {
+    earliest_start: string
+    latest_end: string
+    minimize_gaps: boolean
+  }
   compact_week: boolean
   professor_preferences: Record<string, string[]>
 }

@@ -34,6 +34,11 @@ export default function SchedulerPage() {
       const res = await solveSchedule({
         course_codes: selectedCourses,
         term,
+        options: {
+          earliest_start: commuterOptions.earliest_start || '07:00',
+          latest_end: commuterOptions.latest_end || '22:00',
+          minimize_gaps: commuterOptions.minimize_gaps,
+        },
         compact_week: commuterOptions.compact_week,
         professor_preferences: Object.fromEntries(
           Object.entries(professorPreferences).filter(([, v]) => v.length > 0),

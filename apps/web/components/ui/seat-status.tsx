@@ -1,5 +1,5 @@
 // Spec §5 SeatStatus: green if >3 open, yellow if ≤3, red if 0.
-// Single source of truth — both the calendar block and the section list
+// Single source of truth — both CourseBlock (day-grid) and AsyncBlock
 // import seatColorClass so the two can never show contradicting colors for
 // the same section.
 export function seatColorClass(open: number): string {

@@ -115,22 +115,24 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
 
         {/* Async/TBA row — sections with no scheduled meeting time have
             nowhere on the day grid to render, so they get their own row
-            here instead of silently disappearing. */}
-        {asyncSlots.length > 0 && (
-          <div className="px-3">
-            <div className="flex items-center gap-2 pt-3 pb-1.5">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted whitespace-nowrap">
-                Async / TBA
-              </p>
-              <div className="flex-1 h-px bg-border" />
-            </div>
+            here instead of silently disappearing. The label+divider always
+            shows, even with none this schedule, so the section is a
+            permanent, predictable part of the layout. */}
+        <div className="px-3">
+          <div className="flex items-center gap-2 pt-3 pb-1.5">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted whitespace-nowrap">
+              Async / TBA
+            </p>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          {asyncSlots.length > 0 && (
             <div className="flex flex-wrap gap-2 pb-3">
               {asyncSlots.map((slot) => (
                 <AsyncBlock key={slot.crn} slot={slot} />
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

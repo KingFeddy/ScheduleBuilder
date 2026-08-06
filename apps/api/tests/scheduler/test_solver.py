@@ -438,6 +438,57 @@ class TestCommuterConstraints:
         assert result.results
 
 
+# ── TestHideFullSections ─────────────────────────────────────────────────────
+
+class TestHideFullSections:
+
+    def test_full_section_included_by_default(self):
+        """hide_full_sections defaults False — a full section still appears."""
+        full = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")], open_seats=0)
+        result = solve(["CS101"], {"CS101": [full]}, no_constraints, {})
+        assert result.results
+        assert result.results[0].sections[0].crn == "A"
+
+    def test_hide_full_sections_true_excludes_full_keeps_open(self):
+        """With the toggle on, only the section with open seats survives."""
+        full = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")], open_seats=0)
+        open_sec = section("B", "CS101", [make_meeting("TR", "10:00", "11:20")], open_seats=5)
+        result = solve(
+            ["CS101"], {"CS101": [full, open_sec]},
+            CommuterOptions(hide_full_sections=True), {},
+        )
+        crns = {s.crn for sch in result.results for s in sch.sections}
+        assert crns == {"B"}
+
+    def test_hide_full_sections_true_all_full_gives_specific_warning(self):
+        """Every section full + toggle on → empty result with the seat-specific warning."""
+        full = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")], open_seats=0)
+        result = solve(
+            ["CS101"], {"CS101": [full]},
+            CommuterOptions(hide_full_sections=True), {},
+        )
+        assert result.results == []
+        assert any("full" in w.lower() and "CS101" in w for w in result.warnings)
+
+    def test_hide_full_sections_scoped_per_course_like_other_filter_stages(self):
+        """
+        A course that goes to zero candidates because of the seat filter aborts
+        the solve immediately, exactly like every other zero-candidate case
+        (unknown course, professor whitelist eliminates everyone) — the second
+        course never even gets evaluated. Proves the new filter stage follows
+        the same early-return contract as the existing two stages.
+        """
+        cs101_full = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")], open_seats=0)
+        cs201_open = section("B", "CS201", [make_meeting("TR", "10:00", "11:20")], open_seats=5)
+        result = solve(
+            ["CS101", "CS201"],
+            {"CS101": [cs101_full], "CS201": [cs201_open]},
+            CommuterOptions(hide_full_sections=True), {},
+        )
+        assert result.results == []
+        assert any("CS101" in w and "full" in w.lower() for w in result.warnings)
+
+
 # ── TestPostSolveValidation ───────────────────────────────────────────────────
 
 class TestPostSolveValidation:

@@ -54,6 +54,7 @@ def _build_filter_warning(
     all_sections: list[SectionSlot],
     after_professor: list[SectionSlot],
     after_commuter: list[SectionSlot],
+    after_seats: list[SectionSlot],
     professor_whitelist: list[str],
 ) -> str:
     """Produce a specific, actionable warning for a zero-candidate course."""
@@ -74,6 +75,13 @@ def _build_filter_warning(
         return (
             f"{course_code}: all sections conflict with your commuter constraints. "
             f"Try relaxing your time bounds or unblocking a day."
+        )
+
+    if not after_seats:
+        return (
+            f"{course_code}: all sections are full (0 open seats). "
+            f"Try disabling 'Hide Full Sections' or checking back later — "
+            f"seats open up during registration."
         )
 
     return f"{course_code}: no valid sections available."
@@ -211,14 +219,20 @@ def solve(
             s for s in after_prof
             if passes_commuter_filters(s, options)
         ]
+        after_seats = [
+            s for s in after_commuter
+            if not options.hide_full_sections or s.open_seats > 0
+        ]
 
-        if not after_commuter:
+        if not after_seats:
             warnings.append(
-                _build_filter_warning(code, all_secs, after_prof, after_commuter, prof_whitelist)
+                _build_filter_warning(
+                    code, all_secs, after_prof, after_commuter, after_seats, prof_whitelist
+                )
             )
             return SolveResponse(results=[], warnings=warnings, truncated=False)
 
-        candidates[code] = after_commuter
+        candidates[code] = after_seats
 
     # ── Phase 2: MRV ordering ─────────────────────────────────────────────
     # Trying the most constrained course (fewest valid sections) first prunes

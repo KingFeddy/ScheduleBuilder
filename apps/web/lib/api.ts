@@ -38,7 +38,6 @@ export interface SectionSlot {
 
 export interface ScheduleResult {
   sections: SectionSlot[]
-  gap_minutes: number
   campus_days: number
   has_async_sections: boolean
   truncated: boolean

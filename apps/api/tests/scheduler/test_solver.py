@@ -4,7 +4,7 @@ import pytest
 
 from src.scheduler.models import MeetingSlot, SectionSlot
 from src.scheduler.solver import solve, _find_impossible_pair, _professor_matches_whitelist
-from src.scheduler.gap import compute_gap_minutes, compute_campus_days
+from src.scheduler.gap import compute_gap_minutes, compute_gap_count, compute_campus_days
 from src.schemas.schedule import CommuterOptions, SolveRequest
 
 
@@ -96,6 +96,75 @@ class TestGapCalculation:
         async_s = section("A", "CS101", [make_async_meeting()])
         timed_s = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
         assert compute_campus_days([async_s, timed_s]) == 2
+
+
+# ── TestGapCount ─────────────────────────────────────────────────────────────
+
+class TestGapCount:
+    """
+    Verify gap *count* (number of occurrences, not total minutes) using the
+    same fixtures TestGapCalculation uses for compute_gap_minutes, so the two
+    metrics are directly comparable against identical inputs.
+    """
+
+    def test_single_block_per_day_zero_count(self):
+        """One class per day: no waiting → 0 gap occurrences."""
+        s = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
+        assert compute_gap_count([s]) == 0
+
+    def test_back_to_back_zero_count(self):
+        """Classes that end and start at the same minute = 0 gap occurrences."""
+        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
+        s2 = section("B", "CS201", [make_meeting("MW", "11:20", "12:50")])
+        assert compute_gap_count([s1, s2]) == 0
+
+    def test_one_gap_two_days_counts_two(self):
+        """MW 10-11:20 + MW 12:20-13:40 → one gap occurrence per day × 2 days = 2."""
+        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
+        s2 = section("B", "CS201", [make_meeting("MW", "12:20", "13:40")])
+        assert compute_gap_count([s1, s2]) == 2
+
+    def test_gap_multi_meeting_section_counts_correctly(self):
+        """
+        MATH340: TR lecture 10-11:20 + F lab 14:00-16:50.
+        CS101: F 12:00-13:00.
+        TR: only MATH340 lecture each day → 0 gap occurrences.
+        F: sorted sessions [(720,780), (840,1010)] → 1 gap occurrence.
+        Total: 1.
+        """
+        math340 = section("M", "MATH340", [
+            make_meeting("TR", "10:00", "11:20"),
+            make_meeting("F",  "14:00", "16:50"),
+        ])
+        cs101 = section("O", "CS101", [make_meeting("F", "12:00", "13:00")])
+        assert compute_gap_count([math340, cs101]) == 1
+
+    def test_async_section_contributes_zero_count(self):
+        """Async section has no times → never contributes to gap count."""
+        async_s = section("A", "CS101", [make_async_meeting()])
+        timed_s = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
+        assert compute_gap_count([async_s, timed_s]) == 0
+
+    def test_more_smaller_gaps_outcounts_one_larger_gap(self):
+        """
+        The property this whole feature exists for: two 20-min gaps (count=2,
+        40 min total) must count as MORE gaps than one 90-min gap (count=1,
+        90 min total), even though the one-gap schedule has more total dead
+        time. This is what makes gap count a meaningfully different ranking
+        signal from gap minutes.
+        """
+        s1 = section("A", "CS101", [make_meeting("M", "09:00", "09:50")])
+        s2 = section("B", "CS201", [make_meeting("M", "10:10", "11:00")])
+        s3 = section("C", "CS301", [make_meeting("M", "11:20", "12:10")])
+        many_small_gaps = [s1, s2, s3]
+        assert compute_gap_count(many_small_gaps) == 2
+        assert compute_gap_minutes(many_small_gaps) == 40
+
+        s4 = section("D", "CS401", [make_meeting("M", "09:00", "09:50")])
+        s5 = section("E", "CS501", [make_meeting("M", "11:20", "12:10")])
+        one_big_gap = [s4, s5]
+        assert compute_gap_count(one_big_gap) == 1
+        assert compute_gap_minutes(one_big_gap) == 90
 
 
 # ── TestSolverCorrectness ─────────────────────────────────────────────────────

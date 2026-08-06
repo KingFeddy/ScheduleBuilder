@@ -235,6 +235,81 @@ class TestSolverCorrectness:
         first_crns = {s.crn for s in result.results[0].sections}
         assert "B" in first_crns, "TR-only schedule (2 campus days) must rank first"
 
+    def test_minimize_gaps_true_ranks_fewer_gap_occurrences_over_fewer_total_minutes(self):
+        """
+        Fewer gap occurrences must outrank fewer total gap minutes when
+        minimize_gaps=True — this is the actual behavior change this
+        feature exists for. Reuses the exact many-small-gaps vs.
+        one-big-gap fixture from TestGapCount, at the solve() level.
+        """
+        # Option A: CS101 meets twice Monday (9-9:50, 10:10-11), CS201 fixed
+        #   11:20-12:10 → sessions [(540,590),(610,660),(680,730)]
+        #   → 2 gap occurrences, 40 min total.
+        cs101_two_gaps = section("A", "CS101", [
+            make_meeting("M", "09:00", "09:50"),
+            make_meeting("M", "10:10", "11:00"),
+        ])
+        # Option B: CS101 meets once Monday (9-9:50), same CS201
+        #   → sessions [(540,590),(680,730)]
+        #   → 1 gap occurrence, 90 min total.
+        cs101_one_gap = section("B", "CS101", [make_meeting("M", "09:00", "09:50")])
+        cs201 = section("C", "CS201", [make_meeting("M", "11:20", "12:10")])
+        result = solve(
+            ["CS101", "CS201"],
+            {"CS101": [cs101_two_gaps, cs101_one_gap], "CS201": [cs201]},
+            CommuterOptions(minimize_gaps=True),
+            {},
+        )
+        first_crns = {s.crn for s in result.results[0].sections}
+        assert "B" in first_crns, (
+            "Schedule with fewer gap occurrences (B: 1 gap, 90 min) must rank first "
+            "under minimize_gaps=True, even though it has MORE total gap minutes "
+            "than the alternative (A: 2 gaps, 40 min)"
+        )
+
+    def test_compact_week_ranks_days_then_gap_count_then_gap_minutes(self):
+        """
+        When compact_week=True: campus days breaks ties first, then gap
+        count, then gap minutes.
+        """
+        # CS201 fixed: Monday 11:20-12:10.
+        cs201 = section("C", "CS201", [make_meeting("M", "11:20", "12:10")])
+        # Option A: CS101 meets twice Monday → 1 campus day (Monday only),
+        #   2 gap occurrences, 40 min total.
+        cs101_two_gaps = section("A", "CS101", [
+            make_meeting("M", "09:00", "09:50"),
+            make_meeting("M", "10:10", "11:00"),
+        ])
+        # Option B: CS101 meets once Monday → 1 campus day, 1 gap
+        #   occurrence, 90 min total.
+        cs101_one_gap = section("B", "CS101", [make_meeting("M", "09:00", "09:50")])
+        # Option D: CS101 meets Tuesday only (no overlap with CS201's
+        #   Monday slot) → 2 campus days (Mon + Tue), 0 gap occurrences
+        #   (each day has exactly one block), 0 min total — the best gap
+        #   stats of the three, but it must still rank LAST because it
+        #   costs an extra campus day, which is the primary sort key here.
+        cs101_extra_day = section("D", "CS101", [make_meeting("T", "09:00", "09:50")])
+
+        result = solve(
+            ["CS101", "CS201"],
+            {"CS101": [cs101_two_gaps, cs101_one_gap, cs101_extra_day], "CS201": [cs201]},
+            CommuterOptions(),
+            {},
+            compact_week=True,
+        )
+        crns_in_order = [{s.crn for s in sch.sections} for sch in result.results]
+        b_rank = next(i for i, crns in enumerate(crns_in_order) if "B" in crns)
+        a_rank = next(i for i, crns in enumerate(crns_in_order) if "A" in crns)
+        d_rank = next(i for i, crns in enumerate(crns_in_order) if "D" in crns)
+        assert b_rank < a_rank, (
+            "B (1 day, 1 gap) must rank ahead of A (1 day, 2 gaps) — "
+            "campus days tied, fewer gap occurrences wins"
+        )
+        assert d_rank > a_rank and d_rank > b_rank, (
+            "D (2 days, 0 gaps) must rank LAST despite having the best gap stats — "
+            "campus days is the primary sort key under compact_week"
+        )
+
 
 # ── TestProfessorWhitelist ────────────────────────────────────────────────────
 

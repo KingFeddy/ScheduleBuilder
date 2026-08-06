@@ -13,7 +13,7 @@ from typing import Optional
 
 from .models import SectionSlot
 from .conflicts import sections_conflict, passes_commuter_filters, validate_schedule
-from .gap import compute_gap_minutes, compute_campus_days
+from .gap import compute_gap_minutes, compute_gap_count, compute_campus_days
 from .config import MAX_RESULTS, EXPLORE_LIMIT, SOLVE_TIME_BUDGET_MS, NODE_CHECK_INTERVAL
 from ..schemas.schedule import (
     CommuterOptions,
@@ -265,13 +265,14 @@ def solve(
 
     # ── Phase 4: Rank ──────────────────────────────────────────────────────
     def _rank_key(sections: list[SectionSlot]) -> tuple:
+        gap_count  = compute_gap_count(sections)
         gap        = compute_gap_minutes(sections)
         days       = compute_campus_days(sections)
         total_open = sum(s.open_seats for s in sections)
         if compact_week:
-            return (days, gap, -total_open)
+            return (days, gap_count, gap, -total_open)
         elif options.minimize_gaps:
-            return (gap, days, -total_open)
+            return (gap_count, gap, days, -total_open)
         else:
             return (days, gap, -total_open)
 

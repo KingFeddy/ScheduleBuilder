@@ -23,9 +23,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Every subject with at least one course in the `courses` catalog — kept in
+# sync with `SELECT DISTINCT SUBSTRING(course_code FROM '^[A-Z]+') FROM courses`.
+# The original list only covered 12 of these; the other 6 (ACCT, FIN, FRSC,
+# IT, SDET, YWCC) were searchable via /api/courses but their sections were
+# never scraped, so seat counts/meeting times for them went stale forever
+# and the new stale-section cleanup in banner.py never got a chance to run
+# for them either, since that only fires for subjects actually scraped.
 SUBJECTS = [
     "CS", "MATH", "PHYS", "ECE", "CHEM",
     "COM", "HIST", "LIT", "PHIL", "PSY", "STS", "THTR",
+    "ACCT", "FIN", "FRSC", "IT", "SDET", "YWCC",
 ]
 
 

@@ -95,7 +95,6 @@ class SolveSectionResponse(BaseModel):
 
 class ScheduleResult(BaseModel):
     sections:           list[SolveSectionResponse]
-    gap_minutes:        int
     campus_days:        int
     has_async_sections: bool
 

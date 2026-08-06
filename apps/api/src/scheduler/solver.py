@@ -283,7 +283,6 @@ def solve(
     results = [
         ScheduleResult(
             sections=[_section_to_response(s) for s in section_list],
-            gap_minutes=compute_gap_minutes(section_list),
             campus_days=compute_campus_days(section_list),
             has_async_sections=any(s.is_async for s in section_list),
         )

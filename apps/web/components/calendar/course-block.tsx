@@ -4,10 +4,6 @@ import { seatColorClass } from '@/components/ui/seat-status'
 
 const PX_PER_HOUR = 48
 const START_HOUR = 7
-// Below this height, section + professor share one line. At/above it,
-// they split onto two — the smallest height at which a 3rd text line
-// fits without crowding (matches the block's old showLocation threshold).
-const SPLIT_HEIGHT = 54
 
 function timeToMinutes(timeStr: string): number {
   const ampm = /(\d+):(\d+)\s*(AM|PM)/i.exec(timeStr)
@@ -47,8 +43,6 @@ export function CourseBlock({ slot, hasConflict = false }: CourseBlockProps) {
   const heightPx = ((endMin - startMin) / 60) * PX_PER_HOUR
   const bg = courseColor(slot.course_code)
   const prof = lastName(slot.professor_name)
-  const splitLines = heightPx >= SPLIT_HEIGHT
-  const sectionProf = slot.section_number ? `§${slot.section_number} · ${prof}` : prof
 
   return (
     <div
@@ -61,23 +55,19 @@ export function CourseBlock({ slot, hasConflict = false }: CourseBlockProps) {
       style={{ top: topPx, height: heightPx, backgroundColor: bg, border: `1px solid ${bg}cc` }}
     >
       <div className="flex items-baseline justify-between gap-1">
-        <p className="font-mono font-bold text-[13px] text-text truncate">{slot.course_code}</p>
+        <div className="flex items-baseline gap-1.5 min-w-0">
+          <p className="font-mono font-bold text-[15px] text-text truncate">{slot.course_code}</p>
+          {slot.section_number && (
+            <p className="font-mono text-[11px] text-muted flex-shrink-0">§{slot.section_number}</p>
+          )}
+        </div>
         <p
           className={`font-mono tabular-nums text-[11px] flex-shrink-0 ${seatColorClass(slot.open_seats)}`}
         >
           {slot.open_seats}/{slot.total_seats}
         </p>
       </div>
-      {splitLines ? (
-        <>
-          {slot.section_number && (
-            <p className="font-mono text-[11px] text-muted truncate">§{slot.section_number}</p>
-          )}
-          <p className="font-mono text-[11px] text-muted truncate">{prof}</p>
-        </>
-      ) : (
-        <p className="font-mono text-[11px] text-muted truncate">{sectionProf}</p>
-      )}
+      <p className="font-mono text-[13px] text-text truncate">{prof}</p>
     </div>
   )
 }

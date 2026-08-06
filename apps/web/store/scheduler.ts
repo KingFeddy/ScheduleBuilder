@@ -7,6 +7,7 @@ export interface CommuterOptions {
   earliest_start: string
   latest_end: string
   minimize_gaps: boolean
+  hide_full_sections: boolean
 }
 
 // earliest_start/latest_end are hard filters on the backend — a section is
@@ -20,6 +21,7 @@ const defaultCommuterOptions: CommuterOptions = {
   earliest_start: '07:00',
   latest_end: '22:30',
   minimize_gaps: true,
+  hide_full_sections: false,
 }
 
 interface SchedulerState {
@@ -130,7 +132,7 @@ export const useSchedulerStore = create<SchedulerState>()(
     {
       name: 'njit-scheduler',
       storage: createJSONStorage(() => safeStorage),
-      version: 5,
+      version: 6,
       partialize: (s) => ({
         selectedCourses: s.selectedCourses,
         term: s.term,
@@ -139,7 +141,7 @@ export const useSchedulerStore = create<SchedulerState>()(
         activeResultIndex: s.activeResultIndex,
       }),
       migrate(state, version) {
-        if (version < 5) {
+        if (version < 6) {
           return {
             ...(state as Partial<SchedulerState>),
             commuterOptions: defaultCommuterOptions,

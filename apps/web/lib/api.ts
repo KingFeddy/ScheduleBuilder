@@ -50,6 +50,7 @@ export interface SolveRequest {
     earliest_start: string
     latest_end: string
     minimize_gaps: boolean
+    hide_full_sections: boolean
   }
   compact_week: boolean
   professor_preferences: Record<string, string[]>

@@ -20,11 +20,11 @@ const TIME_OPTIONS = buildTimeOptions()
 
 export function CommuterToggles() {
   const { commuterOptions, setCommuterOptions } = useSchedulerStore()
-  const { compact_week, earliest_start, latest_end, minimize_gaps } = commuterOptions
+  const { compact_week, earliest_start, latest_end, minimize_gaps, hide_full_sections } = commuterOptions
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-muted">Commuter Mode</p>
+      <p className="text-xs font-medium uppercase tracking-wider text-muted">Filter Schedules</p>
 
       {/* Class Hours */}
       <div className="flex flex-col gap-2">
@@ -58,6 +58,30 @@ export function CommuterToggles() {
               ))}
             </select>
           </div>
+        </div>
+      </div>
+
+      {/* Hide Full Sections toggle */}
+      <div
+        className="flex items-center justify-between cursor-pointer group"
+        onClick={() => setCommuterOptions({ hide_full_sections: !hide_full_sections })}
+      >
+        <div>
+          <p className="text-sm font-medium text-text">Hide Full Sections</p>
+          <p className="text-xs text-muted">Exclude classes with 0 open seats</p>
+        </div>
+        <div
+          className="relative flex-shrink-0 w-9 h-5 rounded-full border transition-colors duration-150"
+          style={
+            hide_full_sections
+              ? { background: 'var(--njit-red)', borderColor: 'var(--njit-red)' }
+              : { background: 'var(--surface-2)', borderColor: 'var(--border)' }
+          }
+        >
+          <span
+            className="absolute top-0.5 w-4 h-4 rounded-full bg-text transition-transform duration-150"
+            style={{ transform: hide_full_sections ? 'translateX(16px)' : 'translateX(2px)' }}
+          />
         </div>
       </div>
 

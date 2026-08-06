@@ -17,6 +17,13 @@ export interface CourseResponse {
   credits: number
 }
 
+export interface Meeting {
+  days: string | null
+  start_time: string | null
+  end_time: string | null
+  location: string | null
+}
+
 export interface SectionSlot {
   crn: string
   term: string
@@ -25,10 +32,7 @@ export interface SectionSlot {
   total_seats: number
   open_seats: number
   scraped_at: string | null
-  days: string | null
-  start_time: string | null
-  end_time: string | null
-  location: string | null
+  meetings: Meeting[]
   section_number: string | null
 }
 

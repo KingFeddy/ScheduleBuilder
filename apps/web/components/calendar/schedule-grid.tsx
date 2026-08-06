@@ -1,5 +1,5 @@
 import type { ScheduleResult } from '@/lib/api'
-import { CourseBlock } from './course-block'
+import { CourseBlock, type RenderedMeeting } from './course-block'
 import { AsyncBlock, isAsyncSection } from './async-block'
 
 const PX_PER_HOUR = 48
@@ -35,13 +35,30 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
     )
   }
 
-  // Distribute sections into per-day buckets
-  const daySlots: ScheduleResult['sections'][] = [[], [], [], [], []]
+  // Distribute one RenderedMeeting per (section, meeting, day) combination
+  // into per-day buckets. A section with multiple meeting rows (e.g. a
+  // Monday-only row and a separate Thursday-only row at the same CRN)
+  // produces a separate RenderedMeeting per row, so both actually render
+  // instead of only the first one Banner happened to list.
+  const daySlots: RenderedMeeting[][] = [[], [], [], [], []]
   for (const slot of result.sections) {
-    if (!slot.days) continue
-    for (const ch of slot.days) {
-      const idx = DAY_MAP[ch]
-      if (idx != null) daySlots[idx].push(slot)
+    for (const meeting of slot.meetings) {
+      if (!meeting.days || !meeting.start_time || !meeting.end_time) continue
+      const rendered: RenderedMeeting = {
+        crn: slot.crn,
+        course_code: slot.course_code,
+        section_number: slot.section_number,
+        professor_name: slot.professor_name,
+        open_seats: slot.open_seats,
+        total_seats: slot.total_seats,
+        start_time: meeting.start_time,
+        end_time: meeting.end_time,
+        location: meeting.location,
+      }
+      for (const ch of meeting.days) {
+        const idx = DAY_MAP[ch]
+        if (idx != null) daySlots[idx].push(rendered)
+      }
     }
   }
 
@@ -107,7 +124,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
 
               {/* Course blocks */}
               {slots.map((slot) => (
-                <CourseBlock key={`${slot.crn}-${colIdx}`} slot={slot} />
+                <CourseBlock key={`${slot.crn}-${slot.start_time}-${colIdx}`} slot={slot} />
               ))}
             </div>
           ))}

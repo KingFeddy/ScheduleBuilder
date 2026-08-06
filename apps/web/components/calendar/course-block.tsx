@@ -1,4 +1,3 @@
-import type { SectionSlot } from '@/lib/api'
 import { courseColor } from '@/lib/course-colors'
 import { seatColorClass } from '@/components/ui/seat-status'
 
@@ -29,14 +28,32 @@ function lastName(raw: string | null): string {
   return raw.includes(',') ? raw.split(',')[0].trim() : raw
 }
 
+// One renderable meeting-block instance: a section's identity (course code,
+// section number, professor, seats) combined with ONE of that section's
+// meeting patterns (time, location). A section with multiple meeting rows
+// (e.g. a Monday row and a separate Thursday row at the same CRN) produces
+// multiple RenderedMeeting instances — one per row — instead of collapsing
+// to a single block. start_time/end_time are non-null here because
+// schedule-grid.tsx only ever constructs one of these for a meeting that
+// already has both.
+export interface RenderedMeeting {
+  crn: string
+  course_code: string
+  section_number: string | null
+  professor_name: string | null
+  open_seats: number
+  total_seats: number
+  start_time: string
+  end_time: string
+  location: string | null
+}
+
 interface CourseBlockProps {
-  slot: SectionSlot
+  slot: RenderedMeeting
   hasConflict?: boolean
 }
 
 export function CourseBlock({ slot, hasConflict = false }: CourseBlockProps) {
-  if (!slot.start_time || !slot.end_time) return null
-
   const startMin = timeToMinutes(slot.start_time)
   const endMin = timeToMinutes(slot.end_time)
   const topPx = minutesToPx(startMin)

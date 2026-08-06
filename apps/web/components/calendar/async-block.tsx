@@ -3,7 +3,7 @@ import { courseColor } from '@/lib/course-colors'
 import { seatColorClass } from '@/components/ui/seat-status'
 
 export function isAsyncSection(s: SectionSlot): boolean {
-  return !s.days || !s.start_time || !s.end_time
+  return s.meetings.every((m) => !m.days || !m.start_time || !m.end_time)
 }
 
 // Full name here, unlike CourseBlock's lastName — this block isn't squeezed

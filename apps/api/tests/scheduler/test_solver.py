@@ -305,3 +305,46 @@ class TestFindImpossiblePair:
         tr = section("B", "CS201", [make_meeting("TR", "10:00", "11:20")])
         pair = _find_impossible_pair(["CS101", "CS201"], {"CS101": [mw], "CS201": [tr]})
         assert pair is None
+
+
+# ── TestSectionToResponseMultiMeeting ─────────────────────────────────────────
+
+class TestSectionToResponseMultiMeeting:
+    """_section_to_response must serialize every meeting a section has, not
+    just the first one — the bug this fixes: a section with a Monday row
+    and a separate Thursday row at the same DB CRN was silently collapsed
+    to Monday-only in the API response."""
+
+    def test_all_meetings_serialized_not_just_first(self):
+        from src.scheduler.solver import _section_to_response
+
+        s = section("91944", "CS350", [
+            make_meeting("M", "16:00", "17:20"),
+            make_meeting("R", "16:00", "17:20"),
+        ])
+
+        response = _section_to_response(s)
+
+        assert len(response.meetings) == 2, "Both meeting rows must be serialized, not just the first"
+        assert {m.days for m in response.meetings} == {"M", "R"}
+
+    def test_single_meeting_section_still_works(self):
+        from src.scheduler.solver import _section_to_response
+
+        s = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
+        response = _section_to_response(s)
+
+        assert len(response.meetings) == 1
+        assert response.meetings[0].days == "MW"
+        assert response.meetings[0].start_time == "10:00"
+        assert response.meetings[0].end_time == "11:20"
+
+    def test_async_section_serializes_meeting_with_null_times(self):
+        from src.scheduler.solver import _section_to_response
+
+        s = section("B", "CS999", [make_async_meeting()])
+        response = _section_to_response(s)
+
+        assert len(response.meetings) == 1
+        assert response.meetings[0].days is None
+        assert response.meetings[0].start_time is None

@@ -89,10 +89,7 @@ class SolveSectionResponse(BaseModel):
     total_seats:    int
     open_seats:     int
     scraped_at:     str | None
-    days:           str | None
-    start_time:     str | None
-    end_time:       str | None
-    location:       str | None
+    meetings:       list[MeetingResponse]
     section_number: str | None
 
 

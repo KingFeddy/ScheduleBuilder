@@ -20,6 +20,7 @@ from ..schemas.schedule import (
     SolveResponse,
     ScheduleResult,
     SolveSectionResponse,
+    MeetingResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,10 +82,6 @@ def _build_filter_warning(
 # ── Serialisation ─────────────────────────────────────────────────────────────
 
 def _section_to_response(section: SectionSlot) -> SolveSectionResponse:
-    primary = next(
-        (m for m in section.meetings if m.start_time is not None),
-        section.meetings[0] if section.meetings else None,
-    )
     return SolveSectionResponse(
         crn=section.crn,
         term=section.term,
@@ -93,10 +90,15 @@ def _section_to_response(section: SectionSlot) -> SolveSectionResponse:
         total_seats=section.total_seats,
         open_seats=section.open_seats,
         scraped_at=section.scraped_at.isoformat() if section.scraped_at else None,
-        days=primary.days if primary else None,
-        start_time=primary.start_time.strftime("%H:%M") if primary and primary.start_time else None,
-        end_time=primary.end_time.strftime("%H:%M") if primary and primary.end_time else None,
-        location=primary.location if primary else None,
+        meetings=[
+            MeetingResponse(
+                days=m.days,
+                start_time=m.start_time.strftime("%H:%M") if m.start_time else None,
+                end_time=m.end_time.strftime("%H:%M") if m.end_time else None,
+                location=m.location,
+            )
+            for m in section.meetings
+        ],
         section_number=section.section_number,
     )
 

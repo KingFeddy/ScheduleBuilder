@@ -26,19 +26,18 @@ export function AsyncBlock({ slot }: { slot: SectionSlot }) {
     >
       <div className="flex items-baseline justify-between gap-1">
         <div className="flex items-baseline gap-1.5 min-w-0">
-          <p className="font-mono font-bold text-[16px] text-text truncate">{slot.course_code}</p>
+          <p className="font-mono font-bold text-[15px] text-text truncate">{slot.course_code}</p>
           {slot.section_number && (
             <p className="font-mono text-[11px] text-muted flex-shrink-0">§{slot.section_number}</p>
           )}
         </div>
         <p
-          className={`font-mono tabular-nums text-[11px] flex-shrink-0 ${seatColorClass(slot.open_seats)}`}
+          className={`font-mono tabular-nums text-[12px] flex-shrink-0 ${seatColorClass(slot.open_seats)}`}
         >
           {slot.open_seats}/{slot.total_seats}
         </p>
       </div>
       <p className="font-mono text-[13px] text-text truncate">{prof}</p>
-      <p className="font-mono text-[11px] text-yellow">Async / TBA</p>
     </div>
   )
 }

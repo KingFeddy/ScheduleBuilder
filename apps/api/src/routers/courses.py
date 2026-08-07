@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
@@ -146,9 +145,10 @@ async def get_professor(
     if not row or row["rmp_data"] is None:
         raise HTTPException(status_code=404, detail="Professor not found in RMP cache.")
 
-    if datetime.now(timezone.utc) > row["expires_at"]:
-        raise HTTPException(status_code=404, detail="Professor RMP data has expired.")
-
+    # A row past expires_at is still the last-known-correct RMP match — serve
+    # it rather than 404ing. Nothing refreshes it except the next scheduled
+    # batch scrape reaching this professor, and RMP scores rarely change
+    # meaningfully within that window.
     data = row["rmp_data"]
     if isinstance(data, str):
         data = json.loads(data)

@@ -28,7 +28,7 @@ export function AsyncBlock({ slot }: { slot: SectionSlot }) {
         <div className="flex items-baseline gap-1.5 min-w-0">
           <p className="font-mono font-bold text-[15px] text-text truncate">{slot.course_code}</p>
           {slot.section_number && (
-            <p className="font-mono text-[11px] text-muted flex-shrink-0">§{slot.section_number}</p>
+            <p className="font-mono text-[11px] text-muted flex-shrink-0">{slot.section_number}</p>
           )}
         </div>
         <p

@@ -568,6 +568,10 @@ class TestInputValidation:
             req = SolveRequest(course_codes=["CS280"], term=term)
             assert req.term == term
 
+    def test_accepts_saturday_as_blocked_day(self):
+        opts = CommuterOptions(blocked_days=["S"])
+        assert opts.blocked_days == ["S"]
+
 
 # ── TestFindImpossiblePair ────────────────────────────────────────────────────
 

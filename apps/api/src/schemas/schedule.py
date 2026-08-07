@@ -15,10 +15,10 @@ class CommuterOptions(BaseModel):
     @field_validator("blocked_days")
     @classmethod
     def validate_blocked_days(cls, v: list[str]) -> list[str]:
-        valid = set("MTWRF")
+        valid = set("MTWRFS")
         for d in v:
             if d not in valid:
-                raise ValueError(f"Invalid day '{d}'. Must be one of M, T, W, R, F.")
+                raise ValueError(f"Invalid day '{d}'. Must be one of M, T, W, R, F, S.")
         return list(set(v))
 
     @field_validator("earliest_start", "latest_end", mode="before")

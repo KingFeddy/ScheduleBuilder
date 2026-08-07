@@ -71,9 +71,12 @@ def _clean_course_title(raw: str) -> str:
       courses, are often rendered fully uppercase by Banner
 
     Casing normalization uses plain str.title() — acronyms embedded in an
-    all-caps title (e.g. "AI", "ST:") come out imperfect ("Ai", "St:")
-    since there's no reliable way to distinguish an acronym from a regular
-    word without a maintained whitelist. Accepted tradeoff, not a bug.
+    all-caps title (e.g. "AI", "ST:") come out imperfect ("Ai", "St:"),
+    and the same limitation applies to possessives/contractions (e.g.
+    "WOMEN'S STUDIES" -> "Women'S Studies", "INT'L BUSINESS" ->
+    "Int'L Business"), since there's no reliable way to distinguish an
+    acronym or a letter-after-apostrophe from a regular word boundary
+    without a maintained whitelist. Accepted tradeoff, not a bug.
     """
     cleaned = html.unescape(raw)
     cleaned = re.sub(r"\s*-\s*honors\s*$", "", cleaned, flags=re.IGNORECASE)

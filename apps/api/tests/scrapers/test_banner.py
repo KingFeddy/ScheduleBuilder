@@ -149,3 +149,20 @@ class TestCleanCourseTitle:
         """A normally-cased title must not be touched — 'to' must stay lowercase."""
         from src.scrapers.banner import _clean_course_title
         assert _clean_course_title("Introduction to Cybersecurity") == "Introduction to Cybersecurity"
+
+    def test_symbol_only_title_not_mistaken_for_uppercase(self):
+        """
+        A title with no alphabetic characters at all (e.g. a placeholder or
+        degenerate stub) must not trigger .title() — upper() and lower()
+        are both identity for a string with no letters, so a naive
+        equality check against just .upper() alone would misfire here.
+        Pins the `cleaned != cleaned.lower()` half of the guard.
+        """
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("101") == "101"
+        assert _clean_course_title("--") == "--"
+
+    def test_empty_string_input_returns_empty_string(self):
+        """No exception, no crash — an empty title is a degenerate but valid input."""
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("") == ""

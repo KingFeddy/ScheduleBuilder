@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock, MagicMock
+
 from src.scrapers.prerequisites import (
     parse_prerequisite_table,
     build_subject_lookup,
@@ -111,3 +114,65 @@ class TestResolvePrerequisiteCodes:
 
     def test_empty_pairs_returns_empty_list(self):
         assert resolve_prerequisite_codes([], {"Computer Science": "CS"}, "CS101") == []
+
+
+# ── TestFetchSubjectLookup ───────────────────────────────────────────────────
+
+class TestFetchSubjectLookup:
+
+    def test_fetches_and_builds_lookup(self):
+        from src.scrapers.prerequisites import fetch_subject_lookup
+
+        async def run():
+            mock_response = MagicMock()
+            mock_response.text = AsyncMock(
+                return_value=json.dumps([
+                    {"code": "CS", "description": "Computer Science"},
+                    {"code": "ACCT", "description": "Accounting"},
+                ])
+            )
+            mock_page = MagicMock()
+            mock_page.request = MagicMock()
+            mock_page.request.get = AsyncMock(return_value=mock_response)
+
+            result = await fetch_subject_lookup(mock_page, "https://example.com/ssb", "202690")
+
+            assert result == {"Computer Science": "CS", "Accounting": "ACCT"}
+            mock_page.request.get.assert_called_once()
+            called_url = mock_page.request.get.call_args[0][0]
+            assert "get_subject" in called_url
+            assert "term=202690" in called_url
+
+        __import__("asyncio").run(run())
+
+
+# ── TestFetchPrerequisites ───────────────────────────────────────────────────
+
+class TestFetchPrerequisites:
+
+    def test_fetches_and_parses_table(self):
+        from src.scrapers.prerequisites import fetch_prerequisites
+
+        async def run():
+            mock_response = MagicMock()
+            mock_response.text = AsyncMock(
+                return_value="""
+                <table class="basePreqTable"><tbody>
+                    <tr><td></td><td></td><td></td><td></td>
+                        <td>Accounting</td><td>215</td><td>Undergraduate</td><td>D</td><td></td></tr>
+                </tbody></table>
+                """
+            )
+            mock_page = MagicMock()
+            mock_page.request = MagicMock()
+            mock_page.request.post = AsyncMock(return_value=mock_response)
+
+            result = await fetch_prerequisites(mock_page, "https://example.com/ssb", "202690", "90014")
+
+            assert result == [("Accounting", "215")]
+            mock_page.request.post.assert_called_once()
+            call_kwargs = mock_page.request.post.call_args
+            assert "getSectionPrerequisites" in call_kwargs[0][0]
+            assert call_kwargs[1]["form"] == {"term": "202690", "courseReferenceNumber": "90014"}
+
+        __import__("asyncio").run(run())

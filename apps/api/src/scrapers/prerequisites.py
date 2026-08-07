@@ -69,3 +69,37 @@ def resolve_prerequisite_codes(
             continue
         codes.append(f"{code}{course_number}")
     return codes
+
+
+import json
+
+
+async def fetch_subject_lookup(page, banner_base: str, term: str) -> dict[str, str]:
+    """
+    Fetch Banner's full subject code/description list and build the
+    {description: code} lookup. Call once per scrape run, before the
+    per-subject pagination loop — this is a fixed ~82-entry list, not
+    something that needs re-fetching per subject or per course.
+    """
+    response = await page.request.get(
+        f"{banner_base}/classSearch/get_subject?searchTerm=&term={term}&offset=1&max=100",
+    )
+    entries = json.loads(await response.text())
+    return build_subject_lookup(entries)
+
+
+async def fetch_prerequisites(
+    page, banner_base: str, term: str, crn: str,
+) -> list[tuple[str, str]]:
+    """
+    Fetch and parse one course's prerequisite table via its CRN. All
+    sections of the same course return identical data (confirmed against
+    6 real CS288 sections during design) — call once per unique
+    course_code per scrape run, not once per CRN.
+    """
+    response = await page.request.post(
+        f"{banner_base}/searchResults/getSectionPrerequisites",
+        form={"term": term, "courseReferenceNumber": crn},
+    )
+    html = await response.text()
+    return parse_prerequisite_table(html)

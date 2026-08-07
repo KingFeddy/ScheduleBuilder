@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID
+from .prerequisites import fetch_subject_lookup, fetch_prerequisites, resolve_prerequisite_codes
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +403,9 @@ async def scrape_subject(
                     wait_until="networkidle",
                 )
 
+            subject_lookup = await fetch_subject_lookup(page, BANNER_BASE, term)
+            seen_course_codes: set[str] = set()
+
             while True:
                 params = {
                     "txt_term":    term,
@@ -465,6 +469,30 @@ async def scrape_subject(
                         await _upsert_section_with_meetings(session, raw, term)
                         upserted += 1
                         seen_crns.add(raw["courseReferenceNumber"])
+
+                        course_code = f"{raw['subject']}{raw['courseNumber']}"
+                        if course_code not in seen_course_codes:
+                            seen_course_codes.add(course_code)
+                            try:
+                                pairs = await fetch_prerequisites(
+                                    page, BANNER_BASE, term, raw["courseReferenceNumber"],
+                                )
+                                codes = resolve_prerequisite_codes(
+                                    pairs, subject_lookup, course_code,
+                                )
+                                async with session.begin():
+                                    await session.execute(
+                                        text(
+                                            "UPDATE courses SET prerequisites = :prerequisites "
+                                            "WHERE course_code = :course_code"
+                                        ),
+                                        {"prerequisites": codes, "course_code": course_code},
+                                    )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Failed to fetch prerequisites for %s: %s",
+                                    course_code, exc,
+                                )
                     except BannerSchemaError as exc:
                         schema_error_count += 1
                         logger.error(

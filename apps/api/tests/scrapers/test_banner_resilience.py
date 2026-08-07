@@ -271,6 +271,13 @@ def _mock_playwright_returning(sections: list[dict], total: int | None = None):
     mock_term_resp.text = AsyncMock(return_value='{"fwdURL": ""}')
     mock_page.request.post = AsyncMock(return_value=mock_term_resp)
 
+    # scrape_subject fetches the subject lookup (GET get_subject) once per
+    # run, before its pagination loop — give it a harmless empty list so
+    # tests that don't care about prerequisites don't crash on this call.
+    mock_subject_resp = AsyncMock()
+    mock_subject_resp.text = AsyncMock(return_value="[]")
+    mock_page.request.get = AsyncMock(return_value=mock_subject_resp)
+
     mock_context = AsyncMock()
     mock_context.new_page = AsyncMock(return_value=mock_page)
     mock_browser = AsyncMock()

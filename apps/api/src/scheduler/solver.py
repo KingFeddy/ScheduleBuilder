@@ -269,6 +269,13 @@ def solve(
         return SolveResponse(results=[], warnings=warnings, truncated=truncated)
 
     # ── Compact Week filter ────────────────────────────────────────────────
+    # `< 5` meant "at least one weekday off" back when Mon-Fri was the whole
+    # week. Now that compute_campus_days can count Saturday too, a 6-day
+    # schedule (e.g. M/T/W/R/S) still passes this check at campus_days=5,
+    # so in practice this now means "at least one day off out of however
+    # many days the schedule spans" — stricter than intended for the rare
+    # Saturday-inclusive case, but fails safe (over-excludes rather than
+    # returning a schedule the student wouldn't consider "compact").
     if compact_week:
         raw_results = [r for r in raw_results if compute_campus_days(r) < 5]
         if not raw_results:

@@ -2,7 +2,7 @@
 
 A full-stack web app for NJIT students: conflict-free schedule generation, professor RMP research, and DegreeWorks PDF → semester graduation plan. No accounts, no server-side user data — just a fast, public tool that works.
 
-**Live at:** [[njitschedule.com](https://njitschedule.com)](https://njit-schedule-builder-web.vercel.app/scheduler)
+**Live at:** (https://njit-schedule-builder-web.vercel.app/scheduler)
 
 ---
 

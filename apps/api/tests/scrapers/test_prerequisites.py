@@ -92,6 +92,23 @@ class TestBuildSubjectLookup:
             "Accounting": "ACCT",
         }
 
+    def test_unescapes_html_entities_in_description(self):
+        """
+        Banner's get_subject JSON returns raw, HTML-escaped description text
+        (e.g. "Electrical &amp; Computer Engr") since it's plain JSON, never
+        parsed as HTML. But parse_prerequisite_table's BeautifulSoup-based
+        extraction auto-decodes HTML entities when pulling text out of the
+        prerequisite table (producing "Electrical & Computer Engr" with a
+        literal &). Without unescaping here too, these two data sources
+        never agree on the same subject's description string, so a real
+        prerequisite from a subject with an ampersand in its name (ECE,
+        ECET, ...) silently fails to resolve — confirmed live against real
+        NJIT Banner data for CS643/CS646/CS647, which all require an ECE
+        course but had that prerequisite silently dropped before this fix.
+        """
+        entries = [{"code": "ECE", "description": "Electrical &amp; Computer Engr"}]
+        assert build_subject_lookup(entries) == {"Electrical & Computer Engr": "ECE"}
+
 
 # ── TestResolvePrerequisiteCodes ────────────────────────────────────────────
 

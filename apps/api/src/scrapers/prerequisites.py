@@ -7,6 +7,7 @@ in a later step of this same file — this module has zero I/O in its core
 parsing logic, so it's fast and reliable to test in isolation.
 """
 from __future__ import annotations
+import html
 import logging
 
 from bs4 import BeautifulSoup
@@ -42,8 +43,16 @@ def build_subject_lookup(subject_entries: list[dict]) -> dict[str, str]:
     """
     Build a {description: code} lookup from Banner's get_subject response —
     a list of {"code": "CS", "description": "Computer Science"} dicts.
+
+    Descriptions are HTML-unescaped (e.g. "Electrical &amp; Computer Engr"
+    -> "Electrical & Computer Engr") because get_subject's JSON leaves HTML
+    entities un-decoded, while parse_prerequisite_table's BeautifulSoup
+    extraction auto-decodes them — without unescaping here too, the two
+    never agree on the same subject's description string, and any subject
+    with a special character in its name (confirmed live: ECE, "Electrical
+    & Computer Engr") silently fails to resolve.
     """
-    return {entry["description"]: entry["code"] for entry in subject_entries}
+    return {html.unescape(entry["description"]): entry["code"] for entry in subject_entries}
 
 
 def resolve_prerequisite_codes(

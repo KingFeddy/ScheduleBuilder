@@ -7,12 +7,13 @@ from src.scrapers.banner import _parse_meeting_pattern
 
 def banner_pattern(
     monday=False, tuesday=False, wednesday=False, thursday=False, friday=False,
+    saturday=False,
     begin_time=None, end_time=None, building="", room=""
 ) -> dict:
     return {
         "meetingTime": {
             "monday": monday, "tuesday": tuesday, "wednesday": wednesday,
-            "thursday": thursday, "friday": friday,
+            "thursday": thursday, "friday": friday, "saturday": saturday,
             "beginTime": begin_time, "endTime": end_time,
         },
         "building": building,
@@ -44,6 +45,26 @@ class TestParseMeetingPattern:
         assert days == "F"
         assert start == time(14, 0)
         assert end == time(16, 50)
+
+    def test_saturday_only_lab(self):
+        """A Saturday-only section must parse to days == 'S', not be silently dropped."""
+        pattern = banner_pattern(saturday=True, begin_time="0900", end_time="1150")
+        days, start, end, location = _parse_meeting_pattern(pattern)
+        assert days == "S"
+        assert start == time(9, 0)
+        assert end == time(11, 50)
+
+    def test_monday_and_saturday_mixed_pattern(self):
+        """
+        A section meeting both Monday and Saturday must keep both days — this
+        is the exact failure mode that made Saturday classes invisible: the
+        Saturday portion of a mixed pattern was silently dropped, so a real
+        Monday+Saturday section was stored as Monday-only.
+        """
+        pattern = banner_pattern(monday=True, saturday=True,
+                                  begin_time="1000", end_time="1120")
+        days, start, end, location = _parse_meeting_pattern(pattern)
+        assert days == "MS"
 
     def test_async_pattern_returns_all_none(self):
         """No days, no times → fully async section."""

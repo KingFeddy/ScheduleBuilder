@@ -34,6 +34,7 @@ _DAY_MAP = [
     ("wednesday", "W"),
     ("thursday",  "R"),
     ("friday",    "F"),
+    ("saturday",  "S"),
 ]
 
 
@@ -58,7 +59,7 @@ def _parse_meeting_pattern(
     """
     Extract (days, start_time, end_time, location) from one Banner meetingsFaculty entry.
     Returns None for any field Banner doesn't provide (async/TBA sections).
-    Day characters are always in MTWRF calendar order.
+    Day characters are always in MTWRFS calendar order.
     """
     meeting_time = pattern.get("meetingTime", {})
 

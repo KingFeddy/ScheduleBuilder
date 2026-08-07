@@ -101,5 +101,9 @@ async def fetch_prerequisites(
         f"{banner_base}/searchResults/getSectionPrerequisites",
         form={"term": term, "courseReferenceNumber": crn},
     )
+    if response.status != 200:
+        raise RuntimeError(
+            f"getSectionPrerequisites returned status {response.status} for CRN {crn}"
+        )
     html = await response.text()
     return parse_prerequisite_table(html)

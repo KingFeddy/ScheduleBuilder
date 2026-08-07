@@ -70,6 +70,7 @@ async def test_prerequisites_written_to_courses_table(db_session):
             return resp
         if "getSectionPrerequisites" in url:
             resp = AsyncMock()
+            resp.status = 200
             resp.text = AsyncMock(return_value=prereq_html)
             return resp
         raise AssertionError(f"Unexpected POST to {url}")

@@ -155,6 +155,7 @@ class TestFetchPrerequisites:
 
         async def run():
             mock_response = MagicMock()
+            mock_response.status = 200
             mock_response.text = AsyncMock(
                 return_value="""
                 <table class="basePreqTable"><tbody>
@@ -174,5 +175,25 @@ class TestFetchPrerequisites:
             call_kwargs = mock_page.request.post.call_args
             assert "getSectionPrerequisites" in call_kwargs[0][0]
             assert call_kwargs[1]["form"] == {"term": "202690", "courseReferenceNumber": "90014"}
+
+        __import__("asyncio").run(run())
+
+    def test_non_200_status_raises_instead_of_silently_returning_empty(self):
+        """A blocked/error response (e.g. 403) must raise, not parse to [] and
+        silently overwrite a course's real prerequisites with an empty list."""
+        from src.scrapers.prerequisites import fetch_prerequisites
+
+        async def run():
+            import pytest
+
+            mock_response = MagicMock()
+            mock_response.status = 403
+            mock_response.text = AsyncMock(return_value="")
+            mock_page = MagicMock()
+            mock_page.request = MagicMock()
+            mock_page.request.post = AsyncMock(return_value=mock_response)
+
+            with pytest.raises(RuntimeError):
+                await fetch_prerequisites(mock_page, "https://example.com/ssb", "202690", "90014")
 
         __import__("asyncio").run(run())

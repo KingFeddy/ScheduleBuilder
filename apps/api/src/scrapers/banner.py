@@ -403,7 +403,14 @@ async def scrape_subject(
                     wait_until="networkidle",
                 )
 
-            subject_lookup = await fetch_subject_lookup(page, BANNER_BASE, term)
+            try:
+                subject_lookup = await fetch_subject_lookup(page, BANNER_BASE, term)
+            except Exception as exc:
+                logger.warning(
+                    "Banner/%s: failed to fetch subject lookup, prerequisites will be skipped this run: %s",
+                    subject, exc,
+                )
+                subject_lookup = {}
             seen_course_codes: set[str] = set()
 
             while True:

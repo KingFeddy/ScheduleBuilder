@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -61,6 +62,25 @@ class RMPSchemaError(Exception):
 
 class RMPRateLimitError(Exception):
     """RMP returned 429 after all retries."""
+
+
+def _name_tokens(s: str) -> set[str]:
+    return set(re.findall(r"[a-z']+", s.lower()))
+
+
+def _rmp_match_is_plausible(professor_name: str, rmp_last_name: str) -> bool:
+    """
+    RMP's search is a loose fuzzy match — it can return a completely
+    unrelated professor sharing no more than a first name with the query
+    (e.g. searching "Ariel Tang" returned "Ariel Sykes", an unrelated
+    Humanities professor with no connection to the Accounting professor
+    being searched for). Require at least one token of Banner's last name
+    to appear in RMP's own lastName field before trusting the match —
+    otherwise a wrong professor's rating gets silently stored and shown
+    as fact.
+    """
+    banner_last = professor_name.split(",", 1)[0] if "," in professor_name else professor_name
+    return bool(_name_tokens(banner_last) & _name_tokens(rmp_last_name))
 
 
 async def _get_cached_rmp(
@@ -200,6 +220,15 @@ async def fetch_rmp_rating(
                 return None
 
             node = edges[0]["node"]
+
+            if not _rmp_match_is_plausible(professor_name, node.get("lastName", "")):
+                logger.info(
+                    "RMP/%s: top search result %r %r doesn't match — treating as not found",
+                    professor_name, node.get("firstName"), node.get("lastName"),
+                )
+                await _set_cached_rmp(session, professor_name, None)
+                return None
+
             result = {
                 "name":                 f"{node.get('firstName', '')} {node.get('lastName', '')}".strip(),
                 "rmp_score":            node.get("avgRating"),

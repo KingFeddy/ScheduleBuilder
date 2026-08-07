@@ -20,7 +20,7 @@ def _timed_sessions_by_day(sections: list[SectionSlot]) -> dict[str, list[tuple[
             start = meeting.start_time.hour * 60 + meeting.start_time.minute
             end   = meeting.end_time.hour * 60 + meeting.end_time.minute
             for day in meeting.days:
-                if day in "MTWRF":
+                if day in "MTWRFS":
                     day_sessions[day].append((start, end))
     return day_sessions
 
@@ -81,5 +81,5 @@ def compute_campus_days(sections: list[SectionSlot]) -> int:
     for section in sections:
         for meeting in section.meetings:
             if meeting.start_time is not None and meeting.days:
-                days_with_class.update(c for c in meeting.days if c in "MTWRF")
+                days_with_class.update(c for c in meeting.days if c in "MTWRFS")
     return len(days_with_class)

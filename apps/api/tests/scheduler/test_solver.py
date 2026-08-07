@@ -97,6 +97,17 @@ class TestGapCalculation:
         timed_s = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
         assert compute_campus_days([async_s, timed_s]) == 2
 
+    def test_saturday_meeting_counted_in_gap_minutes(self):
+        """A Saturday meeting must contribute to gap math like any weekday — not be silently ignored."""
+        s1 = section("A", "CS101", [make_meeting("S", "09:00", "09:50")])
+        s2 = section("B", "CS201", [make_meeting("S", "11:00", "11:50")])
+        assert compute_gap_minutes([s1, s2]) == 70
+
+    def test_campus_days_counts_saturday(self):
+        """A Saturday-only meeting must count as a campus day."""
+        s = section("A", "CS101", [make_meeting("S", "09:00", "11:50")])
+        assert compute_campus_days([s]) == 1
+
 
 # ── TestGapCount ─────────────────────────────────────────────────────────────
 
@@ -165,6 +176,12 @@ class TestGapCount:
         one_big_gap = [s4, s5]
         assert compute_gap_count(one_big_gap) == 1
         assert compute_gap_minutes(one_big_gap) == 90
+
+    def test_saturday_meeting_counted_in_gap_count(self):
+        """A Saturday gap must count as a real gap occurrence, not be silently ignored."""
+        s1 = section("A", "CS101", [make_meeting("S", "09:00", "09:50")])
+        s2 = section("B", "CS201", [make_meeting("S", "11:00", "11:50")])
+        assert compute_gap_count([s1, s2]) == 1
 
 
 # ── TestGapSignificanceThreshold ────────────────────────────────────────────────

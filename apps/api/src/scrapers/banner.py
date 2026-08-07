@@ -4,8 +4,10 @@ Banner scraper — resilient Playwright implementation (S7).
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
+import re
 import time as time_module
 from datetime import time
 from typing import Optional
@@ -52,6 +54,33 @@ class BannerSchemaError(Exception):
 def _parse_hhmm(banner_time: str) -> time:
     """Parse Banner's 4-digit 'HHMM' string to datetime.time."""
     return time(int(banner_time[:2]), int(banner_time[2:]))
+
+
+def _clean_course_title(raw: str) -> str:
+    """
+    Normalize a raw Banner courseTitle into consistent, readable text.
+
+    Banner's raw title field has three independent quality issues, all
+    confirmed against live data during design (see
+    docs/superpowers/specs/2026-08-07-course-title-cleanup-design.md):
+    - HTML entities left un-decoded (e.g. "Elect &amp; Comp Engr Tech")
+    - An Honors section's title carries a "- Honors" suffix in varying
+      case/spacing that doesn't belong on the course's canonical name —
+      Honors is a section variant, not a different course
+    - Honors sections, and separately NJIT's "Special Topics" (ST:)
+      courses, are often rendered fully uppercase by Banner
+
+    Casing normalization uses plain str.title() — acronyms embedded in an
+    all-caps title (e.g. "AI", "ST:") come out imperfect ("Ai", "St:")
+    since there's no reliable way to distinguish an acronym from a regular
+    word without a maintained whitelist. Accepted tradeoff, not a bug.
+    """
+    cleaned = html.unescape(raw)
+    cleaned = re.sub(r"\s*-\s*honors\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip()
+    if cleaned and cleaned == cleaned.upper() and cleaned != cleaned.lower():
+        cleaned = cleaned.title()
+    return cleaned
 
 
 def _parse_meeting_pattern(
@@ -218,7 +247,7 @@ async def _upsert_section_with_meetings(
             """),
             {
                 "course_code": course_code,
-                "title":       raw_section.get("courseTitle") or course_code,
+                "title":       _clean_course_title(raw_section.get("courseTitle") or course_code),
                 "credits":     3,
             },
         )

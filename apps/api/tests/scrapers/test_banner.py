@@ -106,3 +106,46 @@ class TestParseMeetingPattern:
                                   begin_time="1000", end_time="1050")
         days, _, _, _ = _parse_meeting_pattern(pattern)
         assert days == "MWF"
+
+
+# ── TestCleanCourseTitle ────────────────────────────────────────────────────
+
+class TestCleanCourseTitle:
+    """
+    Every case here is a real title confirmed against live Banner data
+    during design — see
+    docs/superpowers/specs/2026-08-07-course-title-cleanup-design.md.
+    """
+
+    def test_html_entity_unescaped(self):
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("Elect &amp; Comp Engr Tech") == "Elect & Comp Engr Tech"
+
+    def test_honors_suffix_with_space_before_dash_stripped(self):
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("Math Of Fin Derivatives I - HONORS") == "Math Of Fin Derivatives I"
+
+    def test_honors_suffix_with_no_space_before_dash_stripped(self):
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("STATISTICS CAPSTONE I- Honors") == "Statistics Capstone I"
+
+    def test_leading_whitespace_and_all_caps_honors_title_cleaned(self):
+        """The exact CS351 Honors section title, confirmed live during design."""
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title(" INTRODUCTION TO CYBERSECURITY - HONORS") == "Introduction To Cybersecurity"
+
+    def test_all_caps_special_topics_title_case_cased(self):
+        """
+        Not Honors-related — NJIT's Special Topics (ST:) courses are also
+        stored all-caps by Banner. Documents the accepted acronym-casing
+        imperfection directly: "ST" and "AI" both come out with only their
+        first letter capitalized, since plain title-casing can't tell an
+        acronym from a regular word.
+        """
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("ST: PHYSICAL AI") == "St: Physical Ai"
+
+    def test_already_clean_title_passes_through_unchanged(self):
+        """A normally-cased title must not be touched — 'to' must stay lowercase."""
+        from src.scrapers.banner import _clean_course_title
+        assert _clean_course_title("Introduction to Cybersecurity") == "Introduction to Cybersecurity"

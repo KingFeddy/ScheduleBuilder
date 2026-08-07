@@ -100,10 +100,14 @@ class TestResolvePrerequisiteCodes:
         assert resolve_prerequisite_codes(pairs, lookup, "CS288") == ["CS100", "CS280"]
 
     def test_unknown_subject_is_skipped_not_fatal(self):
-        """A subject description not in the lookup is skipped, not an error."""
-        pairs = [("Computer Science", "280"), ("Mystery Subject", "999")]
+        """A subject description not in the lookup is skipped, not an error — and processing continues past it to later entries."""
+        pairs = [
+            ("Computer Science", "280"),
+            ("Mystery Subject", "999"),
+            ("Computer Science", "100"),
+        ]
         lookup = {"Computer Science": "CS"}
-        assert resolve_prerequisite_codes(pairs, lookup, "CS350") == ["CS280"]
+        assert resolve_prerequisite_codes(pairs, lookup, "CS350") == ["CS280", "CS100"]
 
     def test_empty_pairs_returns_empty_list(self):
         assert resolve_prerequisite_codes([], {"Computer Science": "CS"}, "CS101") == []

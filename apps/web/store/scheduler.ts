@@ -20,7 +20,7 @@ const defaultCommuterOptions: CommuterOptions = {
   compact_week: false,
   earliest_start: '07:00',
   latest_end: '22:30',
-  minimize_gaps: true,
+  minimize_gaps: false,
   hide_full_sections: false,
 }
 
@@ -132,7 +132,7 @@ export const useSchedulerStore = create<SchedulerState>()(
     {
       name: 'njit-scheduler',
       storage: createJSONStorage(() => safeStorage),
-      version: 6,
+      version: 7,
       partialize: (s) => ({
         selectedCourses: s.selectedCourses,
         term: s.term,
@@ -142,9 +142,16 @@ export const useSchedulerStore = create<SchedulerState>()(
       }),
       migrate(state, version) {
         if (version < 6) {
-          return {
+          state = {
             ...(state as Partial<SchedulerState>),
             commuterOptions: defaultCommuterOptions,
+          }
+        }
+        if (version < 7) {
+          const s = state as SchedulerState
+          state = {
+            ...s,
+            commuterOptions: { ...s.commuterOptions, minimize_gaps: false },
           }
         }
         return state as SchedulerState

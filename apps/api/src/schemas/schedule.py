@@ -9,7 +9,7 @@ class CommuterOptions(BaseModel):
     blocked_days:        list[str] = Field(default_factory=list)
     earliest_start:      str | None = None
     latest_end:          str | None = None
-    minimize_gaps:       bool = True
+    minimize_gaps:       bool = False
     hide_full_sections:  bool = False
 
     @field_validator("blocked_days")

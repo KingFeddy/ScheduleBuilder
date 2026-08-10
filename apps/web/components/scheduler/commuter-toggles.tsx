@@ -68,7 +68,7 @@ export function CommuterToggles() {
       >
         <div>
           <p className="text-sm font-medium text-text">Hide Full Sections</p>
-          <p className="text-xs text-muted">Exclude classes with 0 open seats</p>
+          <p className="text-xs text-muted">Exclude full classes</p>
         </div>
         <div
           className="relative flex-shrink-0 w-9 h-5 rounded-full border transition-colors duration-150"
@@ -92,7 +92,7 @@ export function CommuterToggles() {
       >
         <div>
           <p className="text-sm font-medium text-text">Compact Week</p>
-          <p className="text-xs text-muted">Prefer schedules with fewer campus days</p>
+          <p className="text-xs text-muted">Prefer schedules with free days</p>
         </div>
         <div
           className="relative flex-shrink-0 w-9 h-5 rounded-full border transition-colors duration-150"

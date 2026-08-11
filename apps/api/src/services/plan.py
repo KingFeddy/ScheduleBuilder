@@ -323,6 +323,97 @@ def _validate_credit_target(preferences: dict) -> int:
     return raw
 
 
+# ── Prerequisite dependency graph ─────────────────────────────────────────────
+
+def _compute_prerequisite_dependencies(
+    resolved: list[_ResolvedItem],
+    completed: set[str],
+    in_progress: set[str],
+    prerequisites_by_code: dict[str, list[str]],
+) -> tuple[list[set[int]], list[str]]:
+    """
+    Returns (depends_on, warnings).
+
+    depends_on[i] is the set of OTHER resolved-item indices that item i's
+    prerequisites resolve to among the courses actually being scheduled —
+    item i must not be placed in the same semester as, or any semester
+    before, any index in depends_on[i]. This must be checked against each
+    dependency's ACTUAL scheduled semester during packing, not a
+    precomputed "earliest possible" bound: credit-budget contention from
+    unrelated courses can delay a prerequisite's real placement past the
+    semester a naive earliest-bound calculation would assume, which would
+    silently let a course land in the same semester as its own
+    prerequisite. (Confirmed live during design — three unrelated 3-credit
+    courses ahead of a 1-credit prerequisite chain at credit_target=3
+    delayed the prerequisite three semesters past its theoretical minimum,
+    and a static-bound version of this function let the dependent get
+    bundled into the same semester as its just-placed prerequisite.)
+
+    A prerequisite already in `completed` or `in_progress` imposes no
+    constraint. A prerequisite not found in `completed`, `in_progress`, or
+    as another resolved item's course_code is assumed already satisfied
+    (real DegreeWorks data is known to be incomplete) and is named in the
+    returned warning instead of creating a dependency.
+
+    A genuine cycle in the prerequisite data is broken by dropping the
+    back-edge that would close the loop, and the affected courses are
+    folded into the same warning.
+    """
+    code_to_index: dict[str, int] = {}
+    for i, item in enumerate(resolved):
+        if item.course_code:
+            code_to_index[item.course_code] = i
+
+    depends_on: list[set[int]] = [set() for _ in resolved]
+    flagged_codes: set[str] = set()
+    visiting: set[int] = set()
+    finished: set[int] = set()
+
+    def visit(i: int) -> None:
+        if i in finished:
+            return
+        item = resolved[i]
+        code = item.course_code
+        if not code:
+            finished.add(i)
+            return
+
+        visiting.add(i)
+        for prereq_code in prerequisites_by_code.get(code, []):
+            if prereq_code == code:
+                continue
+            if prereq_code in completed or prereq_code in in_progress:
+                continue
+            dep_idx = code_to_index.get(prereq_code)
+            if dep_idx is None:
+                flagged_codes.add(code)
+                continue
+            if dep_idx == i:
+                continue
+            if dep_idx in visiting:
+                flagged_codes.add(code)
+                flagged_codes.add(prereq_code)
+                continue
+            depends_on[i].add(dep_idx)
+            visit(dep_idx)
+        visiting.discard(i)
+        finished.add(i)
+
+    for i in range(len(resolved)):
+        visit(i)
+
+    warnings: list[str] = []
+    if flagged_codes:
+        codes = ", ".join(sorted(flagged_codes))
+        warnings.append(
+            f"Prerequisites for {codes} could not be verified against your "
+            f"completed or planned courses — confirm you meet them before "
+            f"registering."
+        )
+
+    return depends_on, warnings
+
+
 # ── Main planner ──────────────────────────────────────────────────────────────
 
 async def generate_plan(

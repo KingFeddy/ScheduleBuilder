@@ -499,6 +499,140 @@ def test_total_credits_matches_course_sum():
         )
 
 
+# ── Prerequisite dependency graph ───────────────────────────────────────────
+
+class TestComputePrerequisiteDependencies:
+    """
+    Pure-function tests — no DB, no async. `_ResolvedItem` instances are
+    constructed directly; `credits`/`title`/`badge`/`reason` are
+    irrelevant to this function and left at their defaults.
+    """
+
+    def test_two_course_chain_creates_a_dependency_edge(self):
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [
+            _ResolvedItem(requirement="Advanced", course_code="CS435"),
+            _ResolvedItem(requirement="Intro",    course_code="CS288"),
+        ]
+        prereqs = {"CS435": ["CS288"]}
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed=set(), in_progress=set(), prerequisites_by_code=prereqs,
+        )
+
+        assert depends_on[0] == {1}, "CS435 (index 0) must depend on CS288 (index 1)"
+        assert depends_on[1] == set()
+        assert warnings == []
+
+    def test_completed_prerequisite_creates_no_edge(self):
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [_ResolvedItem(requirement="Advanced", course_code="CS435")]
+        prereqs = {"CS435": ["CS288"]}
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed={"CS288"}, in_progress=set(), prerequisites_by_code=prereqs,
+        )
+
+        assert depends_on[0] == set()
+        assert warnings == []
+
+    def test_in_progress_prerequisite_creates_no_edge(self):
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [_ResolvedItem(requirement="Advanced", course_code="CS435")]
+        prereqs = {"CS435": ["CS288"]}
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed=set(), in_progress={"CS288"}, prerequisites_by_code=prereqs,
+        )
+
+        assert depends_on[0] == set()
+        assert warnings == []
+
+    def test_prerequisite_not_found_in_plan_creates_no_edge_and_warns(self):
+        """CS491 requires CS490, but CS490 isn't anywhere in this plan —
+        not completed, not in progress, not itself being scheduled. Must
+        not create a dependency edge (nothing to point at), but must be
+        named in a warning."""
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [_ResolvedItem(requirement="Capstone", course_code="CS491")]
+        prereqs = {"CS491": ["CS490"]}
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed=set(), in_progress=set(), prerequisites_by_code=prereqs,
+        )
+
+        assert depends_on[0] == set()
+        assert len(warnings) == 1
+        assert "CS491" in warnings[0]
+
+    def test_two_node_cycle_terminates_drops_the_closing_edge_and_warns(self):
+        """Real curriculum data should never have a cycle, but the scraped
+        data isn't hand-verified — this must not hang or crash."""
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [
+            _ResolvedItem(requirement="A", course_code="AAA"),
+            _ResolvedItem(requirement="B", course_code="BBB"),
+        ]
+        prereqs = {"AAA": ["BBB"], "BBB": ["AAA"]}
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed=set(), in_progress=set(), prerequisites_by_code=prereqs,
+        )
+
+        # Exactly one direction of the cycle survives as a real edge; the
+        # other is dropped to break the loop. Both courses are flagged.
+        assert depends_on[0] != depends_on[1]
+        assert (depends_on[0] == {1} and depends_on[1] == set()) or \
+               (depends_on[1] == {0} and depends_on[0] == set())
+        assert len(warnings) == 1
+        assert "AAA" in warnings[0] and "BBB" in warnings[0]
+
+    def test_no_prerequisite_data_creates_no_edges(self):
+        """Baseline: with no prerequisite data at all, every item's
+        dependency set must be empty — this function must never invent a
+        constraint where none exists."""
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [
+            _ResolvedItem(requirement="A", course_code="CS101"),
+            _ResolvedItem(requirement="B", course_code="CS201"),
+            _ResolvedItem(requirement="C", course_code=None),  # TBD
+        ]
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed=set(), in_progress=set(), prerequisites_by_code={},
+        )
+
+        assert depends_on == [set(), set(), set()]
+        assert warnings == []
+
+    def test_three_deep_chain_creates_transitive_edges(self):
+        """CS491 -> CS490 -> CS288, a real chain shape from live curriculum
+        data. Each item depends only on its DIRECT prerequisite's index —
+        transitivity is the caller's problem when walking the graph, not
+        this function's."""
+        from src.services.plan import _compute_prerequisite_dependencies, _ResolvedItem
+
+        resolved = [
+            _ResolvedItem(requirement="Capstone", course_code="CS491"),
+            _ResolvedItem(requirement="Project",  course_code="CS490"),
+            _ResolvedItem(requirement="Intro",    course_code="CS288"),
+        ]
+        prereqs = {"CS491": ["CS490"], "CS490": ["CS288"]}
+
+        depends_on, warnings = _compute_prerequisite_dependencies(
+            resolved, completed=set(), in_progress=set(), prerequisites_by_code=prereqs,
+        )
+
+        assert depends_on == [{1}, {2}, set()]
+        assert warnings == []
+
+
 # ── Credit target validation ─────────────────────────────────────────────────
 #
 # preferences is a raw, untyped dict (routers/plan.py's GenerateRequest) coming

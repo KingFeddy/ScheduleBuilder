@@ -79,8 +79,8 @@ export function CommuterToggles() {
           }
         >
           <span
-            className="absolute top-0.5 w-4 h-4 rounded-full bg-text transition-transform duration-150"
-            style={{ transform: hide_full_sections ? 'translateX(16px)' : 'translateX(2px)' }}
+            className="absolute top-1/2 w-4 h-4 rounded-full bg-text transition-transform duration-150"
+            style={{ transform: `translateY(-50%) ${hide_full_sections ? 'translateX(16px)' : 'translateX(2px)'}` }}
           />
         </div>
       </div>
@@ -103,8 +103,8 @@ export function CommuterToggles() {
           }
         >
           <span
-            className="absolute top-0.5 w-4 h-4 rounded-full bg-text transition-transform duration-150"
-            style={{ transform: compact_week ? 'translateX(16px)' : 'translateX(2px)' }}
+            className="absolute top-1/2 w-4 h-4 rounded-full bg-text transition-transform duration-150"
+            style={{ transform: `translateY(-50%) ${compact_week ? 'translateX(16px)' : 'translateX(2px)'}` }}
           />
         </div>
       </div>
@@ -127,8 +127,8 @@ export function CommuterToggles() {
           }
         >
           <span
-            className="absolute top-0.5 w-4 h-4 rounded-full bg-text transition-transform duration-150"
-            style={{ transform: minimize_gaps ? 'translateX(16px)' : 'translateX(2px)' }}
+            className="absolute top-1/2 w-4 h-4 rounded-full bg-text transition-transform duration-150"
+            style={{ transform: `translateY(-50%) ${minimize_gaps ? 'translateX(16px)' : 'translateX(2px)'}` }}
           />
         </div>
       </div>

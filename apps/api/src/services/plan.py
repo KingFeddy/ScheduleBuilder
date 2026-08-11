@@ -240,6 +240,22 @@ class GeneratedPlan:
     warnings:             list[str]
 
 
+# ── Last-semester requirement detection ───────────────────────────────────
+
+_LAST_SEMESTER_KEYWORDS = ("senior", "capstone", "seminar")
+
+
+def _is_last_semester_requirement(requirement: str) -> bool:
+    """
+    True if the requirement's own label (DegreeWorks' text, not the course
+    code) signals a senior-standing/capstone requirement — e.g. "Senior
+    Project", "Senior Seminar", "Capstone Design". Generalizes across any
+    major without a hardcoded course-code list.
+    """
+    lowered = requirement.lower()
+    return any(keyword in lowered for keyword in _LAST_SEMESTER_KEYWORDS)
+
+
 # ── Internal resolved-item type ───────────────────────────────────────────────
 
 @dataclass
@@ -250,6 +266,7 @@ class _ResolvedItem:
     title:       str | None = None
     badge:       str = "Required"   # "Required" | "Elective" | "TBD"
     reason:      str = ""
+    must_be_last: bool = False
 
 
 # ── Option selection ──────────────────────────────────────────────────────────

@@ -499,6 +499,41 @@ def test_total_credits_matches_course_sum():
         )
 
 
+# ── Last-semester requirement detection ────────────────────────────────────
+
+class TestIsLastSemesterRequirement:
+
+    def test_senior_project_matches(self):
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("Senior Project") is True
+
+    def test_senior_seminar_matches(self):
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("Senior Seminar") is True
+
+    def test_capstone_design_matches(self):
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("Capstone Design") is True
+
+    def test_case_insensitive(self):
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("SENIOR SEMINAR") is True
+        assert _is_last_semester_requirement("capstone project") is True
+
+    def test_unrelated_requirement_does_not_match(self):
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("GER Humanities") is False
+        assert _is_last_semester_requirement("Systems") is False
+        assert _is_last_semester_requirement("Tech Elective") is False
+
+    def test_substring_match_not_exact_match(self):
+        """A requirement label doesn't need to equal a keyword exactly —
+        containing one anywhere is enough, matching real DegreeWorks
+        phrasing variety."""
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("Senior Design Project I") is True
+
+
 # ── Prerequisite dependency graph ───────────────────────────────────────────
 
 class TestComputePrerequisiteDependencies:

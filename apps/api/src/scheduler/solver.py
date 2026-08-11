@@ -73,8 +73,8 @@ def _build_filter_warning(
 
     if not after_commuter:
         return (
-            f"{course_code}: all sections conflict with your commuter constraints. "
-            f"Try relaxing your time bounds or unblocking a day."
+            f"{course_code}: all sections conflict with your time bounds. "
+            f"Try widening 'Not before' / 'Not after' in Class Hours."
         )
 
     if not after_seats:

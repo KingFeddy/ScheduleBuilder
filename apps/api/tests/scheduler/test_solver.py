@@ -3,7 +3,7 @@ from datetime import time
 import pytest
 
 from src.scheduler.models import MeetingSlot, SectionSlot
-from src.scheduler.solver import solve, _find_impossible_pair, _professor_matches_whitelist
+from src.scheduler.solver import solve, _find_impossible_pair, _professor_matches_whitelist, _build_filter_warning
 from src.scheduler.gap import compute_gap_minutes, compute_gap_count, compute_campus_days
 from src.schemas.schedule import CommuterOptions, SolveRequest
 
@@ -631,3 +631,45 @@ class TestSectionToResponseMultiMeeting:
         assert len(response.meetings) == 1
         assert response.meetings[0].days is None
         assert response.meetings[0].start_time is None
+
+
+# ── TestBuildFilterWarning ──────────────────────────────────────────────────
+
+class TestBuildFilterWarning:
+    """
+    `blocked_days` has no frontend control anywhere in this app — the solve
+    request builder (app/scheduler/page.tsx) never sends it, so it is always
+    `[]` for every real request. The old message text ("Try relaxing your
+    time bounds or unblocking a day") advised a fix students have no way to
+    apply, for every single commuter-constraint failure. Confirmed with a
+    real user report: CS350 sections start 10:00, 'Not before' was set to
+    10:30 — a pure time-bound failure — and the message still suggested
+    unblocking a day.
+    """
+
+    def test_commuter_failure_message_does_not_mention_blocked_days(self):
+        s = section("A", "CS350", [make_meeting("M", "10:00", "10:50")])
+        msg = _build_filter_warning(
+            course_code="CS350",
+            all_sections=[s],
+            after_professor=[s],
+            after_commuter=[],
+            after_seats=[],
+            professor_whitelist=[],
+        )
+        assert "unblocking a day" not in msg
+        assert "block" not in msg.lower()
+
+    def test_commuter_failure_message_names_the_actual_time_controls(self):
+        s = section("A", "CS350", [make_meeting("M", "10:00", "10:50")])
+        msg = _build_filter_warning(
+            course_code="CS350",
+            all_sections=[s],
+            after_professor=[s],
+            after_commuter=[],
+            after_seats=[],
+            professor_whitelist=[],
+        )
+        assert "CS350" in msg
+        assert "Not before" in msg
+        assert "Not after" in msg

@@ -10,28 +10,36 @@ interface PreferencesFormProps {
   onBrowseGer?: () => void
 }
 
-const CREDIT_OPTIONS = [
+const PRESET_OPTIONS = [
   { label: 'Light', credits: 12 },
   { label: 'Normal', credits: 15 },
-  { label: 'Heavy', credits: 18 },
+  { label: 'Heavy', credits: 17 },
 ] as const
+
+const MIN_CUSTOM_CREDITS = 3
+const MAX_CUSTOM_CREDITS = 24
+const CHARGE_THRESHOLD = 17
 
 export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: PreferencesFormProps) {
   const [courses, setCourses] = useState<string[]>([])
   const [creditsPerSemester, setCreditsPerSemester] = useState(15)
+  const [customDraft, setCustomDraft] = useState('15')
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const customInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem('njit-dw-preferences')
       if (saved) {
         const prefs = JSON.parse(saved) as { courses: string[]; creditsPerSemester: number }
+        const loaded = prefs.creditsPerSemester || 15
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setCourses(prefs.courses || [])
-        setCreditsPerSemester(prefs.creditsPerSemester || 15)
+        setCreditsPerSemester(loaded)
+        setCustomDraft(String(loaded))
       }
     } catch { /* ignore */ }
   }, [])
@@ -62,6 +70,26 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
       setCourses((prev) => prev.slice(0, -1))
     }
   }
+
+  function selectPreset(credits: number) {
+    setCreditsPerSemester(credits)
+    setCustomDraft(String(credits))
+  }
+
+  function commitCustomCredits() {
+    const parsed = parseInt(customDraft, 10)
+    const clamped = Number.isNaN(parsed)
+      ? creditsPerSemester
+      : Math.min(MAX_CUSTOM_CREDITS, Math.max(MIN_CUSTOM_CREDITS, parsed))
+    setCreditsPerSemester(clamped)
+    setCustomDraft(String(clamped))
+  }
+
+  const isPresetActive = (credits: number) => creditsPerSemester === credits
+  const isCustomActive = !PRESET_OPTIONS.some((opt) => opt.credits === creditsPerSemester)
+
+  const customDraftNumber = parseInt(customDraft, 10)
+  const showChargeWarning = !Number.isNaN(customDraftNumber) && customDraftNumber > CHARGE_THRESHOLD
 
   async function handleGenerate() {
     if (isLoading) return
@@ -140,14 +168,14 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
           <p className="text-xs font-medium uppercase tracking-wider text-muted">
             Credits per semester
           </p>
-          <div className="flex gap-2">
-            {CREDIT_OPTIONS.map(({ label, credits }) => (
+          <div className="grid grid-cols-2 gap-2">
+            {PRESET_OPTIONS.map(({ label, credits }) => (
               <button
                 key={credits}
-                onClick={() => setCreditsPerSemester(credits)}
+                onClick={() => selectPreset(credits)}
                 className={[
-                  'flex-1 flex flex-col items-center py-2 rounded-md border text-xs transition-colors duration-150',
-                  creditsPerSemester === credits
+                  'flex flex-col items-center py-2 rounded-md border text-xs transition-colors duration-150',
+                  isPresetActive(credits)
                     ? 'border-njit-red bg-red-dim text-text'
                     : 'border-border bg-surface-2 text-muted hover:border-border-strong hover:text-text',
                 ].join(' ')}
@@ -156,7 +184,34 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
                 <span className="font-mono text-[10px] text-faint">{credits} cr</span>
               </button>
             ))}
+            <div
+              onClick={() => customInputRef.current?.focus()}
+              className={[
+                'flex flex-col items-center py-2 rounded-md border border-dashed text-xs cursor-text transition-colors duration-150',
+                isCustomActive
+                  ? 'border-njit-red bg-red-dim text-text'
+                  : 'border-border-strong bg-surface-2 text-muted',
+              ].join(' ')}
+            >
+              <span className="font-medium">Custom</span>
+              <input
+                ref={customInputRef}
+                type="number"
+                min={MIN_CUSTOM_CREDITS}
+                max={MAX_CUSTOM_CREDITS}
+                value={customDraft}
+                onChange={(e) => setCustomDraft(e.target.value)}
+                onBlur={commitCustomCredits}
+                onClick={(e) => e.stopPropagation()}
+                className="w-8 bg-transparent border-0 border-b border-faint text-center font-mono text-[10px] text-text outline-none focus:border-text"
+              />
+            </div>
           </div>
+          {showChargeWarning && (
+            <p className="text-xs text-yellow">
+              Credits above 17 may incur an additional charge.
+            </p>
+          )}
         </div>
 
         {/* Generate button */}

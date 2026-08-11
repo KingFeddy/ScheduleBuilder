@@ -242,7 +242,7 @@ class GeneratedPlan:
 
 # ── Last-semester requirement detection ───────────────────────────────────
 
-_LAST_SEMESTER_KEYWORDS = ("senior", "capstone", "seminar")
+_LAST_SEMESTER_KEYWORDS = ("senior", "capstone")
 
 
 def _is_last_semester_requirement(requirement: str) -> bool:

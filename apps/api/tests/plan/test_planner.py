@@ -533,6 +533,14 @@ class TestIsLastSemesterRequirement:
         from src.services.plan import _is_last_semester_requirement
         assert _is_last_semester_requirement("Senior Design Project I") is True
 
+    def test_bare_seminar_without_senior_or_capstone_does_not_match(self):
+        """'seminar' alone was removed from the keyword list — it caught
+        nothing 'senior'/'capstone' didn't already catch, and it falsely
+        matched non-terminal requirements like First Year Seminar."""
+        from src.services.plan import _is_last_semester_requirement
+        assert _is_last_semester_requirement("First Year Seminar") is False
+        assert _is_last_semester_requirement("Freshman Seminar") is False
+
 
 class TestCapstoneLastSemester:
     """
@@ -734,6 +742,37 @@ class TestCapstoneLastSemester:
         assert len(plan.semesters) == 2
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS435"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
+
+    def test_capstone_chain_serializes_across_consecutive_trailing_semesters(self):
+        """
+        A capstone item depending on another capstone item must still be
+        serialized across separate semesters, even with generous credit
+        headroom — this is the one code path unique to Phase 2 (checking
+        dependencies among items in its own pool, not inherited via
+        placed_at from Phase 1). Verified by the final review by actually
+        running this exact scenario.
+        """
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Senior Seminar I",   options=["HSS400"]),
+            StillNeededItem(requirement="Senior Seminar II",  options=["HSS401"]),
+            StillNeededItem(requirement="Senior Capstone",    options=["HSS402"]),
+        ])
+        session = self._mock_session(3, [
+            {"course_code": "HSS400", "credits": 3, "title": "Seminar I",  "prerequisites": []},
+            {"course_code": "HSS401", "credits": 3, "title": "Seminar II", "prerequisites": ["HSS400"]},
+            {"course_code": "HSS402", "credits": 3, "title": "Capstone",   "prerequisites": ["HSS401"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 3
+        assert [c.course_code for c in plan.semesters[0].courses] == ["HSS400"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["HSS401"]
+        assert [c.course_code for c in plan.semesters[2].courses] == ["HSS402"]
 
 
 # ── Prerequisite dependency graph ───────────────────────────────────────────

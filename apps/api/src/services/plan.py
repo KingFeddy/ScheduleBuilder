@@ -431,6 +431,116 @@ def _compute_prerequisite_dependencies(
     return depends_on, warnings
 
 
+# ── Semester packing ───────────────────────────────────────────────────────────
+
+def _pack_semesters(
+    items_pool: list[_ResolvedItem],
+    depends_on: list[set[int]],
+    index_by_item: dict[int, int],
+    credit_target: int,
+    planning_terms: list[str],
+    placed_at: dict[int, int],
+    start_term_idx: int = 0,
+    initial_card: SemesterCard | None = None,
+) -> list[SemesterCard]:
+    """
+    Packs items_pool into semester cards term-by-term, starting at
+    start_term_idx, respecting depends_on and the ACTUAL (not
+    precomputed) placement of every dependency via placed_at — see ADR-27
+    for why this must be dynamic. Mutates placed_at in place with every
+    item this call places, so a second call packing a different item pool
+    (e.g. senior/capstone courses, packed after everything else — see
+    ADR-28) sees accurate prior placements from this call. Mutates
+    planning_terms in place too (appending further-out terms) if the plan
+    runs past the initially pre-computed window.
+
+    If initial_card is given, the very first term processed
+    (start_term_idx) tops it up in place — adding courses/credits to that
+    existing card rather than creating a new one — instead of starting a
+    fresh semester. initial_card is never included in this function's
+    return value; the caller already holds a reference to it. The
+    force-add fallback (a single oversized course gets its own semester
+    rather than blocking all progress) is skipped specifically on a
+    topping-up pass: initial_card is guaranteed already non-empty (the
+    caller only ever passes the last semester from a prior packing call,
+    and a prior call's `if placed:` guard means every card it produced
+    has at least one course), so placing nothing new there this term
+    isn't a stuck state — leftover items simply proceed to the next,
+    fresh term, where force-add resumes normally.
+    """
+    semesters: list[SemesterCard] = []
+    term_idx = start_term_idx
+
+    while items_pool:
+        if term_idx >= len(planning_terms):
+            last = planning_terms[-1]
+            for _ in range(5):
+                last = get_next_njit_term(last)
+                if not last.endswith("50"):
+                    planning_terms.append(last)
+
+        term = planning_terms[term_idx]
+        topping_up = term_idx == start_term_idx and initial_card is not None
+        credits_used = initial_card.total_credits if topping_up else 0
+        remaining: list[_ResolvedItem] = []
+        blocked:   list[_ResolvedItem] = []
+        placed:    list[PlannedCourse] = []
+
+        for item in items_pool:
+            idx = index_by_item[id(item)]
+            deps = depends_on[idx]
+            if any(d not in placed_at or placed_at[d] >= term_idx for d in deps):
+                blocked.append(item)
+            elif credits_used + item.credits <= credit_target:
+                placed.append(PlannedCourse(
+                    course_code=item.course_code or "TBD",
+                    title=item.title,
+                    credits=item.credits,
+                    badge=item.badge,
+                    reason=item.reason,
+                ))
+                placed_at[idx] = term_idx
+                credits_used += item.credits
+            else:
+                remaining.append(item)
+
+        # Force-add if nothing fit (single course exceeds credit_target) —
+        # only from `remaining` (eligible but over budget), never from
+        # `blocked` (prerequisite not yet satisfied), and never on a
+        # topping-up pass (see docstring).
+        if not placed and remaining and not topping_up:
+            forced = remaining[0]
+            forced_idx = index_by_item[id(forced)]
+            placed.append(PlannedCourse(
+                course_code=forced.course_code or "TBD",
+                title=forced.title,
+                credits=forced.credits,
+                badge=forced.badge,
+                reason=forced.reason,
+            ))
+            placed_at[forced_idx] = term_idx
+            credits_used = forced.credits
+            remaining = remaining[1:]
+
+        # A semester where everything left is prerequisite-blocked (nothing
+        # placed) must not appear as an empty card — skip it and let the
+        # blocked items retry at the next term.
+        if placed:
+            if topping_up:
+                initial_card.courses.extend(placed)
+                initial_card.total_credits = credits_used
+            else:
+                card = SemesterCard(term=term, term_label=term_to_label(term))
+                card.courses = placed
+                card.total_credits = credits_used
+                semesters.append(card)
+
+        items_pool = remaining + blocked
+        term_idx  += 1
+
+    return semesters
+
+
 # ── Main planner ──────────────────────────────────────────────────────────────
 
 async def generate_plan(
@@ -494,6 +604,7 @@ async def generate_plan(
 
     # Build resolved items
     for i, item in enumerate(validated.still_needed):
+        must_be_last = _is_last_semester_requirement(item.requirement)
         if i in satisfied_indices:
             code = next(e for e, idx in elective_to_req.items() if idx == i)
             resolved.append(_ResolvedItem(
@@ -501,6 +612,7 @@ async def generate_plan(
                 course_code=code,
                 badge="Elective",
                 reason=f"Your elective {code} satisfies '{item.requirement}'",
+                must_be_last=must_be_last,
             ))
         else:
             best = await select_best_option(
@@ -514,6 +626,7 @@ async def generate_plan(
                     f"Required for {validated.majors[0]}" if best
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
+                must_be_last=must_be_last,
             ))
 
     # Add unmatched electives as extra courses
@@ -560,82 +673,43 @@ async def generate_plan(
 
     index_by_item: dict[int, int] = {id(item): i for i, item in enumerate(resolved)}
 
-    concrete = [r for r in resolved if r.course_code is not None]
-    tbd      = [r for r in resolved if r.course_code is None]
-    concrete.sort(key=lambda r: -r.credits)
+    normal_items   = [r for r in resolved if not r.must_be_last]
+    capstone_items = [r for r in resolved if r.must_be_last]
 
-    items_pool = concrete + tbd
+    def _sorted_pool(items: list[_ResolvedItem]) -> list[_ResolvedItem]:
+        concrete = [r for r in items if r.course_code is not None]
+        tbd      = [r for r in items if r.course_code is None]
+        concrete.sort(key=lambda r: -r.credits)
+        return concrete + tbd
 
-    # ── 7. Assign to semesters ────────────────────────────────────────────────
-
-    semesters: list[SemesterCard] = []
-    term_idx = 0
-    # resolved-index -> the term_idx it was ACTUALLY scheduled in. Eligibility
-    # is checked against this, never a precomputed "earliest possible" bound —
-    # credit-budget contention from unrelated courses can delay a
-    # prerequisite's real placement past any such static estimate.
+    # ── 7. Assign to semesters — normal courses first, then senior/capstone ──
+    #
+    # Senior Seminar/Senior Project-type requirements (ADR-28) must land in
+    # the student's actual final semester, independent of whatever their own
+    # prerequisite chain would otherwise allow. Packed in a second phase,
+    # continuing from wherever normal packing left off — topping up the last
+    # normal semester if there's room, or starting a fresh trailing semester
+    # otherwise — never mixed into earlier, non-final semesters.
+    #
+    # resolved-index -> the term_idx it was ACTUALLY scheduled in, shared
+    # across both phases. Eligibility is checked against this, never a
+    # precomputed "earliest possible" bound — see ADR-27 for why.
     placed_at: dict[int, int] = {}
 
-    while items_pool:
-        if term_idx >= len(planning_terms):
-            last = planning_terms[-1]
-            for _ in range(5):
-                last = get_next_njit_term(last)
-                if not last.endswith("50"):
-                    planning_terms.append(last)
+    semesters = _pack_semesters(
+        _sorted_pool(normal_items), depends_on, index_by_item,
+        credit_target, planning_terms, placed_at,
+    )
 
-        term = planning_terms[term_idx]
-        credits_used = 0
-        remaining: list[_ResolvedItem] = []
-        blocked:   list[_ResolvedItem] = []
-        placed:    list[PlannedCourse] = []
-
-        for item in items_pool:
-            idx = index_by_item[id(item)]
-            deps = depends_on[idx]
-            if any(d not in placed_at or placed_at[d] >= term_idx for d in deps):
-                blocked.append(item)
-            elif credits_used + item.credits <= credit_target:
-                placed.append(PlannedCourse(
-                    course_code=item.course_code or "TBD",
-                    title=item.title,
-                    credits=item.credits,
-                    badge=item.badge,
-                    reason=item.reason,
-                ))
-                placed_at[idx] = term_idx
-                credits_used += item.credits
-            else:
-                remaining.append(item)
-
-        # Force-add if nothing fit (single course exceeds credit_target) —
-        # only from `remaining` (eligible but over budget), never from
-        # `blocked` (prerequisite not yet satisfied).
-        if not placed and remaining:
-            forced = remaining[0]
-            forced_idx = index_by_item[id(forced)]
-            placed.append(PlannedCourse(
-                course_code=forced.course_code or "TBD",
-                title=forced.title,
-                credits=forced.credits,
-                badge=forced.badge,
-                reason=forced.reason,
-            ))
-            placed_at[forced_idx] = term_idx
-            credits_used = forced.credits
-            remaining = remaining[1:]
-
-        # A semester where everything left is prerequisite-blocked (nothing
-        # placed) must not appear as an empty card — skip it and let the
-        # blocked items retry at the next term.
-        if placed:
-            card = SemesterCard(term=term, term_label=term_to_label(term))
-            card.courses = placed
-            card.total_credits = credits_used
-            semesters.append(card)
-
-        items_pool = remaining + blocked
-        term_idx  += 1
+    if capstone_items:
+        start_term_idx = max(len(semesters) - 1, 0)
+        initial_card = semesters[-1] if semesters else None
+        capstone_semesters = _pack_semesters(
+            _sorted_pool(capstone_items), depends_on, index_by_item,
+            credit_target, planning_terms, placed_at,
+            start_term_idx=start_term_idx, initial_card=initial_card,
+        )
+        semesters.extend(capstone_semesters)
 
     # ── 8. Prerequisite disclaimer ────────────────────────────────────────────
 

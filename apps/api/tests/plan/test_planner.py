@@ -406,7 +406,7 @@ def test_single_oversized_course_forces_its_own_semester():
     from src.services.plan import generate_plan
 
     validated = make_validated(still_needed=[
-        StillNeededItem(requirement="Senior Project", options=["CS491"]),
+        StillNeededItem(requirement="Major Requirement", options=["CS491"]),
         StillNeededItem(requirement="Systems", options=["CS435"]),
     ])
 
@@ -532,6 +532,140 @@ class TestIsLastSemesterRequirement:
         phrasing variety."""
         from src.services.plan import _is_last_semester_requirement
         assert _is_last_semester_requirement("Senior Design Project I") is True
+
+
+class TestCapstoneLastSemester:
+    """
+    Integration-level tests through the real generate_plan(). Every
+    expected value was verified by actually running this code during
+    design, not hand-derived.
+    """
+
+    def _mock_session(self, still_needed_count, course_rows):
+        def _make_result(rows):
+            result = MagicMock()
+            result.mappings.return_value = rows or []
+            return result
+
+        availability_empty = _make_result(None)
+        course_result = _make_result(course_rows)
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[availability_empty] * still_needed_count + [course_result]
+        )
+        return session
+
+    def test_capstone_merges_into_last_normal_semester_when_room_exists(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Intro", options=["CS100"]),
+            StillNeededItem(requirement="Senior Seminar", options=["HSS404"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS100", "credits": 3, "title": "Intro", "prerequisites": []},
+            {"course_code": "HSS404", "credits": 3, "title": "Seminar", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "HSS404"}
+        assert plan.semesters[0].total_credits == 6
+
+    def test_capstone_spills_to_new_semester_when_no_room(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Intro", options=["CS100"]),
+            StillNeededItem(requirement="Senior Seminar", options=["HSS404"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS100", "credits": 3, "title": "Intro", "prerequisites": []},
+            {"course_code": "HSS404", "credits": 3, "title": "Seminar", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 3}, session,
+        ))
+
+        assert len(plan.semesters) == 2
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS100"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["HSS404"]
+
+    def test_capstone_with_its_own_prerequisite_still_deferred_correctly(self):
+        """A flagged course that also has a real prerequisite must still
+        wait for that prerequisite's actual placement — being flagged
+        doesn't let it skip ADR-27's dependency check, it only adds an
+        additional constraint on top."""
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Project", options=["CS490"]),
+            StillNeededItem(requirement="Senior Project", options=["CS491"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS490", "credits": 3, "title": "Project", "prerequisites": []},
+            {"course_code": "CS491", "credits": 3, "title": "Capstone", "prerequisites": ["CS490"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 2
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS490"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
+
+    def test_multiple_capstone_courses_overflow_into_extra_semester_not_over_budget(self):
+        from src.services.plan import generate_plan
+
+        still_needed = [
+            StillNeededItem(requirement=f"Senior Seminar {i}", options=[f"HSS40{i}"])
+            for i in range(1, 6)
+        ]
+        validated = make_validated(still_needed=still_needed)
+        session = self._mock_session(5, [
+            {"course_code": f"HSS40{i}", "credits": 3, "title": f"Seminar {i}", "prerequisites": []}
+            for i in range(1, 6)
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 12}, session,
+        ))
+
+        assert len(plan.semesters) == 2
+        assert plan.semesters[0].total_credits == 12
+        assert len(plan.semesters[0].courses) == 4
+        assert plan.semesters[1].total_credits == 3
+        assert len(plan.semesters[1].courses) == 1
+        all_placed = {c.course_code for sem in plan.semesters for c in sem.courses}
+        assert all_placed == {f"HSS40{i}" for i in range(1, 6)}
+
+    def test_no_capstone_courses_is_byte_identical_to_adr27_behavior(self):
+        """Regression: zero flagged courses must produce the exact same
+        output as before this feature existed — confirms this is purely
+        additive."""
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Intro", options=["CS100"]),
+            StillNeededItem(requirement="Systems", options=["CS435"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS100", "credits": 3, "title": "Intro", "prerequisites": []},
+            {"course_code": "CS435", "credits": 3, "title": "Systems", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "CS435"}
+        assert plan.semesters[0].total_credits == 6
 
 
 # ── Prerequisite dependency graph ───────────────────────────────────────────

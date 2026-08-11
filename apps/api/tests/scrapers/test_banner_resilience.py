@@ -165,17 +165,14 @@ def test_blocked_error_is_not_retried():
     async def run():
         mock_session = AsyncMock()
 
-        # Mock the playwright context so no real browser is launched.
-        mock_page    = AsyncMock()
-        mock_context = AsyncMock()
-        mock_context.new_page = AsyncMock(return_value=mock_page)
-        mock_browser = AsyncMock()
-        mock_browser.new_context = AsyncMock(return_value=mock_context)
-        mock_pw = AsyncMock()
-        mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
-        mock_pw_cm = AsyncMock()
-        mock_pw_cm.__aenter__ = AsyncMock(return_value=mock_pw)
-        mock_pw_cm.__aexit__ = AsyncMock(return_value=False)
+        # Reuse the shared helper (defined below in this file) so the mocked
+        # term-selection POST actually returns status=200 — a hand-rolled
+        # bare AsyncMock() here means term_resp.status != 200 always holds,
+        # which makes scrape_subject raise BannerBlockedError from its own
+        # term-selection check before _fetch_page is ever reached, silently
+        # testing the wrong code path (this exact bug was live and failing
+        # in CI before being caught).
+        mock_pw_cm = _mock_playwright_returning([])
 
         with patch("src.scrapers.banner.async_playwright", return_value=mock_pw_cm):
             with patch(

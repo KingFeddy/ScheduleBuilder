@@ -7,11 +7,12 @@ from src.services.courses import load_sections_with_meetings
 from src.scheduler.models import MeetingSlot, SectionSlot
 
 
-def make_section_row(crn, course_code, prof=None, total=30, open_seats=10):
+def make_section_row(crn, course_code, prof=None, total=30, open_seats=10, section_number="001"):
     return {
         "crn": crn, "term": "202690", "course_code": course_code,
         "professor_name": prof, "total_seats": total,
         "open_seats": open_seats, "scraped_at": datetime(2026, 1, 1),
+        "section_number": section_number,
     }
 
 def make_meeting_row(crn, days, start, end, location=None):

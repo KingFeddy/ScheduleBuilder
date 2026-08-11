@@ -671,6 +671,34 @@ async def generate_plan(
     )
     warnings.extend(prereq_warnings)
 
+    # A normal item's prerequisite may resolve to a senior/capstone-flagged
+    # item (ADR-28). Phase 1 packing never places capstone items, so
+    # placed_at would never gain an entry for that index and the normal
+    # item would stay permanently blocked — an infinite loop in
+    # _pack_semesters' `while items_pool:` with no `await` inside it,
+    # hanging the whole event loop, not just one request. Treat this the
+    # same way ADR-27 already treats an unverifiable prerequisite: drop
+    # the edge so it can't block anything, and surface it in a warning
+    # instead of silently ignoring it.
+    capstone_indices = {i for i, r in enumerate(resolved) if r.must_be_last}
+    cross_phase_flagged: set[str] = set()
+    for i, deps in enumerate(depends_on):
+        if resolved[i].must_be_last:
+            continue
+        conflicting = deps & capstone_indices
+        if conflicting:
+            depends_on[i] = deps - capstone_indices
+            if resolved[i].course_code:
+                cross_phase_flagged.add(resolved[i].course_code)
+
+    if cross_phase_flagged:
+        codes = ", ".join(sorted(cross_phase_flagged))
+        warnings.append(
+            f"Prerequisites for {codes} depend on a senior/capstone course that's "
+            f"scheduled in your final semester — this ordering could not be fully "
+            f"honored. Confirm you meet the actual prerequisite before registering."
+        )
+
     index_by_item: dict[int, int] = {id(item): i for i, item in enumerate(resolved)}
 
     normal_items   = [r for r in resolved if not r.must_be_last]

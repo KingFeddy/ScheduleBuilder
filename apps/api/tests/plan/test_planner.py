@@ -667,6 +667,74 @@ class TestCapstoneLastSemester:
         assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "CS435"}
         assert plan.semesters[0].total_credits == 6
 
+    def test_normal_item_depending_on_capstone_item_drops_edge_and_warns_instead_of_hanging(self):
+        """
+        A normal item's prerequisite resolving to a capstone-flagged item
+        must not create an unsatisfiable cross-phase dependency. Phase 1
+        packing never places capstone items, so placed_at would never gain
+        an entry for that index and the normal item would stay permanently
+        blocked — an infinite loop in _pack_semesters' `while items_pool:`
+        with no `await` inside it, hanging the whole event loop, not just
+        one request. The edge must be dropped and surfaced as a warning
+        instead of silently ignored or left to hang.
+        """
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Tech Elective", options=["CS500"]),
+            StillNeededItem(requirement="Senior Project", options=["CS491"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS500", "credits": 3, "title": "Elective", "prerequisites": ["CS491"]},
+            {"course_code": "CS491", "credits": 3, "title": "Capstone", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert {c.course_code for sem in plan.semesters for c in sem.courses} == {"CS500", "CS491"}
+        placed_terms = {
+            c.course_code: sem_idx
+            for sem_idx, sem in enumerate(plan.semesters)
+            for c in sem.courses
+        }
+        assert placed_terms["CS500"] <= placed_terms["CS491"], (
+            "CS500 must not be deferred to wait for CS491 — the cross-phase "
+            "edge must be dropped, not honored"
+        )
+        assert any("CS500" in w for w in plan.warnings), (
+            "Dropping the cross-phase edge must be surfaced in a warning naming CS500"
+        )
+
+    def test_capstone_listed_first_and_bigger_still_lands_after_normal_course(self):
+        """
+        Old single-phase code sorts by credits-descending, so a bigger capstone
+        course listed first in still_needed would get packed into semester 0
+        ahead of a smaller normal course — reproducing the exact bug this
+        feature exists to fix. This is a discriminating regression test: it
+        only passes if the two-phase split is genuinely running, not just if
+        must_be_last is tagged but unused.
+        """
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Senior Project", options=["CS491"]),
+            StillNeededItem(requirement="Systems", options=["CS435"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS491", "credits": 4, "title": "Capstone", "prerequisites": []},
+            {"course_code": "CS435", "credits": 3, "title": "Systems", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 4}, session,
+        ))
+
+        assert len(plan.semesters) == 2
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS435"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
+
 
 # ── Prerequisite dependency graph ───────────────────────────────────────────
 

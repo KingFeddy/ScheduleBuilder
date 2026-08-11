@@ -438,6 +438,49 @@ def test_single_oversized_course_forces_its_own_semester():
     assert [c.course_code for c in plan.semesters[1].courses] == ["CS435"]
 
 
+def test_mixed_course_sizes_defer_oversized_course_to_later_semester():
+    """
+    At the new UI minimum (3 credits/semester), courses that fit under
+    budget (3-credit) are packed first each pass; a 4-credit course that
+    can never fit alongside anything at this target is deferred, not
+    force-added early, until it's the only thing left in the pool.
+    Verified by running the real planner before writing these assertions.
+    """
+    from src.services.plan import generate_plan
+
+    validated = make_validated(still_needed=[
+        StillNeededItem(requirement="Senior Project", options=["CS491"]),
+        StillNeededItem(requirement="Systems", options=["CS435"]),
+        StillNeededItem(requirement="GER Humanities", options=["HIST213"]),
+    ])
+
+    def _make_result(rows):
+        result = MagicMock()
+        result.mappings.return_value = rows or []
+        return result
+
+    availability_empty = _make_result(None)
+    course_result = _make_result([
+        {"course_code": "CS491", "credits": 4, "title": "Computer Science Project"},
+        {"course_code": "CS435", "credits": 3, "title": "Advanced Data Structures"},
+        {"course_code": "HIST213", "credits": 3, "title": "GER Humanities Course"},
+    ])
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[availability_empty, availability_empty, availability_empty, course_result])
+
+    plan = asyncio.run(generate_plan(
+        validated, {"courses": [], "credits_per_semester": 3}, session,
+    ))
+
+    assert len(plan.semesters) == 3
+    assert [c.course_code for c in plan.semesters[0].courses] == ["CS435"]
+    assert plan.semesters[0].total_credits == 3
+    assert [c.course_code for c in plan.semesters[1].courses] == ["HIST213"]
+    assert plan.semesters[1].total_credits == 3
+    assert [c.course_code for c in plan.semesters[2].courses] == ["CS491"]
+    assert plan.semesters[2].total_credits == 4
+
+
 def test_total_credits_matches_course_sum():
     """SemesterCard.total_credits must equal sum of its courses' credit values."""
     from src.services.plan import generate_plan

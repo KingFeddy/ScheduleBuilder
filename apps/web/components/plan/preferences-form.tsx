@@ -76,13 +76,17 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
     setCustomDraft(String(credits))
   }
 
-  function commitCustomCredits() {
-    const parsed = parseInt(customDraft, 10)
-    const clamped = Number.isNaN(parsed)
+  function resolveCredits(): number {
+    const parsedCredits = parseInt(customDraft, 10)
+    return Number.isNaN(parsedCredits)
       ? creditsPerSemester
-      : Math.min(MAX_CUSTOM_CREDITS, Math.max(MIN_CUSTOM_CREDITS, parsed))
-    setCreditsPerSemester(clamped)
-    setCustomDraft(String(clamped))
+      : Math.min(MAX_CUSTOM_CREDITS, Math.max(MIN_CUSTOM_CREDITS, parsedCredits))
+  }
+
+  function commitCustomCredits() {
+    const v = resolveCredits()
+    setCreditsPerSemester(v)
+    setCustomDraft(String(v))
   }
 
   const isPresetActive = (credits: number) => creditsPerSemester === credits
@@ -93,10 +97,13 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
 
   async function handleGenerate() {
     if (isLoading) return
+    const credits = resolveCredits()
+    setCreditsPerSemester(credits)
+    setCustomDraft(String(credits))
     setIsLoading(true)
     setError(null)
     try {
-      const res = await generatePlan(parsed, { courses, credits_per_semester: creditsPerSemester })
+      const res = await generatePlan(parsed, { courses, credits_per_semester: credits })
       try {
         localStorage.setItem(
           'njit-dw-plan',
@@ -203,7 +210,8 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
                 onChange={(e) => setCustomDraft(e.target.value)}
                 onBlur={commitCustomCredits}
                 onClick={(e) => e.stopPropagation()}
-                className="w-8 bg-transparent border-0 border-b border-faint text-center font-mono text-[10px] text-text outline-none focus:border-text"
+                aria-label="Custom credits per semester"
+                className="w-8 bg-transparent border-0 border-b border-faint text-center font-mono text-[10px] text-text outline-none focus:border-text [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               />
             </div>
           </div>

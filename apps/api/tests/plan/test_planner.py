@@ -8,7 +8,7 @@ TDD workflow: the failures drive the implementation.
 Implementation steps:
   Step 1 — time_utils: get_planning_terms, term_to_label, get_current_njit_term, get_next_njit_term
   Step 2 — plan.py: matches_wildcard, find_matching_requirement
-  Step 3 — plan.py: get_course_credits_and_titles
+  Step 3 — plan.py: get_course_data
   Step 4 — plan.py: generate_plan (full planner)
   Step 5 — routers/plan.py: POST /api/plan/generate endpoint
 
@@ -421,8 +421,8 @@ def test_single_oversized_course_forces_its_own_semester():
     # results, then the real course-credits result.
     availability_empty = _make_result(None)
     course_result = _make_result([
-        {"course_code": "CS491", "credits": 4, "title": "Computer Science Project"},
-        {"course_code": "CS435", "credits": 4, "title": "Advanced Data Structures"},
+        {"course_code": "CS491", "credits": 4, "title": "Computer Science Project", "prerequisites": []},
+        {"course_code": "CS435", "credits": 4, "title": "Advanced Data Structures", "prerequisites": []},
     ])
     session = AsyncMock()
     session.execute = AsyncMock(side_effect=[availability_empty, availability_empty, course_result])
@@ -461,9 +461,9 @@ def test_mixed_course_sizes_defer_oversized_course_to_later_semester():
 
     availability_empty = _make_result(None)
     course_result = _make_result([
-        {"course_code": "CS491", "credits": 4, "title": "Computer Science Project"},
-        {"course_code": "CS435", "credits": 3, "title": "Advanced Data Structures"},
-        {"course_code": "HIST213", "credits": 3, "title": "GER Humanities Course"},
+        {"course_code": "CS491", "credits": 4, "title": "Computer Science Project", "prerequisites": []},
+        {"course_code": "CS435", "credits": 3, "title": "Advanced Data Structures", "prerequisites": []},
+        {"course_code": "HIST213", "credits": 3, "title": "GER Humanities Course", "prerequisites": []},
     ])
     session = AsyncMock()
     session.execute = AsyncMock(side_effect=[availability_empty, availability_empty, availability_empty, course_result])
@@ -631,6 +631,205 @@ class TestComputePrerequisiteDependencies:
 
         assert depends_on == [{1}, {2}, set()]
         assert warnings == []
+
+
+# ── Prerequisite-aware planning (integration) ───────────────────────────────
+
+class TestPrerequisiteAwarePlanning:
+    """
+    Integration-level tests through the real generate_plan(). Every
+    expected value was verified by actually running this code during
+    design, not hand-derived — see the plan/spec for the exact
+    calibration runs.
+    """
+
+    def _mock_session(self, still_needed_count, course_rows):
+        def _make_result(rows):
+            result = MagicMock()
+            result.mappings.return_value = rows or []
+            return result
+
+        availability_empty = _make_result(None)
+        course_result = _make_result(course_rows)
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[availability_empty] * still_needed_count + [course_result]
+        )
+        return session
+
+    def test_prerequisite_scheduled_in_a_strictly_earlier_semester(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Intro", options=["CS288"]),
+            StillNeededItem(requirement="Adv",   options=["CS435"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "CS288", "credits": 3, "title": "Intro", "prerequisites": []},
+            {"course_code": "CS435", "credits": 3, "title": "Adv", "prerequisites": ["CS288"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 2
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS288"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS435"]
+
+    def test_completed_prerequisite_imposes_no_delay(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(
+            completed_courses=["CS288", "CS280"],
+            in_progress_courses=[],
+            still_needed=[StillNeededItem(requirement="Adv", options=["CS435"])],
+        )
+        session = self._mock_session(1, [
+            {"course_code": "CS435", "credits": 3, "title": "Adv", "prerequisites": ["CS288"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        assert plan.semesters[0].courses[0].course_code == "CS435"
+
+    def test_in_progress_prerequisite_imposes_no_delay(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(
+            completed_courses=[],
+            in_progress_courses=["CS288", "CS332"],
+            still_needed=[StillNeededItem(requirement="Adv", options=["CS435"])],
+        )
+        session = self._mock_session(1, [
+            {"course_code": "CS435", "credits": 3, "title": "Adv", "prerequisites": ["CS288"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        assert plan.semesters[0].courses[0].course_code == "CS435"
+
+    def test_missing_prerequisite_does_not_block_and_warns(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Capstone", options=["CS491"]),
+        ])
+        session = self._mock_session(1, [
+            {"course_code": "CS491", "credits": 3, "title": "Capstone", "prerequisites": ["CS490"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        assert plan.semesters[0].courses[0].course_code == "CS491"
+        prereq_warnings = [w for w in plan.warnings if "CS491" in w and "could not be verified" in w]
+        assert len(prereq_warnings) == 1
+
+    def test_three_deep_chain_produces_three_semesters(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Capstone", options=["CS491"]),
+            StillNeededItem(requirement="Project",  options=["CS490"]),
+            StillNeededItem(requirement="Intro",    options=["CS288"]),
+        ])
+        session = self._mock_session(3, [
+            {"course_code": "CS491", "credits": 3, "title": "Capstone", "prerequisites": ["CS490"]},
+            {"course_code": "CS490", "credits": 3, "title": "Project",  "prerequisites": ["CS288"]},
+            {"course_code": "CS288", "credits": 3, "title": "Intro",    "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 3
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS288"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS490"]
+        assert [c.course_code for c in plan.semesters[2].courses] == ["CS491"]
+
+    def test_credit_contention_delays_prerequisite_and_dependent_still_waits(self):
+        """
+        The exact scenario that caught the static-earliest-bound bug during
+        design: three unrelated 3-credit courses at credit_target=3 delay a
+        1-credit prerequisite (CS100) three semesters past its theoretical
+        minimum. Its 1-credit dependent (CS288) must still land in a
+        strictly LATER semester than wherever CS100 actually ends up — not
+        the same one.
+        """
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Z1", options=["CS201"]),
+            StillNeededItem(requirement="Z2", options=["CS202"]),
+            StillNeededItem(requirement="Z3", options=["CS203"]),
+            StillNeededItem(requirement="A",  options=["CS100"]),
+            StillNeededItem(requirement="B",  options=["CS288"]),
+        ])
+        session = self._mock_session(5, [
+            {"course_code": "CS201", "credits": 3, "title": "Z1", "prerequisites": []},
+            {"course_code": "CS202", "credits": 3, "title": "Z2", "prerequisites": []},
+            {"course_code": "CS203", "credits": 3, "title": "Z3", "prerequisites": []},
+            {"course_code": "CS100", "credits": 1, "title": "A",  "prerequisites": []},
+            {"course_code": "CS288", "credits": 1, "title": "B",  "prerequisites": ["CS100"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 3}, session,
+        ))
+
+        assert len(plan.semesters) == 5
+        assert [c.course_code for c in plan.semesters[3].courses] == ["CS100"]
+        assert [c.course_code for c in plan.semesters[4].courses] == ["CS288"]
+
+    def test_two_node_cycle_terminates_and_both_courses_get_scheduled(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="A", options=["AAA"]),
+            StillNeededItem(requirement="B", options=["BBB"]),
+        ])
+        session = self._mock_session(2, [
+            {"course_code": "AAA", "credits": 3, "title": "A", "prerequisites": ["BBB"]},
+            {"course_code": "BBB", "credits": 3, "title": "B", "prerequisites": ["AAA"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        placed_codes = {c.course_code for sem in plan.semesters for c in sem.courses}
+        assert placed_codes == {"AAA", "BBB"}
+        cycle_warnings = [w for w in plan.warnings if "AAA" in w and "BBB" in w]
+        assert len(cycle_warnings) == 1
+
+    def test_disclaimer_text_updated(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Intro", options=["CS288"]),
+        ])
+        session = self._mock_session(1, [
+            {"course_code": "CS288", "credits": 3, "title": "Intro", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert (
+            "orders courses using scraped prerequisite data" in " ".join(plan.warnings)
+        )
+        assert not any("does not verify course prerequisites" in w for w in plan.warnings)
 
 
 # ── Credit target validation ─────────────────────────────────────────────────

@@ -91,36 +91,36 @@ def find_matching_requirement(
 
 # ── Credit + title lookup ─────────────────────────────────────────────────────
 
-async def get_course_credits_and_titles(
+async def get_course_data(
     session: AsyncSession,
     course_codes: list[str],
-) -> dict[str, tuple[int, str | None]]:
+) -> dict[str, tuple[int, str | None, list[str]]]:
     """
-    Returns {course_code: (credits, title)} for all known codes in one query.
-    Defaults to (3, None) for unknown courses.
+    Returns {course_code: (credits, title, prerequisites)} for all known
+    codes in one query. Defaults to (3, None, []) for unknown courses.
 
-    One ANY(:codes) round-trip replaces the N+1 per-course title lookups that
-    the original design would have made inside the semester assignment loop.
+    One ANY(:codes) round-trip replaces the N+1 per-course lookups the
+    original design would have made inside the semester assignment loop.
     """
     if not course_codes:
         return {}
 
     result = await session.execute(
         text(
-            "SELECT course_code, credits, title FROM courses"
+            "SELECT course_code, credits, title, prerequisites FROM courses"
             " WHERE course_code = ANY(:codes)"
         ),
         {"codes": course_codes},
     )
-    data: dict[str, tuple[int, str | None]] = {
-        row["course_code"]: (row["credits"], row["title"])
+    data: dict[str, tuple[int, str | None, list[str]]] = {
+        row["course_code"]: (row["credits"], row["title"], row["prerequisites"] or [])
         for row in result.mappings()
     }
 
     for code in course_codes:
         if code not in data:
             logger.warning("Course %r not found in courses table — defaulting to 3 credits", code)
-            data[code] = (3, None)
+            data[code] = (3, None, [])
 
     return data
 
@@ -509,16 +509,18 @@ async def generate_plan(
                 reason="Additional elective you requested",
             ))
 
-    # ── 4. Fetch credits + titles in one batched query ────────────────────────
+    # ── 4. Fetch credits + titles + prerequisites in one batched query ───────
 
     all_codes = [r.course_code for r in resolved if r.course_code]
-    course_data = await get_course_credits_and_titles(session, all_codes)
+    course_data = await get_course_data(session, all_codes)
 
+    prerequisites_by_code: dict[str, list[str]] = {}
     for r in resolved:
         if r.course_code:
-            credits, title = course_data.get(r.course_code, (3, None))
+            credits, title, prereqs = course_data.get(r.course_code, (3, None, []))
             r.credits = credits
             r.title   = title
+            prerequisites_by_code[r.course_code] = prereqs
 
     # ── 5. Detect credit overflow ─────────────────────────────────────────────
 
@@ -532,7 +534,14 @@ async def generate_plan(
             f"Some requirements may double-count. Verify with your advisor."
         )
 
-    # ── 6. Sort: concrete items by credits desc, TBD items last ──────────────
+    # ── 6. Compute prerequisite ordering, then sort within it ────────────────
+
+    depends_on, prereq_warnings = _compute_prerequisite_dependencies(
+        resolved, completed, in_progress, prerequisites_by_code,
+    )
+    warnings.extend(prereq_warnings)
+
+    index_by_item: dict[int, int] = {id(item): i for i, item in enumerate(resolved)}
 
     concrete = [r for r in resolved if r.course_code is not None]
     tbd      = [r for r in resolved if r.course_code is None]
@@ -544,6 +553,11 @@ async def generate_plan(
 
     semesters: list[SemesterCard] = []
     term_idx = 0
+    # resolved-index -> the term_idx it was ACTUALLY scheduled in. Eligibility
+    # is checked against this, never a precomputed "earliest possible" bound —
+    # credit-budget contention from unrelated courses can delay a
+    # prerequisite's real placement past any such static estimate.
+    placed_at: dict[int, int] = {}
 
     while items_pool:
         if term_idx >= len(planning_terms):
@@ -554,46 +568,64 @@ async def generate_plan(
                     planning_terms.append(last)
 
         term = planning_terms[term_idx]
-        card = SemesterCard(term=term, term_label=term_to_label(term))
         credits_used = 0
         remaining: list[_ResolvedItem] = []
+        blocked:   list[_ResolvedItem] = []
+        placed:    list[PlannedCourse] = []
 
         for item in items_pool:
-            if credits_used + item.credits <= credit_target:
-                card.courses.append(PlannedCourse(
+            idx = index_by_item[id(item)]
+            deps = depends_on[idx]
+            if any(d not in placed_at or placed_at[d] >= term_idx for d in deps):
+                blocked.append(item)
+            elif credits_used + item.credits <= credit_target:
+                placed.append(PlannedCourse(
                     course_code=item.course_code or "TBD",
                     title=item.title,
                     credits=item.credits,
                     badge=item.badge,
                     reason=item.reason,
                 ))
+                placed_at[idx] = term_idx
                 credits_used += item.credits
             else:
                 remaining.append(item)
 
-        # Force-add if nothing fit (single course exceeds credit_target)
-        if not card.courses and items_pool:
-            forced = items_pool[0]
-            card.courses.append(PlannedCourse(
+        # Force-add if nothing fit (single course exceeds credit_target) —
+        # only from `remaining` (eligible but over budget), never from
+        # `blocked` (prerequisite not yet satisfied).
+        if not placed and remaining:
+            forced = remaining[0]
+            forced_idx = index_by_item[id(forced)]
+            placed.append(PlannedCourse(
                 course_code=forced.course_code or "TBD",
                 title=forced.title,
                 credits=forced.credits,
                 badge=forced.badge,
                 reason=forced.reason,
             ))
+            placed_at[forced_idx] = term_idx
             credits_used = forced.credits
-            remaining    = items_pool[1:]
+            remaining = remaining[1:]
 
-        card.total_credits = credits_used
-        semesters.append(card)
-        items_pool = remaining
+        # A semester where everything left is prerequisite-blocked (nothing
+        # placed) must not appear as an empty card — skip it and let the
+        # blocked items retry at the next term.
+        if placed:
+            card = SemesterCard(term=term, term_label=term_to_label(term))
+            card.courses = placed
+            card.total_credits = credits_used
+            semesters.append(card)
+
+        items_pool = remaining + blocked
         term_idx  += 1
 
     # ── 8. Prerequisite disclaimer ────────────────────────────────────────────
 
     warnings.append(
-        "This plan does not verify course prerequisites or semester availability. "
-        "Confirm all prerequisites are met before registering."
+        "This plan orders courses using scraped prerequisite data, which "
+        "may be incomplete for some courses. Verify with your advisor if a "
+        "semester's course list looks unexpected."
     )
 
     return GeneratedPlan(

@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.schemas.plan import ParsedDegreeValidated, StillNeededItem
+from src.schemas.plan import ParsedDegreeValidated, ParseValidationError, StillNeededItem
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -410,6 +410,89 @@ def test_total_credits_matches_course_sum():
             f"{sem.term_label}: total_credits={sem.total_credits} but "
             f"sum(courses.credits)={expected}"
         )
+
+
+# ── Credit target validation ─────────────────────────────────────────────────
+#
+# preferences is a raw, untyped dict (routers/plan.py's GenerateRequest) coming
+# from a public, unauthenticated API — credits_per_semester must be validated
+# at the point it's consumed, not trusted as always 3-24 just because every
+# legitimate frontend control happens to send values in that range.
+
+class TestCreditTargetValidation:
+
+    def test_missing_key_defaults_to_15(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        plan = asyncio.run(generate_plan(make_validated(), {"courses": []}, session))
+        assert plan.semesters  # didn't raise, produced a plan
+
+    def test_minimum_boundary_3_is_accepted(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        plan = asyncio.run(generate_plan(
+            make_validated(), {"courses": [], "credits_per_semester": 3}, session,
+        ))
+        assert plan.semesters
+
+    def test_maximum_boundary_24_is_accepted(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        plan = asyncio.run(generate_plan(
+            make_validated(), {"courses": [], "credits_per_semester": 24}, session,
+        ))
+        assert plan.semesters
+
+    def test_zero_is_rejected(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        with pytest.raises(ParseValidationError):
+            asyncio.run(generate_plan(
+                make_validated(), {"courses": [], "credits_per_semester": 0}, session,
+            ))
+
+    def test_negative_is_rejected(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        with pytest.raises(ParseValidationError):
+            asyncio.run(generate_plan(
+                make_validated(), {"courses": [], "credits_per_semester": -5}, session,
+            ))
+
+    def test_below_minimum_is_rejected(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        with pytest.raises(ParseValidationError):
+            asyncio.run(generate_plan(
+                make_validated(), {"courses": [], "credits_per_semester": 2}, session,
+            ))
+
+    def test_above_maximum_is_rejected(self):
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        with pytest.raises(ParseValidationError):
+            asyncio.run(generate_plan(
+                make_validated(), {"courses": [], "credits_per_semester": 25}, session,
+            ))
+
+    def test_non_numeric_value_is_rejected_cleanly(self):
+        """A malformed request (e.g. a string) must raise the same clean,
+        catchable error the router already handles — not an unhandled
+        TypeError from deep inside the packing loop's arithmetic."""
+        from src.services.plan import generate_plan
+
+        session = _make_mock_session()
+        with pytest.raises(ParseValidationError):
+            asyncio.run(generate_plan(
+                make_validated(), {"courses": [], "credits_per_semester": "abc"}, session,
+            ))
 
 
 def test_already_completed_elective_excluded_with_warning():

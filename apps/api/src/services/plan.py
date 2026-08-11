@@ -25,6 +25,8 @@ from src.scheduler.time_utils import (
 logger = logging.getLogger(__name__)
 
 CREDIT_CONSISTENCY_TOLERANCE = 6
+MIN_CREDITS_PER_SEMESTER = 3
+MAX_CREDITS_PER_SEMESTER = 24
 
 
 # ── Wildcard matching ─────────────────────────────────────────────────────────
@@ -301,6 +303,26 @@ async def select_best_option(
     return available[0]
 
 
+def _validate_credit_target(preferences: dict) -> int:
+    """
+    preferences is a raw, untyped dict from a public, unauthenticated API —
+    credits_per_semester must be checked here, not assumed to already be a
+    sane int just because every legitimate UI control sends one.
+    """
+    raw = preferences.get("credits_per_semester", 15)
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ParseValidationError(
+            "credits_per_semester", f"must be a whole number, got {raw!r}."
+        )
+    if not (MIN_CREDITS_PER_SEMESTER <= raw <= MAX_CREDITS_PER_SEMESTER):
+        raise ParseValidationError(
+            "credits_per_semester",
+            f"must be between {MIN_CREDITS_PER_SEMESTER} and "
+            f"{MAX_CREDITS_PER_SEMESTER}, got {raw}.",
+        )
+    return raw
+
+
 # ── Main planner ──────────────────────────────────────────────────────────────
 
 async def generate_plan(
@@ -312,12 +334,12 @@ async def generate_plan(
     Produces a semester-by-semester plan from a validated ParsedDegree.
 
     preferences keys:
-      courses (list[str])       — student-chosen electives
-      credits_per_semester (int) — 12 | 15 | 18
+      courses (list[str])        — student-chosen electives
+      credits_per_semester (int) — MIN_CREDITS_PER_SEMESTER..MAX_CREDITS_PER_SEMESTER
     """
     warnings: list[str] = []
 
-    credit_target: int = preferences.get("credits_per_semester", 15)
+    credit_target: int = _validate_credit_target(preferences)
     student_electives: list[str] = [
         e.strip().upper() for e in preferences.get("courses", [])
     ]

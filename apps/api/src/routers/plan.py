@@ -138,7 +138,7 @@ async def parse_degree_works(request: Request, body: ParseRequest) -> ParseRespo
 
 class GenerateRequest(BaseModel):
     parsed_degree: dict     # ParsedDegreeValidated serialized to JSON by the client
-    preferences: dict       # {courses: list[str], credits_per_semester: 12|15|18}
+    preferences: dict       # {courses: list[str], credits_per_semester: int}
 
 
 @router.post("/api/plan/generate")
@@ -158,7 +158,11 @@ async def generate_degree_plan(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Invalid parsed degree data: {e}")
 
-    plan = await generate_plan(validated, body.preferences, db)
+    try:
+        plan = await generate_plan(validated, body.preferences, db)
+    except ParseValidationError as e:
+        raise HTTPException(status_code=422, detail=f"{e.field}: {e.message}")
+
     return asdict(plan)
 
 

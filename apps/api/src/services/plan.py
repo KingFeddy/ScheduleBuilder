@@ -278,10 +278,14 @@ async def select_best_option(
     student_electives: list[str],
     target_term: str,
     session: AsyncSession,
-) -> str | None:
+) -> tuple[str | None, int]:
     """
-    Returns the best concrete course code for a still_needed requirement,
-    or None if only wildcards are available (TBD slot).
+    Returns (chosen course code or None, number of real remaining options).
+    course_code is None if only wildcards are available (TBD slot).
+    num_available lets the caller distinguish a genuinely single-option
+    requirement from one silently resolved among several valid alternatives
+    (a real user-reported gap: both used to render identically as
+    "Required," with no signal a choice was made on the student's behalf).
 
     Priority:
       1. A student-added elective that appears in options
@@ -296,12 +300,12 @@ async def select_best_option(
     ]
 
     if not available:
-        return None
+        return None, 0
 
     # Priority 1: student elective that's an explicit option
     for elective in student_electives:
         if elective in available:
-            return elective
+            return elective, len(available)
 
     # Priority 2: option with scraped sections in the target term
     result = await session.execute(
@@ -314,10 +318,10 @@ async def select_best_option(
     offered = {row["course_code"] for row in result.mappings()}
     for opt in available:
         if opt in offered:
-            return opt
+            return opt, len(available)
 
     # Priority 3: first available
-    return available[0]
+    return available[0], len(available)
 
 
 def _validate_credit_target(preferences: dict) -> int:
@@ -615,15 +619,17 @@ async def generate_plan(
                 must_be_last=must_be_last,
             ))
         else:
-            best = await select_best_option(
+            best, num_available = await select_best_option(
                 item, completed, in_progress, electives_to_place, current_term, session
             )
+            is_choice = best is not None and num_available > 1
             resolved.append(_ResolvedItem(
                 requirement=item.requirement,
                 course_code=best,
-                badge="Required" if best else "TBD",
+                badge="Elective" if is_choice else ("Required" if best else "TBD"),
                 reason=(
-                    f"Required for {validated.majors[0]}" if best
+                    f"One of {num_available} options for '{item.requirement}'" if is_choice
+                    else f"Required for {validated.majors[0]}" if best
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
                 must_be_last=must_be_last,
@@ -649,7 +655,11 @@ async def generate_plan(
         if r.course_code:
             credits, title, prereqs = course_data.get(r.course_code, (3, None, []))
             r.credits = credits
-            r.title   = title
+            # A course never scraped into `courses` has no title — the bare
+            # code repeated as its own title ("IS350: IS350") is far less
+            # informative than the DegreeWorks requirement name we already
+            # have on hand ("Computers, Society, and Ethics").
+            r.title   = title or r.requirement
             prerequisites_by_code[r.course_code] = prereqs
 
     # ── 5. Detect credit overflow ─────────────────────────────────────────────

@@ -1261,3 +1261,115 @@ def test_no_requirements_dropped():
         f"Plan has {total_planned} courses but {n_requirements} requirements — "
         "some requirements were silently dropped"
     )
+
+
+# ── Elective detection and title fallback ──────────────────────────────────────
+
+class TestElectiveDetectionAndTitleFallback:
+    """
+    Real user report: a requirement with many valid options (e.g. a ~25-option
+    Math Elective, a 7-option Natural Science Elective) was silently resolved
+    to one course and labeled "Required" — identical to a genuinely
+    single-option requirement, giving no signal that alternatives existed.
+    Separately, courses never scraped into `courses` (no title data) showed
+    their bare course code as the title twice ("IS350 | IS350"), discarding
+    the much more informative DegreeWorks requirement name we already have.
+
+    Each test here has exactly one unresolved still_needed item, which
+    triggers its own availability query (select_best_option, Priority 2)
+    before the batched course-data query — mock ordering must account for
+    this (see the comment on _make_mock_session's own limits elsewhere in
+    this file), so a local helper is used instead of _make_mock_session.
+    """
+
+    def _mock_session(self, course_rows):
+        availability_empty = MagicMock()
+        availability_empty.mappings.return_value = []
+        course_result = MagicMock()
+        course_result.mappings.return_value = course_rows
+
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[availability_empty, course_result])
+        return session
+
+    def test_multi_option_requirement_gets_elective_badge_and_names_option_count(self):
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(
+                requirement="Natural Sciences Elective",
+                options=["CHEM121", "CHEM125", "PHYS202"],
+            ),
+        ])
+        session = self._mock_session([
+            {"course_code": "CHEM121", "credits": 3, "title": "Fundamentals of Chemical Principles I", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        course = plan.semesters[0].courses[0]
+        assert course.course_code == "CHEM121"
+        assert course.badge == "Elective"
+        assert "3" in course.reason
+        assert "Natural Sciences Elective" in course.reason
+
+    def test_single_option_requirement_keeps_required_badge(self):
+        """Regression: a requirement with exactly one real option must not be
+        relabeled — it genuinely is a fixed requirement, not a choice."""
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Intro to Data Reduction", options=["PHYS114"]),
+        ])
+        session = self._mock_session([
+            {"course_code": "PHYS114", "credits": 3, "title": "Intro to Data Reduction with Applications", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        course = plan.semesters[0].courses[0]
+        assert course.course_code == "PHYS114"
+        assert course.badge == "Required"
+
+    def test_missing_title_falls_back_to_requirement_name(self):
+        """A course never scraped into `courses` has no title data — falling
+        back to the bare course code twice ("IS350 | IS350") is far less
+        informative than the DegreeWorks requirement name we already have
+        ("Computers, Society, and Ethics")."""
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Computers, Society, and Ethics", options=["IS350"]),
+        ])
+        session = self._mock_session([])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        course = plan.semesters[0].courses[0]
+        assert course.course_code == "IS350"
+        assert course.title == "Computers, Society, and Ethics"
+
+    def test_present_title_is_not_overridden_by_requirement_name(self):
+        """Regression: the fallback must only kick in when title is genuinely
+        missing — a real scraped title must never be discarded."""
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Some Generic Requirement Label", options=["CS435"]),
+        ])
+        session = self._mock_session([
+            {"course_code": "CS435", "credits": 3, "title": "Advanced Data Structures and Algorithm Design", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        course = plan.semesters[0].courses[0]
+        assert course.title == "Advanced Data Structures and Algorithm Design"

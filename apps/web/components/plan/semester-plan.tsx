@@ -16,17 +16,24 @@ interface CourseRowProps {
   title: string | null
   credits: number
   badge: 'Required' | 'Elective' | 'TBD'
+  reason: string
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, badge, onSwap }: CourseRowProps) {
-  const showSwap = badge === 'Required' && isGerCourse(code) && !!onSwap
+function CourseRow({ code, title, credits, badge, reason, onSwap }: CourseRowProps) {
+  const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
+  const showReason = badge !== 'Required' && !!reason
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 hover:bg-surface-2 transition-colors duration-150 group">
       <span className="font-mono text-sm text-text w-20 flex-shrink-0">{code}</span>
-      <span className="flex-1 text-sm text-muted group-hover:text-text transition-colors duration-150 truncate">
-        {title ?? code}
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm text-muted group-hover:text-text transition-colors duration-150 truncate">
+          {title ?? code}
+        </span>
+        {showReason && (
+          <span className="block text-xs text-faint truncate">{reason}</span>
+        )}
       </span>
       {showSwap && (
         <button
@@ -164,6 +171,7 @@ export function SemesterPlan({
                     title={course.title}
                     credits={course.credits}
                     badge={course.badge}
+                    reason={course.reason}
                     onSwap={
                       onSwapCourse
                         ? () => onSwapCourse(semester.term, course.course_code)

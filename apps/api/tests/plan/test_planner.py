@@ -580,8 +580,8 @@ class TestCapstoneLastSemester:
         ))
 
         assert len(plan.semesters) == 1
-        assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "HSS404"}
-        assert plan.semesters[0].total_credits == 6
+        assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "HSS404", "FREE"}
+        assert plan.semesters[0].total_credits == 12
 
     def test_capstone_spills_to_new_semester_when_no_room(self):
         from src.services.plan import generate_plan
@@ -625,7 +625,8 @@ class TestCapstoneLastSemester:
 
         assert len(plan.semesters) == 2
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS490"]
-        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491", "FREE"]
+        assert plan.semesters[1].total_credits == 12
 
     def test_multiple_capstone_courses_overflow_into_extra_semester_not_over_budget(self):
         from src.services.plan import generate_plan
@@ -647,10 +648,11 @@ class TestCapstoneLastSemester:
         assert len(plan.semesters) == 2
         assert plan.semesters[0].total_credits == 12
         assert len(plan.semesters[0].courses) == 4
-        assert plan.semesters[1].total_credits == 3
-        assert len(plan.semesters[1].courses) == 1
+        assert plan.semesters[1].total_credits == 12
+        assert len(plan.semesters[1].courses) == 2
+        assert plan.semesters[1].courses[-1].course_code == "FREE"
         all_placed = {c.course_code for sem in plan.semesters for c in sem.courses}
-        assert all_placed == {f"HSS40{i}" for i in range(1, 6)}
+        assert all_placed == {f"HSS40{i}" for i in range(1, 6)} | {"FREE"}
 
     def test_no_capstone_courses_is_byte_identical_to_adr27_behavior(self):
         """Regression: zero flagged courses must produce the exact same
@@ -701,7 +703,7 @@ class TestCapstoneLastSemester:
             validated, {"courses": [], "credits_per_semester": 15}, session,
         ))
 
-        assert {c.course_code for sem in plan.semesters for c in sem.courses} == {"CS500", "CS491"}
+        assert {c.course_code for sem in plan.semesters for c in sem.courses} == {"CS500", "CS491", "FREE"}
         placed_terms = {
             c.course_code: sem_idx
             for sem_idx, sem in enumerate(plan.semesters)
@@ -778,10 +780,62 @@ class TestCapstoneLastSemester:
         assert len(plan.semesters) == 3
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS380"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["CS490"]
-        assert {c.course_code for c in plan.semesters[2].courses} == {"HSS404", "CS491"}, (
+        assert {c.course_code for c in plan.semesters[2].courses} == {"HSS404", "CS491", "FREE"}, (
             "HSS404 and CS491 are both flagged must-be-last and must land "
             "together in the true final semester, not scattered across two"
         )
+
+    def test_thin_final_capstone_semester_is_padded_to_full_time_with_a_free_elective(self):
+        """
+        User's original request: if clustering senior/capstone requirements
+        together (this ADR) leaves the actual final semester under a
+        full-time course load, pad it out rather than showing the student a
+        3-credit last semester. A single lone capstone course with nothing
+        else eligible to pack alongside it is exactly that scenario.
+        """
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Senior Seminar", options=["HSS404"]),
+        ])
+        session = self._mock_session(1, [
+            {"course_code": "HSS404", "credits": 3, "title": "Seminar", "prerequisites": []},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        last = plan.semesters[0]
+        assert last.total_credits == 12
+        codes = [c.course_code for c in last.courses]
+        assert codes == ["HSS404", "FREE"]
+        free = last.courses[1]
+        assert free.credits == 9
+        assert free.badge == "Elective"
+        assert "full-time" in free.reason.lower()
+
+    def test_final_capstone_semester_already_full_time_is_not_padded(self):
+        from src.services.plan import generate_plan
+
+        still_needed = [
+            StillNeededItem(requirement=f"Senior Seminar {i}", options=[f"HSS40{i}"])
+            for i in range(1, 5)
+        ]
+        validated = make_validated(still_needed=still_needed)
+        session = self._mock_session(4, [
+            {"course_code": f"HSS40{i}", "credits": 3, "title": f"Seminar {i}", "prerequisites": []}
+            for i in range(1, 5)
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 1
+        assert plan.semesters[0].total_credits == 12
+        assert "FREE" not in {c.course_code for c in plan.semesters[0].courses}
 
     def test_capstone_chain_serializes_across_consecutive_trailing_semesters(self):
         """
@@ -812,7 +866,7 @@ class TestCapstoneLastSemester:
         assert len(plan.semesters) == 3
         assert [c.course_code for c in plan.semesters[0].courses] == ["HSS400"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["HSS401"]
-        assert [c.course_code for c in plan.semesters[2].courses] == ["HSS402"]
+        assert [c.course_code for c in plan.semesters[2].courses] == ["HSS402", "FREE"]
 
 
 # ── Prerequisite dependency graph ───────────────────────────────────────────
@@ -1071,7 +1125,7 @@ class TestPrerequisiteAwarePlanning:
         assert len(plan.semesters) == 3
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS288"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["CS490"]
-        assert [c.course_code for c in plan.semesters[2].courses] == ["CS491"]
+        assert [c.course_code for c in plan.semesters[2].courses] == ["CS491", "FREE"]
 
     def test_credit_contention_delays_prerequisite_and_dependent_still_waits(self):
         """

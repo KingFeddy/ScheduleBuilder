@@ -545,6 +545,65 @@ def _pack_semesters(
     return semesters
 
 
+def _synchronized_capstone_start(
+    capstone_items: list[_ResolvedItem],
+    depends_on: list[set[int]],
+    index_by_item: dict[int, int],
+    placed_at: dict[int, int],
+) -> int:
+    """
+    Earliest term_idx at which EVERY senior/capstone item could possibly be
+    scheduled, ignoring credit-budget constraints — the natural floor
+    imposed by prerequisite depth alone. Used only to pick Phase 2's
+    starting term_idx; the actual packing that follows still uses
+    _pack_semesters' fully dynamic, placed_at-based eligibility check (see
+    ADR-27/ADR-28) — this function never gates an individual item's
+    placement, only where the whole second phase begins.
+
+    Without this, a capstone item with no prerequisite of its own (e.g. a
+    Senior Seminar) becomes individually eligible immediately and jumps
+    into whatever room Phase 1 left behind, while a sibling capstone item
+    genuinely delayed by a real prerequisite chain (e.g. a Senior Project
+    depending on an earlier course) keeps waiting — scattering "must be
+    last" courses across multiple non-adjacent trailing semesters instead
+    of clustering them at the true end of the plan. Confirmed live: a real
+    user's plan placed a prerequisite-free Senior Seminar in the semester
+    right after normal packing ended, while their Senior Project (delayed
+    by a real prerequisite) landed two semesters later — exactly this bug.
+
+    Safe to compute from Phase 1's `placed_at` values for normal-item
+    dependencies because Phase 1 is fully complete and its placements are
+    fixed by the time this runs — unlike the earlier, rejected "precompute
+    an earliest bound" design for ADR-27, which failed specifically because
+    it tried to predict placements that were STILL being decided.
+    """
+    if not capstone_items:
+        return 0
+
+    capstone_indices = {index_by_item[id(item)] for item in capstone_items}
+    natural_term: dict[int, int] = {}
+    visiting: set[int] = set()
+
+    def resolve(idx: int) -> int:
+        if idx in natural_term:
+            return natural_term[idx]
+        if idx in visiting:
+            return 0  # cycle guard — real cycles are already broken upstream
+        visiting.add(idx)
+        max_dep = -1
+        for dep_idx in depends_on[idx]:
+            if dep_idx in capstone_indices:
+                max_dep = max(max_dep, resolve(dep_idx) + 1)
+            elif dep_idx in placed_at:
+                max_dep = max(max_dep, placed_at[dep_idx] + 1)
+        visiting.discard(idx)
+        result = max(0, max_dep)
+        natural_term[idx] = result
+        return result
+
+    return max(resolve(idx) for idx in capstone_indices)
+
+
 # ── Main planner ──────────────────────────────────────────────────────────────
 
 async def generate_plan(
@@ -740,8 +799,19 @@ async def generate_plan(
     )
 
     if capstone_items:
-        start_term_idx = max(len(semesters) - 1, 0)
-        initial_card = semesters[-1] if semesters else None
+        natural_start = _synchronized_capstone_start(
+            capstone_items, depends_on, index_by_item, placed_at,
+        )
+        start_term_idx = max(len(semesters) - 1, natural_start)
+        # Only top up the last normal semester's card when the synchronized
+        # floor lands exactly there — if a real prerequisite chain pushes
+        # capstone packing later, merging into a semester that's
+        # chronologically "in the past" relative to that floor would be wrong.
+        initial_card = (
+            semesters[-1]
+            if semesters and start_term_idx == len(semesters) - 1
+            else None
+        )
         capstone_semesters = _pack_semesters(
             _sorted_pool(capstone_items), depends_on, index_by_item,
             credit_target, planning_terms, placed_at,

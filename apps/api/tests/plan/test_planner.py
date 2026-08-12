@@ -743,6 +743,46 @@ class TestCapstoneLastSemester:
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS435"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
 
+    def test_capstone_items_with_different_prerequisite_depth_still_cluster_together(self):
+        """
+        Real user-reported bug: a capstone item with no prerequisite of its
+        own (HSS404) and a sibling capstone item genuinely delayed by a real
+        prerequisite chain on a NORMAL item (CS491 <- CS490 <- CS380) must
+        still land in the SAME final semester. Before the fix, HSS404 —
+        having no dependency — was individually eligible the moment Phase 2
+        started and got topped into whatever normal semester packing left
+        behind (here, CS490's semester), while CS491 kept waiting on its own
+        chain and landed in a later, separate semester — scattering the two
+        "must be last" courses instead of clustering them at the true end.
+        Verified against the real algorithm during design (see dev-log).
+        """
+        from src.services.plan import generate_plan
+
+        validated = make_validated(still_needed=[
+            StillNeededItem(requirement="Foundations",    options=["CS380"]),
+            StillNeededItem(requirement="Project",         options=["CS490"]),
+            StillNeededItem(requirement="Senior Seminar",  options=["HSS404"]),
+            StillNeededItem(requirement="Senior Project",  options=["CS491"]),
+        ])
+        session = self._mock_session(4, [
+            {"course_code": "CS380",   "credits": 3, "title": "Foundations", "prerequisites": []},
+            {"course_code": "CS490",   "credits": 3, "title": "Project",     "prerequisites": ["CS380"]},
+            {"course_code": "HSS404",  "credits": 3, "title": "Seminar",     "prerequisites": []},
+            {"course_code": "CS491",   "credits": 3, "title": "Capstone",    "prerequisites": ["CS490"]},
+        ])
+
+        plan = asyncio.run(generate_plan(
+            validated, {"courses": [], "credits_per_semester": 15}, session,
+        ))
+
+        assert len(plan.semesters) == 3
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS380"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS490"]
+        assert {c.course_code for c in plan.semesters[2].courses} == {"HSS404", "CS491"}, (
+            "HSS404 and CS491 are both flagged must-be-last and must land "
+            "together in the true final semester, not scattered across two"
+        )
+
     def test_capstone_chain_serializes_across_consecutive_trailing_semesters(self):
         """
         A capstone item depending on another capstone item must still be

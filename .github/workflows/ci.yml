@@ -33,18 +33,16 @@ jobs:
         working-directory: apps/api
         run: uv sync --frozen
 
-      - name: Create test schema
-        run: psql postgresql://postgres:postgres@localhost:5432/njit_test -f apps/api/tests/create_test_schema.sql
+      - name: Initialize disposable test database and schema
+        run: |
+          psql postgresql://postgres:postgres@localhost:5432/njit_test -v ON_ERROR_STOP=1 -f apps/api/tests/init_test_database.sql
+          psql postgresql://postgres:postgres@localhost:5432/njit_test -v ON_ERROR_STOP=1 -f apps/api/tests/create_test_schema.sql
 
       - name: Run backend tests
         working-directory: apps/api
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/njit_test
-          SUPABASE_URL: http://localhost
-          SUPABASE_ANON_KEY: test
-          CORS_ORIGINS: http://localhost:3000
+          TEST_DATABASE_URL: postgresql+asyncpg://njit_test:test-only@localhost:5432/njit_test
           APP_ENV: test
-          CURRENT_TERM: "202690"
         run: uv run pytest tests/ -v --tb=short
 
   test-frontend:

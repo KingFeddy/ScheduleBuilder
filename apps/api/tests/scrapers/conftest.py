@@ -1,8 +1,8 @@
 """
 Shared fixtures for scraper tests.
 
-db_session connects to the real dev database (DATABASE_URL from .env).
-Tests run against real Postgres — no mocks for DB behavior.
+db_session connects only to the disposable database verified by tests/conftest.py.
+Tests run against real Postgres — no mocks for DB behavior or application .env.
 Each test gets a fresh session. Cleanup runs after every test.
 """
 from __future__ import annotations
@@ -24,20 +24,16 @@ _TEST_PROFESSOR_NAMES = (
 
 
 @pytest_asyncio.fixture
-async def db_session_factory():
+async def db_session_factory(test_database_url):
     """Yields a session factory for tests that need multiple independent connections."""
-    from src.config import settings
-
-    engine = create_async_engine(settings.DATABASE_URL)
+    engine = create_async_engine(test_database_url)
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def db_session():
-    from src.config import settings
-
-    engine = create_async_engine(settings.DATABASE_URL)
+async def db_session(test_database_url):
+    engine = create_async_engine(test_database_url)
     Session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with Session() as session:

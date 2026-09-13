@@ -60,6 +60,7 @@ COLUMNS = {
         "id": Column("bigint", default="sequence"),
         "scraper": Column("text"),
         "subject": Column("text", nullable=True),
+        "subjects": Column("text[]", nullable=True),
         "term": Column("text", nullable=True),
         "status": Column("text"),
         "sections_upserted": Column("integer", nullable=True),
@@ -119,7 +120,7 @@ CHECKS = {
     },
     "scraper_runs": {
         "scraper": "(scraper = ANY (ARRAY['banner'::text, 'rmp'::text]))",
-        "status": "(status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'blocked'::text, 'schema_change'::text, 'skipped_overlap'::text]))",
+        "status": "(status = ANY (ARRAY['running'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'blocked'::text, 'schema_change'::text, 'skipped_overlap'::text]))",
     },
 }
 
@@ -128,6 +129,6 @@ CHECKS = {
 INDEXES = {
     "sections": (("course_code", "term"), ("term",)),
     "meetings": (("crn", "term"),),
-    "scraper_runs": (("scraper", "started_at"),),
+    "scraper_runs": (("scraper", "started_at"), ("scraper", "term", "started_at", "id")),
     "rmp_cache": (("expires_at",),),
 }

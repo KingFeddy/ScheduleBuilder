@@ -170,11 +170,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Scraper Status
-         * @description Returns the last Banner scrape timestamp and status.
-         *     Used by the frontend to show a staleness warning when seat data is old.
-         */
+        /** Scraper Status */
         get: operations["scraper_status_api_scraper_status_get"];
         put?: never;
         post?: never;
@@ -574,19 +570,45 @@ export interface components {
             /** Sections */
             sections: components["schemas"]["SolveSectionResponse"][];
         };
-        /** ScraperStatusResponse */
-        ScraperStatusResponse: {
+        /** ScraperRunResponse */
+        ScraperRunResponse: {
             /** Error Message */
             error_message: string | null;
-            /** Last Scrape */
-            last_scrape: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Sections Failed */
+            sections_failed: number | null;
             /** Sections Upserted */
             sections_upserted: number | null;
+            /** Started At */
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
              */
-            status: "never_run" | "running" | "completed" | "failed" | "blocked" | "schema_change" | "skipped_overlap";
+            status: "running" | "completed" | "partial" | "failed" | "blocked" | "schema_change" | "skipped_overlap";
+            /** Subjects */
+            subjects: string[] | null;
+        };
+        /** ScraperStatusResponse */
+        ScraperStatusResponse: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** Data As Of */
+            data_as_of: string | null;
+            last_successful_refresh: components["schemas"]["ScraperRunResponse"] | null;
+            latest_attempt: components["schemas"]["ScraperRunResponse"] | null;
+            /** Section Count */
+            section_count: number;
+            /** Sections Missing Timestamps */
+            sections_missing_timestamps: number;
+            /** Status */
+            status: "never_run" | ("running" | "completed" | "partial" | "failed" | "blocked" | "schema_change" | "skipped_overlap");
+            /** Term */
+            term: string;
         };
         /** SectionResponse */
         SectionResponse: {
@@ -1014,7 +1036,9 @@ export interface operations {
     };
     scraper_status_api_scraper_status_get: {
         parameters: {
-            query?: never;
+            query: {
+                term: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1028,6 +1052,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScraperStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

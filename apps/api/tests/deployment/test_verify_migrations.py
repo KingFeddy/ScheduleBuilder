@@ -45,7 +45,7 @@ async def test_current_migrations_pass_without_touching_records(database):
     assert await _errors(database) == []
     async with database.session_factory() as session:
         assert await session.scalar(text("SELECT title FROM courses")) == "Keep this record"
-        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 8
+        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 9
 
 
 @pytest.mark.asyncio
@@ -55,6 +55,7 @@ async def test_current_migrations_pass_without_touching_records(database):
     ("014", "courses.prerequisites_status"),
     ("015", "courses.prerequisites_rules"),
     ("016", "courses.credits_source"),
+    ("017", "scraper_runs.subjects"),
 ])
 async def test_unapplied_runtime_migration_fails(test_database_url, version, missing):
     async with isolated_test_database(test_database_url, initialize=False) as database:
@@ -71,7 +72,7 @@ RUNTIME_COLUMNS = {
     "sections": "crn term course_code professor_name total_seats open_seats location scraped_at section_number",
     "meetings": "id crn term days start_time end_time location",
     "professors": "professor_name department",
-    "scraper_runs": "id scraper subject term status sections_upserted sections_failed error_message started_at finished_at duration_ms",
+    "scraper_runs": "id scraper subject term status subjects sections_upserted sections_failed error_message started_at finished_at duration_ms",
     "rmp_cache": "professor_name rmp_data cached_at expires_at",
 }
 
@@ -122,6 +123,7 @@ async def test_public_table_cannot_replace_missing_target_table(database, table)
     ("ALTER TABLE meetings DROP CONSTRAINT meetings_time_order", "CHECK: meetings.time_order"),
     ("ALTER TABLE scraper_runs DROP CONSTRAINT scraper_runs_scraper_check", "CHECK: scraper_runs.scraper"),
     ("ALTER TABLE scraper_runs DROP CONSTRAINT scraper_runs_status_check", "CHECK: scraper_runs.status"),
+    ("DROP INDEX idx_scraper_runs_term_recent", "INDEX: scraper_runs"),
     ("DROP INDEX idx_sections_term", "INDEX: sections"),
 ])
 async def test_incompatible_schema_is_rejected(database, sql, detail):

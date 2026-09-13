@@ -11,6 +11,7 @@
     {"file": "013_section_number.sql"},
     {"file": "014_prerequisite_verification.sql"},
     {"file": "015_prerequisite_rules.sql"},
-    {"file": "016_course_metadata.sql"}
+    {"file": "016_course_metadata.sql"},
+    {"file": "017_scraper_run_scope.sql"}
   ]
 }

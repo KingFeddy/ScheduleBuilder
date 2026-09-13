@@ -138,8 +138,10 @@ async def test_invalid_results_preserve_catalog_and_do_not_complete_run(
         SELECT status, sections_failed, finished_at FROM scraper_runs
         WHERE scraper = 'banner' AND subject IS NULL
     """))).one()
-    assert run.status == "failed"
-    assert run.sections_failed > 0
+    assert run.status == ("partial" if later_page else "failed")
+    # An invalid response cannot establish how many sections failed. A subject
+    # failure is no longer incorrectly counted as one failed section.
+    assert run.sections_failed is None
     assert run.finished_at is not None
     upstream.browser.close.assert_awaited_once()
 
@@ -178,12 +180,18 @@ async def test_inconsistent_pages_never_authorize_cleanup(db_session, upstream, 
     assert await db_session.scalar(text("""
         SELECT count(*) FROM sections WHERE crn = '89999' AND term = :term
     """), {"term": TERM}) == 1
-    assert await db_session.scalar(text("""
-        SELECT status FROM scraper_runs WHERE scraper = 'banner' AND subject IS NULL
-    """)) == "failed"
+    # Each multi-page fixture starts with two valid rows; a later bad page
+    # leaves that committed progress intact without claiming complete totals.
+    expected_status = "failed" if len(pages) == 1 else "partial"
+    assert (await db_session.execute(text("""
+        SELECT status, sections_upserted, sections_failed FROM scraper_runs
+        WHERE scraper = 'banner' AND subject IS NULL
+    """))).one() == (expected_status, None, None)
     # Validate the entire bad page before applying even its valid first row.
-    if len(pages) == 1:
-        assert await db_session.scalar(text("SELECT count(*) FROM sections WHERE crn LIKE '811%'")) == 0
+    saved = (await db_session.execute(text("""
+        SELECT crn, term FROM sections WHERE crn LIKE '811%' ORDER BY crn, term
+    """))).all()
+    assert saved == ([] if len(pages) == 1 else [("81111", TERM), ("81112", TERM)])
     upstream.browser.close.assert_awaited_once()
 
 

@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import time as time_module
+from dataclasses import dataclass
 from datetime import time
 from typing import Optional
 
@@ -59,6 +60,13 @@ class BannerSchemaError(Exception):
 
 class BannerResponseError(Exception):
     """Banner failed the search or returned an unverifiable result set."""
+
+
+@dataclass
+class ScrapeProgress:
+    """Committed section writes, retained even when a subject cannot return totals."""
+
+    sections_upserted: int = 0
 
 
 # ─── Parsing helpers ──────────────────────────────────────────────────────────
@@ -512,6 +520,8 @@ async def scrape_subject(
     session: AsyncSession,
     subject: str,
     term: str,
+    *,
+    progress: ScrapeProgress | None = None,
 ) -> tuple[int, int, int]:
     """
     Scrape all sections for one subject+term via Playwright.
@@ -653,6 +663,8 @@ async def scrape_subject(
                     try:
                         await _upsert_section_with_meetings(session, raw, term)
                         upserted += 1
+                        if progress is not None:
+                            progress.sections_upserted += 1
                         seen_crns.add(raw["courseReferenceNumber"])
 
                         course_code = f"{raw['subject']}{raw['courseNumber']}"
@@ -714,6 +726,21 @@ async def scrape_subject(
 
 # ─── Full run ─────────────────────────────────────────────────────────────────
 
+async def _finish_banner_run(
+    session: AsyncSession, run_id: int, status: str,
+    counts: tuple[int, int] | None, message: str | None,
+) -> None:
+    async with session.begin():
+        await session.execute(text("""
+            UPDATE scraper_runs SET status = :status, finished_at = NOW(),
+                sections_upserted = :upserted, sections_failed = :failed,
+                error_message = :message
+            WHERE id = :run_id
+        """), dict(run_id=run_id, status=status, message=message,
+                    upserted=counts[0] if counts is not None else None,
+                    failed=counts[1] if counts is not None else None))
+
+
 async def run_banner_scrape(
     session: AsyncSession,
     subjects: list[str],
@@ -728,96 +755,86 @@ async def run_banner_scrape(
     """
     async with advisory_lock(session, BANNER_SCRAPER_LOCK_ID, "banner") as acquired:
         if not acquired:
-            await session.execute(
-                text("""
-                    INSERT INTO scraper_runs (scraper, term, status)
-                    VALUES ('banner', :term, 'skipped_overlap')
-                """),
-                {"term": term},
-            )
-            await session.commit()
+            async with session.begin():
+                await session.execute(text("""
+                    INSERT INTO scraper_runs (scraper, term, status, subjects, finished_at)
+                    VALUES ('banner', :term, 'skipped_overlap', :subjects, NOW())
+                """), {"term": term, "subjects": subjects})
             return
 
-        result = await session.execute(
-            text("""
-                INSERT INTO scraper_runs (scraper, term, status)
-                VALUES ('banner', :term, 'running')
-                RETURNING id
-            """),
-            {"term": term},
-        )
-        run_id = result.scalar()
-        await session.commit()
+        async with session.begin():
+            result = await session.execute(text("""
+                INSERT INTO scraper_runs (scraper, term, status, subjects)
+                VALUES ('banner', :term, 'running', :subjects) RETURNING id
+            """), {"term": term, "subjects": subjects})
+            run_id = result.scalar_one()
 
         total_upserted = 0
         total_failed   = 0
         total_deleted  = 0
+        complete_subjects = 0
+        counts_known = True
+        progress = ScrapeProgress()
+        try:
+            for subject in subjects:
+                t0 = time_module.monotonic()
+                try:
+                    upserted, failed, deleted = await scrape_subject(session, subject, term, progress=progress)
+                    total_upserted += upserted
+                    total_failed += failed
+                    total_deleted += deleted
+                    if failed == 0:
+                        complete_subjects += 1  # a verified empty subject also counts
+                    logger.info(
+                        "Banner/%s: %d upserted, %d failed, %d deleted, %.1fs",
+                        subject, upserted, failed, deleted, time_module.monotonic() - t0,
+                    )
+                except Exception as exc:
+                    # A raised subject may already have committed earlier pages.
+                    # Do not publish incomplete counters as exact run totals.
+                    counts_known = False
+                    await session.rollback()
+                    status = ("blocked" if isinstance(exc, BannerBlockedError)
+                              else "schema_change" if isinstance(exc, BannerSchemaError) else "failed")
+                    logger.error("Banner/%s: %s (%s)", subject, status, type(exc).__name__)
+                    async with session.begin():
+                        await session.execute(text("""
+                            INSERT INTO scraper_runs
+                                (scraper, subject, term, status, error_message, finished_at)
+                            VALUES ('banner', :subject, :term, :status, :message, NOW())
+                        """), dict(subject=subject, term=term, status=status, message=type(exc).__name__))
+                    if isinstance(exc, BannerSchemaError):
+                        break  # Schema change affects all subjects; a block may not.
 
-        for subject in subjects:
-            t0 = time_module.monotonic()
+            if subjects and complete_subjects == len(subjects):
+                final_status = "completed"
+                message = None
+            elif complete_subjects > 0 or total_upserted > 0 or progress.sections_upserted > 0:
+                final_status = "partial"
+                message = "Some subjects or sections could not be refreshed."
+            else:
+                final_status = "failed"
+                message = "The section refresh did not complete." if subjects else "No subjects were requested."
+            await _finish_banner_run(
+                session, run_id, final_status,
+                (total_upserted, total_failed) if counts_known else None, message,
+            )
+        except BaseException:
+            # Preserve cancellation/interrupt semantics while closing the health
+            # record when the database is available. A lost connection must never
+            # promote this unfinished run to a successful refresh.
+            await session.rollback()
             try:
-                upserted, failed, deleted = await scrape_subject(session, subject, term)
-                total_upserted += upserted
-                total_failed   += failed
-                total_deleted  += deleted
-                logger.info(
-                    "Banner/%s: %d upserted, %d failed, %d deleted, %.1fs",
-                    subject, upserted, failed, deleted, time_module.monotonic() - t0,
+                interrupted_status = (
+                    "partial" if complete_subjects > 0 or total_upserted > 0 or progress.sections_upserted > 0
+                    else "failed"
                 )
+                await _finish_banner_run(session, run_id, interrupted_status, None, "The section refresh was interrupted.")
+            except Exception:
+                logger.exception("Could not finalize interrupted Banner run")
+            raise
 
-            except BannerBlockedError as exc:
-                logger.error("Banner/%s: BLOCKED — %s", subject, exc)
-                total_failed += 1
-                await session.execute(
-                    text("""
-                        INSERT INTO scraper_runs (scraper, subject, term, status, error_message)
-                        VALUES ('banner', :subject, :term, 'blocked', :msg)
-                    """),
-                    {"subject": subject, "term": term, "msg": str(exc)},
-                )
-                await session.commit()
-                # One block may be subject-specific — continue with others
-
-            except BannerSchemaError as exc:
-                logger.error("Banner/%s: SCHEMA CHANGE — %s", subject, exc)
-                total_failed += 1
-                await session.execute(
-                    text("""
-                        INSERT INTO scraper_runs
-                            (scraper, subject, term, status, error_message)
-                        VALUES ('banner', :subject, :term, 'schema_change', :msg)
-                    """),
-                    {"subject": subject, "term": term, "msg": str(exc)},
-                )
-                await session.commit()
-                break  # Schema change affects all subjects — abort
-
-            except Exception as exc:
-                logger.error("Banner/%s: unexpected — %s", subject, exc, exc_info=True)
-                total_failed += 1
-
-        final_status = (
-            "failed"    if total_upserted == 0 and total_failed > 0
-            else "completed"
-        )
-        await session.execute(
-            text("""
-                UPDATE scraper_runs
-                SET status            = :status,
-                    sections_upserted = :upserted,
-                    sections_failed   = :failed,
-                    finished_at       = NOW()
-                WHERE id = :run_id
-            """),
-            {
-                "status":   final_status,
-                "upserted": total_upserted,
-                "failed":   total_failed,
-                "run_id":   run_id,
-            },
-        )
-        await session.commit()
         logger.info(
-            "Banner scrape complete: %d upserted, %d failed, %d deleted, status=%s",
-            total_upserted, total_failed, total_deleted, final_status,
+            "Banner scrape finished: %d upserted, %d failed, %d deleted in subjects that returned totals; status=%s, counts_known=%s",
+            total_upserted, total_failed, total_deleted, final_status, counts_known,
         )

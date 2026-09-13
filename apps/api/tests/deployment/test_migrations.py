@@ -17,7 +17,23 @@ from tests.database_isolation import isolated_test_database
 
 
 API_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_VERSIONS = ["000", "007", "009", "012", "013", "014", "015", "016"]
+ACTIVE_VERSIONS = ["000", "007", "009", "012", "013", "014", "015", "016", "017"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("renamed_check", [False, True])
+async def test_scraper_scope_upgrade_preserves_history_without_inventing_coverage(empty_database, renamed_check):
+    from scripts.migrate import load_migrations
+    await _apply(empty_database, [m for m in load_migrations() if m.version < "017"])
+    async with empty_database.session_factory.begin() as session:
+        await session.execute(text("INSERT INTO scraper_runs(scraper,term,status,sections_failed) VALUES ('banner','202690','completed',1)"))
+        if renamed_check:
+            await session.execute(text("ALTER TABLE scraper_runs RENAME CONSTRAINT scraper_runs_status_check TO renamed_status_check"))
+    assert [m.version for m in await _apply(empty_database)] == ["017"]
+    async with empty_database.session_factory.begin() as session:
+        assert (await session.execute(text("SELECT status,sections_failed,subjects FROM scraper_runs"))).one() == ("completed", 1, None)
+        await session.execute(text("INSERT INTO scraper_runs(scraper,term,status,subjects) VALUES ('banner','202690','partial',ARRAY['CS'])"))
+    assert await _apply(empty_database) == []
 
 
 @pytest.mark.asyncio
@@ -269,6 +285,7 @@ async def test_cli_status_is_read_only_and_apply_uses_the_real_chain(empty_datab
     assert status.returncode == 0, status.stderr
     assert "015 APPLIED" in status.stdout
     assert "016 APPLIED" in status.stdout
+    assert "017 APPLIED" in status.stdout
     assert "008 DEFERRED" in status.stdout
     assert "PENDING" not in status.stdout
 

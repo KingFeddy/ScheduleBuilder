@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -29,27 +28,6 @@ def api(monkeypatch):
     with_db_override = TestClient(app)
     yield with_db_override, result
     with_db_override.close()
-
-
-@pytest.mark.parametrize("status", [
-    "never_run", "running", "completed", "failed", "blocked", "schema_change", "skipped_overlap",
-])
-def test_scraper_status_has_one_shape_for_every_state(api, status):
-    # CONTRACT: unknown counts stay null, zero stays zero, and state names match
-    # stored scraper runs rather than a frontend-only 'success' value.
-    client, result = api
-    finished = datetime(2026, 9, 12, 15, tzinfo=timezone.utc) if status == "completed" else None
-    count = 0 if status == "completed" else None
-    error = "Synthetic blocked response" if status == "blocked" else None
-    result.mappings.return_value.first.return_value = None if status == "never_run" else {
-        "status": status, "finished_at": finished, "sections_upserted": count, "error_message": error,
-    }
-    response = client.get("/api/scraper/status")
-    assert response.status_code == 200
-    assert response.json() == {
-        "last_scrape": finished.isoformat() if finished else None,
-        "status": status, "sections_upserted": count, "error_message": error,
-    }
 
 
 def test_section_lists_and_solved_sections_keep_distinct_shapes(api, monkeypatch):

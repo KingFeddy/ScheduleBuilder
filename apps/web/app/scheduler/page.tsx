@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
-import { Loader2, TriangleAlert } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useSchedulerStore } from '@/store/scheduler'
 import { solveSchedule, getApiErrorMessage, getProfessor, isAbortError, type ProfessorResponse } from '@/lib/api'
-import { useScraperStatus } from '@/hooks/useScraperStatus'
+import { ScraperFreshness } from '@/components/scheduler/scraper-freshness'
 import { CourseSelector } from '@/components/scheduler/course-selector'
 import { CommuterToggles } from '@/components/scheduler/commuter-toggles'
 import { ResultNavigator } from '@/components/scheduler/result-navigator'
@@ -92,15 +92,7 @@ export default function SchedulerPage() {
     }
   }
 
-  const { lastScrape, isStale } = useScraperStatus()
   const activeResult = hasTermData ? results[activeResultIndex] ?? null : null
-
-  const staleBannerText = useMemo(() => {
-    if (!lastScrape) return 'Seat availability data age is unknown — verify open seats in Banner before registering.'
-    // eslint-disable-next-line react-hooks/purity
-    const ageMin = Math.round((Date.now() - lastScrape.getTime()) / 60_000)
-    return `Seat availability data is ${ageMin} min old — verify open seats in Banner before registering.`
-  }, [lastScrape])
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -155,12 +147,7 @@ export default function SchedulerPage() {
 
       {/* Right panel */}
       <div className="flex-1 flex flex-col p-5 gap-4 min-w-0">
-        {isStale && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-surface-2 text-xs text-yellow">
-            <TriangleAlert className="w-3.5 h-3.5 flex-shrink-0" />
-            <span>{staleBannerText}</span>
-          </div>
-        )}
+        {selectedTerm && <ScraperFreshness key={termRevision} term={term} />}
         {hasTermData && results.length > 0 && <ResultNavigator />}
         <ScheduleGrid result={activeResult} />
       </div>

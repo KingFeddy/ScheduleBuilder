@@ -514,7 +514,7 @@ async def test_one_blocked_subject_continues_remaining_subjects(db_session):
 
     call_log: list[str] = []
 
-    async def mock_scrape(session, subject, term):
+    async def mock_scrape(session, subject, term, *, progress=None):
         call_log.append(subject)
         if subject == "CS":
             raise BannerBlockedError("blocked")
@@ -533,7 +533,7 @@ async def test_schema_change_aborts_remaining_subjects(db_session):
 
     call_log: list[str] = []
 
-    async def mock_scrape(session, subject, term):
+    async def mock_scrape(session, subject, term, *, progress=None):
         call_log.append(subject)
         if subject == "CS":
             raise BannerSchemaError("key missing")

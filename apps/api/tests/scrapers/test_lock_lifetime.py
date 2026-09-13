@@ -180,7 +180,7 @@ async def test_banner_rejects_overlap_after_progress_and_error_commits(
     async with db_session_factory() as first, db_session_factory() as second:
         calls = []
 
-        async def scrape_subject(session, subject, term):
+        async def scrape_subject(session, subject, term, *, progress=None):
             calls.append(subject)
             if subject == "DUPLICATE":
                 return 0, 0, 0
@@ -238,7 +238,7 @@ async def test_cancelled_scraper_releases_lock_and_pool_connections(
     entered = asyncio.Event()
     lock_id = lock.BANNER_SCRAPER_LOCK_ID if scraper == "banner" else lock.RMP_SCRAPER_LOCK_ID
 
-    async def pause(*args):
+    async def pause(*args, **kwargs):
         entered.set()
         await asyncio.Event().wait()
 

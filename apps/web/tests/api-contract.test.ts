@@ -29,7 +29,9 @@ export const incompleteDegree: ParsedDegreeValidated = {
   completed_courses: [], in_progress_courses: [], still_needed: [],
 }
 export const neverScraped: Awaited<ReturnType<typeof getScraperStatus>> = {
-  last_scrape: null, status: 'never_run', sections_upserted: null, error_message: null,
+  term: '202690', status: 'never_run', checked_at: '2026-09-13T12:00:00Z',
+  latest_attempt: null, last_successful_refresh: null, data_as_of: null,
+  section_count: 0, sections_missing_timestamps: 0,
 }
 
 // Backend defaults make options optional; explicit null bounds are also accepted.

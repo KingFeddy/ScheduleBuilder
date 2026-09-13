@@ -978,7 +978,7 @@
         "title": "ScheduleResult",
         "type": "object"
       },
-      "ScraperStatusResponse": {
+      "ScraperRunResponse": {
         "properties": {
           "error_message": {
             "anyOf": [
@@ -991,16 +991,28 @@
             ],
             "title": "Error Message"
           },
-          "last_scrape": {
+          "finished_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Last Scrape"
+            "title": "Finished At"
+          },
+          "sections_failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections Failed"
           },
           "sections_upserted": {
             "anyOf": [
@@ -1013,11 +1025,23 @@
             ],
             "title": "Sections Upserted"
           },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
           "status": {
             "enum": [
-              "never_run",
               "running",
               "completed",
+              "partial",
               "failed",
               "blocked",
               "schema_change",
@@ -1025,13 +1049,117 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "subjects": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subjects"
           }
         },
         "required": [
-          "last_scrape",
           "status",
+          "subjects",
+          "started_at",
+          "finished_at",
           "sections_upserted",
+          "sections_failed",
           "error_message"
+        ],
+        "title": "ScraperRunResponse",
+        "type": "object"
+      },
+      "ScraperStatusResponse": {
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "data_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data As Of"
+          },
+          "last_successful_refresh": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScraperRunResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScraperRunResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "section_count": {
+            "title": "Section Count",
+            "type": "integer"
+          },
+          "sections_missing_timestamps": {
+            "title": "Sections Missing Timestamps",
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "const": "never_run",
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "running",
+                  "completed",
+                  "partial",
+                  "failed",
+                  "blocked",
+                  "schema_change",
+                  "skipped_overlap"
+                ],
+                "type": "string"
+              }
+            ],
+            "title": "Status"
+          },
+          "term": {
+            "pattern": "^[0-9]{4}(10|50|90)$",
+            "title": "Term",
+            "type": "string"
+          }
+        },
+        "required": [
+          "term",
+          "status",
+          "checked_at",
+          "latest_attempt",
+          "last_successful_refresh",
+          "data_as_of",
+          "section_count",
+          "sections_missing_timestamps"
         ],
         "title": "ScraperStatusResponse",
         "type": "object"
@@ -1882,8 +2010,19 @@
     },
     "/api/scraper/status": {
       "get": {
-        "description": "Returns the last Banner scrape timestamp and status.\nUsed by the frontend to show a staleness warning when seat data is old.",
         "operationId": "scraper_status_api_scraper_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "term",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9]{4}(10|50|90)$",
+              "title": "Term",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1894,6 +2033,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Scraper Status"

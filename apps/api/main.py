@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -17,6 +17,8 @@ from src.config import settings
 from src.dependencies import get_db
 from src.schemas.status import DegradedHealthResponse, HealthResponse, ScraperStatusResponse, VersionResponse
 from src.services.meeting_integrity import IncompleteMeetingData
+from src.services.scraper_status import load_scraper_status
+from src.terms import TERM_CODE_PATTERN
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -107,31 +109,13 @@ async def health(request: Request):
 
 
 @app.get("/api/scraper/status", response_model=ScraperStatusResponse)
-async def scraper_status(db: AsyncSession = Depends(get_db)):
-    """
-    Returns the last Banner scrape timestamp and status.
-    Used by the frontend to show a staleness warning when seat data is old.
-    """
-    result = await db.execute(
-        text("""
-            SELECT status, finished_at, sections_upserted, error_message
-            FROM scraper_runs
-            WHERE scraper = 'banner'
-            ORDER BY started_at DESC
-            LIMIT 1
-        """)
-    )
-    row = result.mappings().first()
-
-    if not row:
-        return {"last_scrape": None, "status": "never_run", "sections_upserted": None, "error_message": None}
-
-    return {
-        "last_scrape":       row["finished_at"].isoformat() if row["finished_at"] else None,
-        "status":            row["status"],
-        "sections_upserted": row["sections_upserted"],
-        "error_message":     row["error_message"],
-    }
+async def scraper_status(
+    response: Response,
+    term: str = Query(..., pattern=TERM_CODE_PATTERN),
+    db: AsyncSession = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return await load_scraper_status(db, term)
 
 
 @app.get("/api/version", response_model=VersionResponse)

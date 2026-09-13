@@ -72,12 +72,12 @@ for (const [header, milliseconds] of [['30', 30_000], ['0', 0], ['1.5', null], [
 test('handles future and expired HTTP-date Retry-After values', async ({ transport }) => {
   const future = new Date(Date.now() + 60_000).toUTCString()
   transport.respond(async () => Response.json({ detail: 'Busy' }, { status: 503, headers: { 'Retry-After': future } }))
-  const error = await rejection(api.getScraperStatus())
+  const error = await rejection(api.getScraperStatus('202690'))
   expect(error.retryAfter).toBe(future)
   expect(error.retryAfterMs).toBeGreaterThan(55_000)
   expect(error.retryAfterMs).toBeLessThanOrEqual(60_000)
   transport.respond(async () => new Response('', { status: 503, headers: { 'Retry-After': 'Wed, 01 Jan 2020 00:00:00 GMT' } }))
-  expect((await rejection(api.getScraperStatus())).retryAfterMs).toBe(0)
+  expect((await rejection(api.getScraperStatus('202690'))).retryAfterMs).toBe(0)
 })
 
 for (const body of ['', '<html>Proxy unavailable</html>', '{invalid json']) {
@@ -115,7 +115,7 @@ test('retains HTTP status and retry headers when reading an error body fails', a
     response.text = async () => { throw new TypeError('Synthetic interrupted body') }
     return response
   })
-  const error = await rejection(api.getScraperStatus())
+  const error = await rejection(api.getScraperStatus('202690'))
   expect(error.status).toBe(503)
   expect(error.kind).toBe('http')
   expect(error.retryAfterMs).toBe(12_000)
@@ -142,7 +142,7 @@ const callers: [string, (options: api.ApiRequestOptions) => Promise<unknown>][] 
   ['parse', (options) => api.parsePlan('synthetic-pdf', 'synthetic-hash', options)],
   ['generate', (options) => api.generatePlan(parsedDegree, { courses: [], credits_per_semester: 15 }, options)],
   ['GER', (options) => api.getGerCourses(options)],
-  ['scraper status', (options) => api.getScraperStatus(options)],
+  ['scraper status', (options) => api.getScraperStatus('202690', options)],
 ]
 
 for (const [label, call] of callers) {
@@ -222,7 +222,7 @@ test('retains received status and retry information when body reading times out'
     }
     return response
   })
-  const error = await rejection(api.getScraperStatus({ signal: controller.signal }))
+  const error = await rejection(api.getScraperStatus('202690', { signal: controller.signal }))
   expect(error.status).toBe(503)
   expect(error.retryAfterMs).toBe(12_000)
   expect(api.isAbortError(error)).toBe(false)

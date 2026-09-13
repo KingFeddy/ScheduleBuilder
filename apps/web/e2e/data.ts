@@ -59,9 +59,15 @@ export const sectionList: SectionResponse[] = sections.map((section) => ({
   scraped_at: section.scraped_at, meetings: section.meetings,
 }))
 
+const completeRefresh = {
+  status: 'completed' as const, subjects: ['CS', 'HUM'], sections_upserted: 2,
+  sections_failed: 0, error_message: null,
+  started_at: '2026-09-12T14:50:00Z', finished_at: '2026-09-12T14:55:00Z',
+}
 export const scraperStatus: ScraperStatusResponse = {
-  last_scrape: '2026-09-12T14:55:00Z', status: 'completed',
-  sections_upserted: 2, error_message: null,
+  term: '202690', status: 'completed', checked_at: '2026-09-12T15:00:00Z',
+  latest_attempt: completeRefresh, last_successful_refresh: completeRefresh,
+  data_as_of: completeRefresh.started_at, section_count: 2, sections_missing_timestamps: 0,
 }
 
 export const parsedDegree: ParsedDegreeValidated = {

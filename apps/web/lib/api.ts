@@ -149,6 +149,6 @@ export function getGerCourses(options: ApiRequestOptions = {}): Promise<GerCours
   return apiFetch('/api/plan/ger-courses', { signal: options.signal })
 }
 
-export function getScraperStatus(options: ApiRequestOptions = {}): Promise<ScraperStatusResponse> {
-  return apiFetch('/api/scraper/status', { signal: options.signal })
+export function getScraperStatus(term: string, options: ApiRequestOptions = {}): Promise<ScraperStatusResponse> {
+  return apiFetch(`/api/scraper/status?term=${encodeURIComponent(term)}`, { signal: options.signal })
 }

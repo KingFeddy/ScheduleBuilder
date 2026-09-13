@@ -233,7 +233,8 @@ catalog records; section counts include only the requested term. It includes
 configured subjects with zero records and retained subjects outside configuration.
 Warnings distinguish excluded subjects, missing catalog courses, and missing term
 sections. Zero collected sections does **not** prove that NJIT offers no classes.
-These counts do not describe scrape completion or freshness; those remain Goal 19.
+These counts do not describe scrape completion or freshness; use the separate
+semester-specific refresh status described below.
 
 Course search/detail, elective candidates, and planned courses carry a separate
 `catalog_status` and `catalog_note`. `present` means a row exists for a configured
@@ -284,7 +285,47 @@ the computer's date. Future course-offering validation remains Goal 30.
 No database migration is required. Deploy the term-discovery API before the
 updated frontend, and keep the API and scraper default settings aligned.
 
-### 9. Design system built on CSS tokens
+### 9. Semester-specific refresh status and data age
+
+`GET /api/scraper/status?term=202690` separates `latest_attempt` from
+`last_successful_refresh`. It reads overall Banner runs for the requested term;
+subject diagnostic rows and other terms cannot replace that status. A full refresh
+requires a completed run with zero section failures, known counts, valid start/end
+timestamps, and a recorded scope covering the currently configured subjects.
+Failed, partial, running, or overlap-skipped attempts never advance it.
+
+Migration 017 records each run's requested `subjects`, supports a `partial` outcome,
+and adds an index for term-specific status lookups. Existing history is preserved
+with unknown scope, so old records cannot establish a full refresh under the new
+contract. A subsequent successful scrape supplies that proof. Mixed legacy runs
+with positive failure counts are reported as partial rather than completed.
+
+The scraper marks a run completed only when every requested subject succeeds;
+a validated empty subject is a success. Mixed subject/section outcomes are partial.
+An entirely unsuccessful or empty request fails. An exception may occur after
+earlier pages committed, so aggregate counts become unknown rather than reporting
+incomplete totals as exact. Committed progress survives a later page failure or
+cancellation, so an interrupted run is partial when any section or complete
+subject was refreshed and failed otherwise. Cancellation still propagates, with
+best-effort health-record finalization. Skipped attempts record a finish time but
+cannot refresh data. Metadata/prerequisite verification remains separate from
+these section and seat-refresh outcomes.
+
+`data_as_of` conservatively uses the earlier of the full run's start and the oldest
+retained section timestamp for the term, including older excluded-subject rows.
+Missing/future timestamps, no full-refresh proof, or no section rows produce an
+unknown age. This does not claim all observations happened simultaneously.
+The scheduler shows the latest attempt, last full refresh, and seat-data age.
+More than 45 minutes is stale; unknown ages and failed checks are visibly flagged.
+Polling runs sequentially every three minutes after a response, with a retry on
+failure. Age keeps advancing between responses using server time plus elapsed
+browser time; semester changes/navigation cancel obsolete polling.
+
+Apply migration 017 before the updated API/scraper and deploy the coordinated
+frontend contract. The endpoint now requires `term` and replaces the ambiguous
+`last_scrape` field. No live scraper or production migration is run by local tests.
+
+### 10. Design system built on CSS tokens
 
 The UI targets a specific aesthetic: Linear's layout and density, Vercel's data-heavy tables, Raycast's command-palette interaction. The design is enforced through a Tailwind token layer — no raw color classes anywhere in the codebase.
 
@@ -519,9 +560,9 @@ Contract details that previously differed between the two sides:
   and `section_number` through `SolveSectionResponse`.
 - Unknown titles, professor metadata, and degree credit totals remain nullable.
   The UI labels missing titles/totals and avoids calculations with unknown totals.
-- Scraper status always returns `last_scrape`, `status`, `sections_upserted`, and
-  `error_message`. This corrects the old `sections_updated` / `error` keys. With
-  no recorded run, status is `never_run` and the other three values are null.
+- Scraper status requires a term and separates the latest attempt, last full
+  refresh, and data-age cutoff. Counts and errors belong to their run objects.
+  Unknown runs, timestamps, and counts remain nullable; an actual zero stays zero.
 
 These checks establish response-shape consistency; they do not validate arbitrary
 JSON at runtime in the browser. Planner generation inputs remain broad dictionaries
@@ -697,7 +738,7 @@ the service with the cleanup and startup commands above to apply the new bootstr
 ## Database migrations
 
 `apps/api/migrations/manifest.json` lists migrations in order. Fresh databases apply
-000, 007, 009, 012, 013, 014, 015, and 016. Migration 008 remains deferred until meeting backfill
+000, 007, 009, 012, 013, 014, 015, 016, and 017. Migration 008 remains deferred until meeting backfill
 coverage is verified and at least two weeks of production scraper data are
 confirmed; its legacy section columns remain available. Numbers 010 and 011 stay
 unused because their subsystems were removed.
@@ -737,9 +778,9 @@ DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE' \
 uv run --no-sync python -m scripts.verify_migrations
 ```
 
-It checks the six runtime tables and all 47 required columns, including
+It checks the six runtime tables and all 48 required columns, including
 `sections.section_number`, course metadata sources, prerequisite rules/evidence/verification metadata, and every
-scraper-status field. It also checks column
+scraper-status field, including recorded run scope. It also checks column
 types and nullability, required defaults and generated values, primary and unique
 keys used by upserts, cascading foreign keys, validated meeting/status checks, and
 indexes supporting the declared access paths. Missing or incompatible items are

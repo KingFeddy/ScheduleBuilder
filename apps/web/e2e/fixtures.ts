@@ -51,7 +51,8 @@ class MockApi {
       async (route) => { await route.fulfill({ status: 404, json: { detail: 'Professor not found in RMP cache.' } }) },
     ]),
     ['GET /api/scraper/status', async (route) => {
-      await route.fulfill({ json: scraperStatus })
+      const term = new URL(route.request().url()).searchParams.get('term') || ''
+      await route.fulfill({ json: { ...scraperStatus, term } })
     }],
     ['POST /api/schedule/solve', async (route) => { await route.fulfill({ json: solveResponse }) }],
     ['POST /api/plan/parse', async (route) => {

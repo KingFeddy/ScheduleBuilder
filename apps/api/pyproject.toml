@@ -18,6 +18,11 @@ dependencies = [
 [tool.uv]
 package = false
 
+[tool.pytest.ini_options]
+markers = [
+    "database: requires the explicitly configured disposable PostgreSQL test database",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

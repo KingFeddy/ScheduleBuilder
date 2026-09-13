@@ -1,5 +1,6 @@
 import sys
 import logging
+import os
 from typing import ClassVar
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,7 +8,10 @@ logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=None if os.environ.get("APP_ENV") == "test" else ".env",
+        extra="ignore",
+    )
 
     DATABASE_URL:       str
     SUPABASE_URL:       str

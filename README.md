@@ -208,6 +208,51 @@ pnpm dev               # proxies /api/* to localhost:8000 via next.config.ts
 
 ---
 
+## Running backend tests safely
+
+Database tests use a separate, disposable PostgreSQL service. They never use the
+application's `DATABASE_URL` or load its `.env` file. Start Docker Desktop, then run
+from the repository root:
+
+```bash
+docker compose -f compose.test.yml up -d --wait
+cd apps/api
+APP_ENV=test \
+TEST_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
+uv run pytest tests/ -q
+```
+
+The service binds only to `127.0.0.1:55432`, initializes the test schema, and keeps
+its data in memory. The credentials above are public, test-only credentials.
+Before collecting tests, pytest verifies the database's identity and disposable
+marker using a read-only connection and a non-superuser test role. Remote hosts,
+other database/role names, connection query parameters, and unmarked databases
+are rejected before fixtures run. CI provisions and checks the same database
+identity in its disposable PostgreSQL service.
+
+For pure and mocked tests without Docker, run from `apps/api`:
+
+```bash
+uv run pytest tests/ -m "not database" -q
+```
+
+The `database` marker is applied automatically to tests using database fixtures.
+Running the full suite without explicit test database configuration fails before
+fixture setup; it does not silently skip the database tests. Test imports also
+disable Sentry and substitute local dummy service settings.
+
+To remove the disposable database, run from the repository root:
+
+```bash
+docker compose -f compose.test.yml down --volumes
+```
+
+Stopping the service discards its data. Start it again to recreate a clean schema.
+The current fixture cleanup is intended for a single test run at a time; fixture
+ownership and concurrent-run isolation are the next backlog goal.
+
+---
+
 ## Architectural decisions
 
 Over 20 ADRs are documented in [`docs/DECISIONS.md`](docs/DECISIONS.md), covering every significant choice from the solver algorithm to the PDF parsing strategy to the color palette. A few worth reading:

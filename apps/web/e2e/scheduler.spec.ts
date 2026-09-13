@@ -69,7 +69,8 @@ test('shows a no-results warning and can solve again', async ({ page, api }) => 
 })
 
 test('lets students select a course with an unknown catalog title', async ({ page, api }) => {
-  api.respond('GET', '/api/courses', [{ course_code: 'CS280', title: null, credits: 3 }])
+  api.respond('GET', '/api/courses', [{ course_code: 'CS280', title: null, credits: null,
+    title_status: 'missing', credits_status: 'missing', credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }])
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
   await page.getByRole('button', { name: 'CS280 Title unavailable' }).click()

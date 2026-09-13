@@ -17,7 +17,22 @@ from tests.database_isolation import isolated_test_database
 
 
 API_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_VERSIONS = ["000", "007", "009", "012", "013", "014", "015"]
+ACTIVE_VERSIONS = ["000", "007", "009", "012", "013", "014", "015", "016"]
+
+
+@pytest.mark.asyncio
+async def test_course_metadata_upgrade_preserves_legacy_values_without_verifying_them(empty_database):
+    from scripts.migrate import load_migrations
+    await _apply(empty_database, [m for m in load_migrations() if m.version < "016"])
+    async with empty_database.session_factory.begin() as session:
+        await session.execute(text("INSERT INTO courses(course_code,title,credits) VALUES ('ZZZ901','Legacy title',3),('ZZZ902','Known four',4)"))
+    await _apply(empty_database)
+    async with empty_database.session_factory.begin() as session:
+        rows = (await session.execute(text("SELECT title,credits,title_source,credits_source,metadata_latest_attempt FROM courses ORDER BY course_code"))).all()
+        assert rows == [("Legacy title", 3, None, None, None), ("Known four", 4, None, None, None)]
+        await session.execute(text("INSERT INTO courses(course_code) VALUES ('ZZZ903')"))
+        row = (await session.execute(text("SELECT title,credits FROM courses WHERE course_code='ZZZ903'"))).one()
+        assert row == (None, None)
 
 
 @pytest_asyncio.fixture
@@ -138,7 +153,7 @@ async def test_rule_migration_does_not_invent_structure_or_verify_legacy_arrays(
                    ('ZZZ998', 'Legacy empty', 3, '{}', 'verified_empty', now(), now(), NULL),
                    ('ZZZ999', 'Legacy failed', 3, ARRAY['ZZZ996'], 'failed', now(), now(), 'Old failure')
         """))
-    assert [m.version for m in await _apply(empty_database)] == ["015"]
+    assert [m.version for m in await _apply(empty_database, [m for m in load_migrations() if m.version <= "015"])] == ["015"]
     async with empty_database.session_factory() as session:
         courses = (await session.execute(text("SELECT * FROM courses ORDER BY course_code"))).mappings().all()
         assert [c["prerequisites"] for c in courses] == [["ZZZ996"], [], ["ZZZ996"]]
@@ -150,7 +165,7 @@ async def test_rule_migration_does_not_invent_structure_or_verify_legacy_arrays(
             assert course["prerequisites_latest_attempt"] is None
             assert course["prerequisites_verified_at"] is None
             assert course["prerequisites_attempted_at"] is not None
-    assert await _apply(empty_database) == []
+    assert await _apply(empty_database, [m for m in load_migrations() if m.version <= "015"]) == []
 
 
 @pytest.mark.asyncio
@@ -253,6 +268,7 @@ async def test_cli_status_is_read_only_and_apply_uses_the_real_chain(empty_datab
     status = await command("status")
     assert status.returncode == 0, status.stderr
     assert "015 APPLIED" in status.stdout
+    assert "016 APPLIED" in status.stdout
     assert "008 DEFERRED" in status.stdout
     assert "PENDING" not in status.stdout
 

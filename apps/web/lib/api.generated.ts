@@ -229,22 +229,62 @@ export interface components {
             /** Course Code */
             course_code: string;
             /** Credits */
-            credits: number;
+            credits: number | null;
+            /** Credits Max */
+            credits_max: number | null;
+            /** Credits Min */
+            credits_min: number | null;
+            /** Credits Options */
+            credits_options: number[];
+            /**
+             * Credits Status
+             * @default unverified
+             * @enum {string}
+             */
+            credits_status: "fixed" | "variable" | "unverified" | "missing";
+            /** Metadata Warnings */
+            metadata_warnings: string[];
             /** Prerequisites */
             prerequisites: string[];
             /** Sections */
             sections: components["schemas"]["SectionResponse"][];
             /** Title */
             title: string | null;
+            /**
+             * Title Status
+             * @default unverified
+             * @enum {string}
+             */
+            title_status: "verified" | "unverified" | "missing";
         };
         /** CourseResponse */
         CourseResponse: {
             /** Course Code */
             course_code: string;
             /** Credits */
-            credits: number;
+            credits: number | null;
+            /** Credits Max */
+            credits_max: number | null;
+            /** Credits Min */
+            credits_min: number | null;
+            /** Credits Options */
+            credits_options: number[];
+            /**
+             * Credits Status
+             * @default unverified
+             * @enum {string}
+             */
+            credits_status: "fixed" | "variable" | "unverified" | "missing";
+            /** Metadata Warnings */
+            metadata_warnings: string[];
             /** Title */
             title: string | null;
+            /**
+             * Title Status
+             * @default unverified
+             * @enum {string}
+             */
+            title_status: "verified" | "unverified" | "missing";
         };
         /** DegradedHealthResponse */
         DegradedHealthResponse: {
@@ -285,6 +325,12 @@ export interface components {
             code: string;
             /** Title */
             title: string | null;
+            /**
+             * Title Status
+             * @default unverified
+             * @enum {string}
+             */
+            title_status: "verified" | "unverified" | "missing";
         };
         /** GerCoursesResponse */
         GerCoursesResponse: {
@@ -384,10 +430,26 @@ export interface components {
             course_code: string;
             /** Credits */
             credits: number;
+            /**
+             * Credits Estimated
+             * @default true
+             */
+            credits_estimated: boolean;
+            /**
+             * Credits Note
+             * @default Credit estimate for an unresolved course.
+             */
+            credits_note: string;
             /** Reason */
             reason: string;
             /** Title */
             title: string | null;
+            /**
+             * Title Status
+             * @default unverified
+             * @enum {string}
+             */
+            title_status: "verified" | "unverified" | "missing";
         };
         /** ProfessorResponse */
         ProfessorResponse: {

@@ -165,7 +165,52 @@ production formats. Regression coverage lives in
 `apps/api/tests/scrapers/test_prerequisite_rules.py` and
 `apps/api/tests/scrapers/test_prerequisite_verification.py`.
 
-### 6. Design system built on CSS tokens
+### 6. Course metadata and credit estimates
+
+Course credits and titles refresh from Banner's section search fields after a
+complete subject scrape with successful section writes. All observed sections of
+a course must agree before a field is verified. Title and credit validation are
+independent: a missing title can retain the previous title while valid credits
+update. Incomplete pagination, failed section writes, conflicting values, or invalid
+fields preserve previously saved metadata. A rejected metadata transaction rolls
+back before recording its failure; cancellation preserves the prior values and
+propagates.
+
+Supported credit values include zero, one-credit labs, four-credit courses, and
+fractions with at most two decimal places, from 0 through 100. `creditHours` and
+`creditHourLow`/`creditHourHigh` must be consistent. Variable-credit `TO` bounds
+remain a range; `OR` bounds remain discrete alternatives. Missing, contradictory,
+or unsupported fields never become a verified three-credit default.
+
+Migration 016 makes `courses.title` and `courses.credits` nullable and changes
+credits to PostgreSQL `NUMERIC`. Existing values remain intact and unverified until
+refreshed. New courses can have unknown credits and titles. `title_source` and
+`credits_source` store each verified value with its URL, observed term, section
+CRNs, timestamp, and selected Banner fields. `metadata_latest_attempt` records
+missing/invalid/conflicting fields or a rejected save. Malformed evidence is bounded
+and safely encoded; source evidence is internal to the database.
+
+Course search/detail responses expose title status, credit status, variable-credit
+bounds/options, and refresh warnings. The interface distinguishes fixed credits,
+variable credits, missing data, and unverified legacy values. GER titles also carry
+verification status. These statuses describe the retained observation; they do not
+prove that all future terms will have the same metadata.
+
+The planner uses verified fixed credits directly. For variable credits it uses the
+upper supported value as an explicitly labeled estimate; unknown courses use a
+labeled three-credit estimate, and legacy values stay labeled unverified estimates.
+Course rows, semester totals, and the overall total identify estimated amounts.
+These labels survive reloads; older saved plans without verification fields are
+treated as estimates. Selecting a replacement course also marks inherited credits
+as estimates until proper recalculation is implemented in Goal 46. Quantity-aware
+allocation and full credit reconciliation remain Goals 24 and 26.
+
+Tests cover extraction, actual PostgreSQL writes/rollback/cancellation, migration
+upgrades, API contracts, planner use, and browser rendering. Fixtures are synthetic;
+the current NJIT production formats and existing data still require the later
+catalog audit and release checks.
+
+### 7. Design system built on CSS tokens
 
 The UI targets a specific aesthetic: Linear's layout and density, Vercel's data-heavy tables, Raycast's command-palette interaction. The design is enforced through a Tailwind token layer — no raw color classes anywhere in the codebase.
 
@@ -576,7 +621,7 @@ the service with the cleanup and startup commands above to apply the new bootstr
 ## Database migrations
 
 `apps/api/migrations/manifest.json` lists migrations in order. Fresh databases apply
-000, 007, 009, 012, 013, 014, and 015. Migration 008 remains deferred until meeting backfill
+000, 007, 009, 012, 013, 014, 015, and 016. Migration 008 remains deferred until meeting backfill
 coverage is verified and at least two weeks of production scraper data are
 confirmed; its legacy section columns remain available. Numbers 010 and 011 stay
 unused because their subsystems were removed.
@@ -616,8 +661,8 @@ DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE' \
 uv run --no-sync python -m scripts.verify_migrations
 ```
 
-It checks the six runtime tables and all 44 required columns, including
-`sections.section_number`, prerequisite rules/evidence/verification metadata, and every
+It checks the six runtime tables and all 47 required columns, including
+`sections.section_number`, course metadata sources, prerequisite rules/evidence/verification metadata, and every
 scraper-status field. It also checks column
 types and nullability, required defaults and generated values, primary and unique
 keys used by upserts, cascading foreign keys, validated meeting/status checks, and

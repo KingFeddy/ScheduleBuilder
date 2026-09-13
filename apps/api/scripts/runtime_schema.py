@@ -18,8 +18,11 @@ class Column:
 COLUMNS = {
     "courses": {
         "course_code": Column("text"),
-        "title": Column("text"),
-        "credits": Column("integer"),
+        "title": Column("text", nullable=True),
+        "credits": Column("numeric", nullable=True),
+        "title_source": Column("jsonb", nullable=True),
+        "credits_source": Column("jsonb", nullable=True),
+        "metadata_latest_attempt": Column("jsonb", nullable=True),
         "prerequisites": Column("text[]", default="'{}'::text[]"),
         "prerequisites_status": Column("text", default="'unverified'::text"),
         "prerequisites_attempted_at": Column("timestamp with time zone", nullable=True),
@@ -100,6 +103,10 @@ FOREIGN_KEYS = (
 # and an explicit contract update; arbitrary SQL equivalence is not inferred.
 CHECKS = {
     "courses": {
+        "credits_valid": "((credits IS NULL) OR ((credits >= (0)::numeric) AND (credits < 'Infinity'::numeric)))",
+        "title_source_object": "((title_source IS NULL) OR (jsonb_typeof(title_source) = 'object'::text))",
+        "credits_source_object": "((credits_source IS NULL) OR (jsonb_typeof(credits_source) = 'object'::text))",
+        "metadata_attempt_object": "((metadata_latest_attempt IS NULL) OR (jsonb_typeof(metadata_latest_attempt) = 'object'::text))",
         "prerequisites_status": "(prerequisites_status = ANY (ARRAY['unverified'::text, 'verified'::text, 'verified_empty'::text, 'failed'::text, 'unresolved'::text]))",
         "prerequisites_rules_object": "((prerequisites_rules IS NULL) OR (jsonb_typeof(prerequisites_rules) = 'object'::text))",
         "prerequisites_source_object": "((prerequisites_source IS NULL) OR (jsonb_typeof(prerequisites_source) = 'object'::text))",

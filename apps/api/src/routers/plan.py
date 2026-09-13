@@ -168,12 +168,13 @@ async def generate_degree_plan(
 
 @router.get("/api/plan/ger-courses", response_model=GerCoursesResponse)
 async def ger_courses(db: AsyncSession = Depends(get_db)):
+    from src.services.course_metadata import title_status
     result = await db.execute(
         text("""
             SELECT
                 SUBSTRING(course_code FROM '^[A-Z]+') AS prefix,
                 course_code,
-                title
+                title, title_source
             FROM courses
             WHERE SUBSTRING(course_code FROM '^[A-Z]+') = ANY(:prefixes)
             ORDER BY course_code
@@ -184,7 +185,7 @@ async def ger_courses(db: AsyncSession = Depends(get_db)):
 
     groups: defaultdict[str, list] = defaultdict(list)
     for row in rows:
-        groups[row["prefix"]].append({"code": row["course_code"], "title": row["title"]})
+        groups[row["prefix"]].append({"code": row["course_code"], "title": row["title"], "title_status": title_status(row)})
 
     return {
         "groups": [

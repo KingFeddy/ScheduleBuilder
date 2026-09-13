@@ -53,8 +53,62 @@
             "type": "string"
           },
           "credits": {
-            "title": "Credits",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
+          },
+          "credits_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Max"
+          },
+          "credits_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Min"
+          },
+          "credits_options": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Credits Options",
+            "type": "array"
+          },
+          "credits_status": {
+            "default": "unverified",
+            "enum": [
+              "fixed",
+              "variable",
+              "unverified",
+              "missing"
+            ],
+            "title": "Credits Status",
+            "type": "string"
+          },
+          "metadata_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Metadata Warnings",
+            "type": "array"
           },
           "prerequisites": {
             "items": {
@@ -80,12 +134,28 @@
               }
             ],
             "title": "Title"
+          },
+          "title_status": {
+            "default": "unverified",
+            "enum": [
+              "verified",
+              "unverified",
+              "missing"
+            ],
+            "title": "Title Status",
+            "type": "string"
           }
         },
         "required": [
           "course_code",
           "title",
           "credits",
+          "title_status",
+          "credits_status",
+          "credits_min",
+          "credits_max",
+          "credits_options",
+          "metadata_warnings",
           "prerequisites",
           "sections"
         ],
@@ -99,8 +169,62 @@
             "type": "string"
           },
           "credits": {
-            "title": "Credits",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
+          },
+          "credits_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Max"
+          },
+          "credits_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Min"
+          },
+          "credits_options": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Credits Options",
+            "type": "array"
+          },
+          "credits_status": {
+            "default": "unverified",
+            "enum": [
+              "fixed",
+              "variable",
+              "unverified",
+              "missing"
+            ],
+            "title": "Credits Status",
+            "type": "string"
+          },
+          "metadata_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Metadata Warnings",
+            "type": "array"
           },
           "title": {
             "anyOf": [
@@ -112,12 +236,28 @@
               }
             ],
             "title": "Title"
+          },
+          "title_status": {
+            "default": "unverified",
+            "enum": [
+              "verified",
+              "unverified",
+              "missing"
+            ],
+            "title": "Title Status",
+            "type": "string"
           }
         },
         "required": [
           "course_code",
           "title",
-          "credits"
+          "credits",
+          "title_status",
+          "credits_status",
+          "credits_min",
+          "credits_max",
+          "credits_options",
+          "metadata_warnings"
         ],
         "title": "CourseResponse",
         "type": "object"
@@ -207,11 +347,22 @@
               }
             ],
             "title": "Title"
+          },
+          "title_status": {
+            "default": "unverified",
+            "enum": [
+              "verified",
+              "unverified",
+              "missing"
+            ],
+            "title": "Title Status",
+            "type": "string"
           }
         },
         "required": [
           "code",
-          "title"
+          "title",
+          "title_status"
         ],
         "title": "GerCourse",
         "type": "object"
@@ -521,7 +672,17 @@
           },
           "credits": {
             "title": "Credits",
-            "type": "integer"
+            "type": "number"
+          },
+          "credits_estimated": {
+            "default": true,
+            "title": "Credits Estimated",
+            "type": "boolean"
+          },
+          "credits_note": {
+            "default": "Credit estimate for an unresolved course.",
+            "title": "Credits Note",
+            "type": "string"
           },
           "reason": {
             "title": "Reason",
@@ -537,6 +698,16 @@
               }
             ],
             "title": "Title"
+          },
+          "title_status": {
+            "default": "unverified",
+            "enum": [
+              "verified",
+              "unverified",
+              "missing"
+            ],
+            "title": "Title Status",
+            "type": "string"
           }
         },
         "required": [
@@ -544,7 +715,10 @@
           "title",
           "credits",
           "badge",
-          "reason"
+          "reason",
+          "credits_estimated",
+          "credits_note",
+          "title_status"
         ],
         "title": "PlannedCourse",
         "type": "object"
@@ -789,7 +963,7 @@
           "total_credits": {
             "default": 0,
             "title": "Total Credits",
-            "type": "integer"
+            "type": "number"
           }
         },
         "required": [

@@ -15,12 +15,13 @@ export const returnedSections: Awaited<ReturnType<typeof getCoursesSections>> = 
 // Truncation describes the entire search, including searches with zero results.
 export const truncatedSearch: SolveResponse = { results: [], warnings: [], truncated: true }
 
-export const unnamedCourse: CourseResponse = { course_code: 'CS280', title: null, credits: 3 }
+export const unnamedCourse: CourseResponse = { course_code: 'CS280', title: null, credits: null,
+  title_status: 'missing', credits_status: 'missing', credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }
 export const unknownProfessor: ProfessorResponse = {
   rmp_score: null, rmp_difficulty: null, rmp_would_take_again: null,
   rmp_num_ratings: null, rmp_tags: [], department: null,
 }
-export const unnamedGer: GerGroup = { prefix: 'HUM', courses: [{ code: 'HUM101', title: null }] }
+export const unnamedGer: GerGroup = { prefix: 'HUM', courses: [{ code: 'HUM101', title: null, title_status: 'missing' }] }
 export const incompleteDegree: ParsedDegreeValidated = {
   student_name: null, majors: ['Computer Science'], minors: [], catalog_year: null,
   credits_completed: null, credits_required: null, credits_remaining: null,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -59,8 +59,10 @@ class ParsedDegreeValidated(ParsedDegree):
 
 
 class GerCourse(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
     code: str
     title: str | None
+    title_status: Literal["verified", "unverified", "missing"] = "unverified"
 
 
 class GerGroup(BaseModel):

@@ -1,5 +1,7 @@
 'use client'
 
+import { catalogCredits } from '@/lib/course-metadata'
+
 import { useEffect, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { getCourses, getCoursesSections, getProfessor, type CourseResponse, type ProfessorResponse } from '@/lib/api'
@@ -119,7 +121,12 @@ export function CourseSelector() {
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-2 transition-colors duration-150"
                 >
                   <CourseCodePill code={course.course_code} />
-                  <span className="text-sm text-text truncate">{course.title || 'Title unavailable'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-text truncate">{course.title || 'Title unavailable'}</span>
+                    {course.title && course.title_status !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
+                    <span className="block text-xs text-muted font-mono">{catalogCredits(course)}</span>
+                    {course.metadata_warnings?.map((warning) => <span key={warning} className="block text-xs text-muted">{warning}</span>)}
+                  </span>
                 </button>
               </li>
             ))}

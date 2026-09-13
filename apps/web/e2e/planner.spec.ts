@@ -94,7 +94,7 @@ test('shows missing degree metadata as unknown without inventing credit totals',
 
 test('searches GER courses when catalog titles are missing', async ({ page, api }) => {
   api.respond('GET', '/api/plan/ger-courses', {
-    groups: [{ prefix: 'HUM', courses: [{ code: 'HUM101', title: null }] }],
+    groups: [{ prefix: 'HUM', courses: [{ code: 'HUM101', title: null, title_status: 'missing' }] }],
   })
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)

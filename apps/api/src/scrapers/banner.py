@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.schemas.prerequisites import PrerequisiteRefresh, SubjectLookup, legacy_course_codes
 
 from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID
+from .course_metadata import metadata_observation, parse_title, refresh_course_metadata
 from .prerequisites import (
     PrerequisiteDataError,
     PrerequisiteRequestError,
@@ -328,20 +329,17 @@ async def _upsert_section_with_meetings(
             break
 
     async with session.begin():
-        # Banner may reference a course_code not yet in the courses table
-        # (e.g. a newly-added special-topics number). Stub it in first so the
-        # sections FK doesn't reject the section outright. DO NOTHING — never
-        # overwrite a real catalog title with this fallback.
+        # The section FK needs a course stub. Credit/title verification waits
+        # for the complete subject's observations; unknown credits stay null.
         await session.execute(
             text("""
-                INSERT INTO courses (course_code, title, credits)
-                VALUES (:course_code, :title, :credits)
+                INSERT INTO courses (course_code, title)
+                VALUES (:course_code, :title)
                 ON CONFLICT (course_code) DO NOTHING
             """),
             {
                 "course_code": course_code,
-                "title":       _clean_course_title(raw_section.get("courseTitle") or course_code),
-                "credits":     3,
+                "title": parse_title(raw_section.get("courseTitle"), course_code, _clean_course_title)[0],
             },
         )
 
@@ -601,6 +599,7 @@ async def scrape_subject(
                 )
                 subject_lookup = None
             seen_course_codes: set[str] = set()
+            course_observations: dict[str, list[dict]] = {}
 
             while True:
                 params = {
@@ -657,6 +656,7 @@ async def scrape_subject(
                         seen_crns.add(raw["courseReferenceNumber"])
 
                         course_code = f"{raw['subject']}{raw['courseNumber']}"
+                        course_observations.setdefault(course_code, []).append(metadata_observation(raw))
                         if course_code not in seen_course_codes:
                             seen_course_codes.add(course_code)
                             try:
@@ -685,6 +685,15 @@ async def scrape_subject(
 
             deleted = 0
             if complete and failed == 0:
+                for code, observations in course_observations.items():
+                    try:
+                        await refresh_course_metadata(
+                            session, code, term, observations, _clean_course_title,
+                            source_url=f"{BANNER_BASE}/searchResults/searchResults",
+                        )
+                    except Exception as exc:
+                        # The owned transaction rolled back; preserve old values.
+                        logger.warning("Failed to refresh course metadata for %s (%s)", code, type(exc).__name__)
                 deleted = await _delete_stale_sections(session, subject, term, seen_crns)
                 if deleted:
                     logger.info(

@@ -24,6 +24,8 @@ from src.scheduler.time_utils import (
     get_planning_terms,
     term_to_label,
 )
+from src.schemas.courses import CourseResponse
+from src.services.course_metadata import course_response, planning_credits
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +100,10 @@ def find_matching_requirement(
 async def get_course_data(
     session: AsyncSession,
     course_codes: list[str],
-) -> dict[str, tuple[int, str | None, list[str]]]:
+) -> dict[str, tuple[CourseResponse, list[str]]]:
     """
-    Returns {course_code: (credits, title, prerequisites)} for all known
-    codes in one query. Defaults to (3, None, []) for unknown courses.
+    Return metadata with its verification state and legacy prerequisite codes.
+    Unknown courses retain null metadata; estimates are made explicitly later.
 
     One ANY(:codes) round-trip replaces the N+1 per-course lookups the
     original design would have made inside the semester assignment loop.
@@ -111,20 +113,23 @@ async def get_course_data(
 
     result = await session.execute(
         text(
-            "SELECT course_code, credits, title, prerequisites FROM courses"
+            "SELECT course_code, credits, title, prerequisites, title_source, credits_source, metadata_latest_attempt FROM courses"
             " WHERE course_code = ANY(:codes)"
         ),
         {"codes": course_codes},
     )
-    data: dict[str, tuple[int, str | None, list[str]]] = {
-        row["course_code"]: (row["credits"], row["title"], row["prerequisites"] or [])
+    data = {
+        row["course_code"]: (course_response(row), row["prerequisites"] or [])
         for row in result.mappings()
     }
 
     for code in course_codes:
         if code not in data:
-            logger.warning("Course %r not found in courses table — defaulting to 3 credits", code)
-            data[code] = (3, None, [])
+            logger.warning("Course %r not found in catalog; metadata remains unknown", code)
+            data[code] = (CourseResponse(
+                course_code=code, title=None, credits=None,
+                title_status="missing", credits_status="missing",
+            ), [])
 
     return data
 
@@ -222,11 +227,16 @@ def validate_parsed_degree(raw: ParsedDegree) -> ParsedDegreeValidated:
 
 @dataclass
 class PlannedCourse:
+    __pydantic_config__ = ConfigDict(json_schema_serialization_defaults_required=True)
+
     course_code: str
     title:       str | None
-    credits:     int
+    credits:     float
     badge:       Literal["Required", "Elective", "TBD"]
     reason:      str
+    credits_estimated: bool = True
+    credits_note: str = "Credit estimate for an unresolved course."
+    title_status: Literal["verified", "unverified", "missing"] = "unverified"
 
 
 @dataclass
@@ -237,7 +247,7 @@ class SemesterCard:
     term:          str      # e.g. "202710"
     term_label:    str      # e.g. "Spring 2027"
     courses:       list[PlannedCourse] = field(default_factory=list)
-    total_credits: int = 0
+    total_credits: float = 0
 
 
 @dataclass
@@ -269,11 +279,14 @@ def _is_last_semester_requirement(requirement: str) -> bool:
 class _ResolvedItem:
     requirement: str
     course_code: str | None   # None = TBD
-    credits:     int = 3
+    credits:     float = 3
     title:       str | None = None
     badge:       str = "Required"   # "Required" | "Elective" | "TBD"
     reason:      str = ""
     must_be_last: bool = False
+    credits_estimated: bool = True
+    credits_note: str = "Credit estimate for an unresolved course."
+    title_status: Literal["verified", "unverified", "missing"] = "unverified"
 
 
 # ── Option selection ──────────────────────────────────────────────────────────
@@ -509,9 +522,12 @@ def _pack_semesters(
                     credits=item.credits,
                     badge=item.badge,
                     reason=item.reason,
+                    credits_estimated=item.credits_estimated,
+                    credits_note=item.credits_note,
+                    title_status=item.title_status,
                 ))
                 placed_at[idx] = term_idx
-                credits_used += item.credits
+                credits_used = round(credits_used + item.credits, 2)
             else:
                 remaining.append(item)
 
@@ -528,6 +544,9 @@ def _pack_semesters(
                 credits=forced.credits,
                 badge=forced.badge,
                 reason=forced.reason,
+                credits_estimated=forced.credits_estimated,
+                credits_note=forced.credits_note,
+                title_status=forced.title_status,
             ))
             placed_at[forced_idx] = term_idx
             credits_used = forced.credits
@@ -719,18 +738,23 @@ async def generate_plan(
     prerequisites_by_code: dict[str, list[str]] = {}
     for r in resolved:
         if r.course_code:
-            credits, title, prereqs = course_data.get(r.course_code, (3, None, []))
-            r.credits = credits
+            course, prereqs = course_data[r.course_code]
+            r.credits, r.credits_estimated, r.credits_note = planning_credits(course)
             # A course never scraped into `courses` has no title — the bare
             # code repeated as its own title ("IS350: IS350") is far less
             # informative than the DegreeWorks requirement name we already
             # have on hand ("Computers, Society, and Ethics").
-            r.title   = title or r.requirement
+            r.title = course.title or r.requirement
+            r.title_status = course.title_status if course.title else "unverified"
+            warnings.extend(f"{r.course_code}: {warning}" for warning in course.metadata_warnings)
             prerequisites_by_code[r.course_code] = prereqs
+
+    if any(r.credits_estimated for r in resolved):
+        warnings.append("Some planned credits are estimates. Confirm the credits for those courses before registering.")
 
     # ── 5. Detect credit overflow ─────────────────────────────────────────────
 
-    total_planned = sum(r.credits for r in resolved)
+    total_planned = round(sum(r.credits for r in resolved), 2)
     available_credits = validated.credits_remaining or 0
 
     if total_planned > available_credits + 6:
@@ -836,7 +860,7 @@ async def generate_plan(
         last = semesters[-1]
         pad_target = min(FULL_TIME_CREDITS, credit_target)
         if last.total_credits < pad_target:
-            gap = pad_target - last.total_credits
+            gap = round(pad_target - last.total_credits, 2)
             last.courses.append(PlannedCourse(
                 course_code="FREE",
                 title="Free Elective",

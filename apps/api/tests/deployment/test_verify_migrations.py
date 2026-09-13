@@ -45,7 +45,7 @@ async def test_current_migrations_pass_without_touching_records(database):
     assert await _errors(database) == []
     async with database.session_factory() as session:
         assert await session.scalar(text("SELECT title FROM courses")) == "Keep this record"
-        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 7
+        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 8
 
 
 @pytest.mark.asyncio
@@ -54,6 +54,7 @@ async def test_current_migrations_pass_without_touching_records(database):
     ("012", "scraper_runs"), ("013", "sections.section_number"),
     ("014", "courses.prerequisites_status"),
     ("015", "courses.prerequisites_rules"),
+    ("016", "courses.credits_source"),
 ])
 async def test_unapplied_runtime_migration_fails(test_database_url, version, missing):
     async with isolated_test_database(test_database_url, initialize=False) as database:
@@ -66,7 +67,7 @@ async def test_unapplied_runtime_migration_fails(test_database_url, version, mis
 # Independent runtime inventory: deleting any field must fail even with an intact
 # ledger. In particular, these include fields omitted by the former verifier.
 RUNTIME_COLUMNS = {
-    "courses": "course_code title credits prerequisites prerequisites_status prerequisites_attempted_at prerequisites_verified_at prerequisites_error prerequisites_rules prerequisites_source prerequisites_latest_attempt",
+    "courses": "course_code title credits prerequisites prerequisites_status prerequisites_attempted_at prerequisites_verified_at prerequisites_error prerequisites_rules prerequisites_source prerequisites_latest_attempt title_source credits_source metadata_latest_attempt",
     "sections": "crn term course_code professor_name total_seats open_seats location scraped_at section_number",
     "meetings": "id crn term days start_time end_time location",
     "professors": "professor_name department",
@@ -96,7 +97,13 @@ async def test_public_table_cannot_replace_missing_target_table(database, table)
 @pytest.mark.parametrize("sql, detail", [
     ("ALTER TABLE sections ALTER COLUMN section_number TYPE integer USING NULL", "TYPE: sections.section_number"),
     ("ALTER TABLE rmp_cache ALTER COLUMN rmp_data TYPE json USING rmp_data::json", "TYPE: rmp_cache.rmp_data"),
-    ("ALTER TABLE courses ALTER COLUMN credits DROP NOT NULL", "NULLABILITY: courses.credits"),
+    ("ALTER TABLE courses ALTER COLUMN credits SET NOT NULL", "NULLABILITY: courses.credits"),
+    ("ALTER TABLE courses ALTER COLUMN title SET NOT NULL", "NULLABILITY: courses.title"),
+    ("ALTER TABLE courses ALTER COLUMN credits TYPE integer", "TYPE: courses.credits"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_credits_valid", "CHECK: courses.credits_valid"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_title_source_object", "CHECK: courses.title_source_object"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_credits_source_object", "CHECK: courses.credits_source_object"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_metadata_attempt_object", "CHECK: courses.metadata_attempt_object"),
     ("ALTER TABLE meetings ALTER COLUMN start_time SET NOT NULL", "NULLABILITY: meetings.start_time"),
     ("ALTER TABLE courses ALTER COLUMN prerequisites DROP DEFAULT", "DEFAULT: courses.prerequisites"),
     ("ALTER TABLE courses ALTER COLUMN prerequisites_status DROP DEFAULT", "DEFAULT: courses.prerequisites_status"),

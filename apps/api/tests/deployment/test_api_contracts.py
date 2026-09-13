@@ -105,11 +105,15 @@ def test_catalog_and_ger_titles_can_be_null(api):
     # CONTRACT: unknown titles survive serialization instead of inventing data.
     client, result = api
     result.mappings.return_value.all.return_value = [{"course_code": "HUM101", "title": None, "credits": 3}]
-    assert client.get("/api/courses").json() == [{"course_code": "HUM101", "title": None, "credits": 3}]
+    assert client.get("/api/courses").json() == [{
+        "course_code": "HUM101", "title": None, "credits": 3,
+        "title_status": "missing", "credits_status": "unverified", "credits_min": None,
+        "credits_max": None, "credits_options": [], "metadata_warnings": [],
+    }]
     result.mappings.return_value.all.return_value = [{"prefix": "HUM", "course_code": "HUM101", "title": None}]
     response = client.get("/api/plan/ger-courses")
     assert response.status_code == 200
-    assert response.json() == {"groups": [{"prefix": "HUM", "courses": [{"code": "HUM101", "title": None}]}]}
+    assert response.json() == {"groups": [{"prefix": "HUM", "courses": [{"code": "HUM101", "title": None, "title_status": "missing"}]}]}
 
 
 def test_parse_response_preserves_missing_metadata(api, monkeypatch):
@@ -176,6 +180,7 @@ def test_generated_plan_serializes_defaults_and_nullable_titles(api, monkeypatch
             {"term": "202710", "term_label": "Spring 2027", "total_credits": 3, "courses": [{
                 "course_code": "TBD", "title": None, "credits": 3, "badge": "TBD",
                 "reason": "Synthetic unresolved requirement",
+                "credits_estimated": True, "credits_note": "Credit estimate for an unresolved course.", "title_status": "unverified",
             }]},
         ], "projected_graduation": "Spring 2027", "warnings": ["Synthetic advisory warning"],
     }

@@ -2,6 +2,7 @@
 
 import { Printer, RefreshCw } from 'lucide-react'
 import type { SemesterPlan as SemesterPlanType } from '@/lib/api'
+import { formatCredits } from '@/lib/course-metadata'
 
 // Known GER subject prefixes at NJIT — swap button shown only for these
 const GER_PREFIXES = new Set(['HUM', 'COM', 'HIST', 'STS', 'LIB', 'SSC'])
@@ -15,12 +16,15 @@ interface CourseRowProps {
   code: string
   title: string | null
   credits: number
+  estimated: boolean
+  creditsNote: string
+  titleStatus: string
   badge: 'Required' | 'Elective' | 'TBD'
   reason: string
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, badge, reason, onSwap }: CourseRowProps) {
+function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, badge, reason, onSwap }: CourseRowProps) {
   const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
 
@@ -29,8 +33,10 @@ function CourseRow({ code, title, credits, badge, reason, onSwap }: CourseRowPro
       <span className="font-mono text-sm text-text w-20 flex-shrink-0">{code}</span>
       <span className="flex-1 min-w-0">
         <span className="block text-sm text-muted group-hover:text-text transition-colors duration-150 truncate">
-          {title ?? code}
+          {title || 'Title unavailable'}
         </span>
+        {title && titleStatus !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
+        {estimated && <span className="block text-xs text-muted">{creditsNote || 'Credits are unverified; this amount is an estimate.'}</span>}
         {showReason && (
           <span className="block text-xs text-faint truncate">{reason}</span>
         )}
@@ -43,8 +49,8 @@ function CourseRow({ code, title, credits, badge, reason, onSwap }: CourseRowPro
           swap →
         </button>
       )}
-      <span className="font-mono tabular-nums text-xs text-faint w-12 text-right flex-shrink-0">
-        {credits} cr
+      <span className="font-mono tabular-nums text-xs text-faint w-32 text-right flex-shrink-0">
+        {formatCredits(credits)} cr{estimated ? ' (estimated)' : ''}
       </span>
       <span
         className={[
@@ -96,6 +102,7 @@ export function SemesterPlan({
   onSwapCourse,
 }: SemesterPlanProps) {
   const totalCredits = semesters.reduce((sum, s) => sum + s.total_credits, 0)
+  const includesEstimates = semesters.some((semester) => semester.courses.some((course) => course.credits_estimated !== false))
 
   return (
     <div className="flex flex-col gap-4">
@@ -160,7 +167,7 @@ export function SemesterPlan({
                   {semester.term_label}
                 </span>
                 <span className="font-mono tabular-nums text-xs text-muted">
-                  {semester.total_credits} credits
+                  {formatCredits(semester.total_credits)} credits{semester.courses.some((course) => course.credits_estimated !== false) ? ' (estimated)' : ''}
                 </span>
               </div>
               <div className="divide-y divide-border">
@@ -170,6 +177,9 @@ export function SemesterPlan({
                     code={course.course_code}
                     title={course.title}
                     credits={course.credits}
+                    estimated={course.credits_estimated !== false}
+                    creditsNote={course.credits_note}
+                    titleStatus={course.title_status}
                     badge={course.badge}
                     reason={course.reason}
                     onSwap={
@@ -190,7 +200,7 @@ export function SemesterPlan({
                 Total credits planned
               </span>
               <span className="font-mono tabular-nums text-xs text-muted">
-                {totalCredits} credits
+                {formatCredits(totalCredits)} credits{includesEstimates ? ' (estimated)' : ''}
               </span>
             </div>
           </div>

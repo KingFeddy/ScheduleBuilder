@@ -6,8 +6,10 @@ import type {
 // Handwritten, fictional data. These fixtures are not a catalog or a DegreeWorks
 // parser acceptance sample; the real API, database, and PDF parser are not used.
 export const courses: CourseResponse[] = [
-  { course_code: 'CS280', title: 'Programming Language Concepts', credits: 3 },
-  { course_code: 'HUM101', title: 'Writing and Communication', credits: 3 },
+  { course_code: 'CS280', title: 'Programming Language Concepts', credits: 3,
+    title_status: 'verified', credits_status: 'fixed', credits_min: 3, credits_max: 3, credits_options: [], metadata_warnings: [] },
+  { course_code: 'HUM101', title: 'Writing and Communication', credits: 3,
+    title_status: 'verified', credits_status: 'fixed', credits_min: 3, credits_max: 3, credits_options: [], metadata_warnings: [] },
 ]
 
 export const sections: SolveSectionResponse[] = [
@@ -60,11 +62,11 @@ export const planResponse: GenerateResponse = {
   semesters: [
     {
       term: '202690', term_label: 'Fall 2026', total_credits: 3,
-      courses: [{ course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '' }],
+      courses: [{ course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '', credits_estimated: false, credits_note: '', title_status: 'verified' }],
     },
     {
       term: '202710', term_label: 'Spring 2027', total_credits: 3,
-      courses: [{ course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective' }],
+      courses: [{ course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective', credits_estimated: false, credits_note: '', title_status: 'verified' }],
     },
   ],
   projected_graduation: 'Spring 2027',

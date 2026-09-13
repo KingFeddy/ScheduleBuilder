@@ -13,6 +13,7 @@ from src.scheduler.models import SectionSlot
 from src.schemas.courses import CourseDetailResponse, CourseResponse, ProfessorResponse
 from src.schemas.schedule import MeetingResponse, SectionResponse
 from src.services.courses import load_sections_with_meetings
+from src.services.course_metadata import course_response
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ async def search_courses(
 
     result = await db.execute(
         text(f"""
-            SELECT course_code, title, credits
+            SELECT course_code, title, credits, title_source, credits_source, metadata_latest_attempt
             FROM courses
             {where}
             ORDER BY course_code
@@ -74,14 +75,7 @@ async def search_courses(
         params,
     )
     rows = result.mappings().all()
-    return [
-        CourseResponse(
-            course_code=row["course_code"],
-            title=row["title"],
-            credits=row["credits"],
-        )
-        for row in rows
-    ]
+    return [course_response(row) for row in rows]
 
 
 @router.get("/api/courses/{code}/sections", response_model=list[SectionResponse])
@@ -104,7 +98,7 @@ async def get_course(
 
     result = await db.execute(
         text(
-            "SELECT course_code, title, credits, prerequisites"
+            "SELECT course_code, title, credits, prerequisites, title_source, credits_source, metadata_latest_attempt"
             " FROM courses WHERE course_code = :code"
         ),
         {"code": code},
@@ -119,9 +113,7 @@ async def get_course(
     sections = [_slot_to_response(s) for s in sections_by_course.get(code, [])]
 
     return CourseDetailResponse(
-        course_code=row["course_code"],
-        title=row["title"],
-        credits=row["credits"],
+        **course_response(row).model_dump(),
         prerequisites=row["prerequisites"] or [],
         sections=sections,
     )

@@ -14,7 +14,8 @@ END $$;
 
 -- Public, test-only credentials: the container is bound to loopback and ephemeral.
 CREATE ROLE njit_test LOGIN PASSWORD 'test-only' NOSUPERUSER NOCREATEDB NOCREATEROLE;
-GRANT CONNECT ON DATABASE njit_test TO njit_test;
+-- CREATE here allows private schemas, not new databases or superuser access.
+GRANT CONNECT, CREATE ON DATABASE njit_test TO njit_test;
 GRANT USAGE, CREATE ON SCHEMA public TO njit_test;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO njit_test;

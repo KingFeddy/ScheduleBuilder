@@ -1,112 +1,41 @@
-"""
-Shared fixtures for scraper tests.
-
-db_session connects only to the disposable database verified by tests/conftest.py.
-Tests run against real Postgres — no mocks for DB behavior or application .env.
-Each test gets a fresh session. Cleanup runs after every test.
-"""
+"""Real PostgreSQL fixtures with a private schema and advisory locks per test."""
 from __future__ import annotations
 
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-
-# Professor names created by RMP cache tests — cleaned up after each test.
-_TEST_PROFESSOR_NAMES = (
-    "Dr. Smith",
-    "Unknown Prof",
-    "Ghost Prof",
-    "Old Prof",
-    "Prof X",
-    "Some Prof",
-)
+from tests.database_isolation import isolated_test_database
 
 
 @pytest_asyncio.fixture
-async def db_session_factory(test_database_url):
-    """Yields a session factory for tests that need multiple independent connections."""
-    engine = create_async_engine(test_database_url)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+async def isolated_database(test_database_url, monkeypatch):
+    from src.scrapers import banner, lock, rmp
+
+    async with isolated_test_database(test_database_url) as database:
+        # Patch both the defining module and the aliases imported by scrapers.
+        # All connections in this test still contend for the same real locks.
+        monkeypatch.setattr(lock, "BANNER_SCRAPER_LOCK_ID", database.banner_lock_id)
+        monkeypatch.setattr(banner, "BANNER_SCRAPER_LOCK_ID", database.banner_lock_id)
+        monkeypatch.setattr(lock, "RMP_SCRAPER_LOCK_ID", database.rmp_lock_id)
+        monkeypatch.setattr(rmp, "RMP_SCRAPER_LOCK_ID", database.rmp_lock_id)
+        yield database
 
 
 @pytest_asyncio.fixture
-async def db_session(test_database_url):
-    engine = create_async_engine(test_database_url)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+async def db_session_factory(isolated_database):
+    """Every connection requested by one test uses that test's private schema."""
+    return isolated_database.session_factory
 
-    async with Session() as session:
-        # Seed a stub course so the section FK in test_negative_open_seats
-        # doesn't fail. ON CONFLICT DO NOTHING is safe if the course already exists.
-        await session.execute(
-            text("""
-                INSERT INTO courses (course_code, title, credits)
-                VALUES ('CS999', 'Test Course', 3)
-                ON CONFLICT (course_code) DO NOTHING
-            """)
-        )
+
+@pytest_asyncio.fixture
+async def db_session(db_session_factory):
+    async with db_session_factory() as session:
+        # A realistic fixed code is safe inside a uniquely owned namespace.
+        await session.execute(text("""
+            INSERT INTO courses (course_code, title, credits)
+            VALUES ('CS999', 'Test Course', 3)
+        """))
         await session.commit()
-
         yield session
-
-        # ── Cleanup ──────────────────────────────────────────────────────────
-        # Remove test section and its meetings (FK order: meetings first)
-        await session.execute(
-            text("DELETE FROM meetings WHERE crn = '99999'")
-        )
-        await session.execute(
-            text("DELETE FROM sections WHERE crn = '99999'")
-        )
-        await session.execute(
-            text("DELETE FROM courses WHERE course_code = 'CS999'")
-        )
-
-        # Remove the uncatalogued-course stub created by
-        # test_uncatalogued_course_gets_stub_row_before_section_insert
-        await session.execute(
-            text("DELETE FROM meetings WHERE crn = '88888'")
-        )
-        await session.execute(
-            text("DELETE FROM sections WHERE crn = '88888'")
-        )
-        await session.execute(
-            text("DELETE FROM courses WHERE course_code = 'CS998'")
-        )
-
-        # Remove rows created by the stale-section-cleanup tests. ZZZ997/77777
-        # is expected to already be gone (that's what the test verifies) —
-        # these deletes are idempotent safety nets, not the primary cleanup.
-        # ZZZ is a reserved fake subject prefix, never a real NJIT subject —
-        # see _FAKE_SUBJECT in test_banner_resilience.py for why that matters.
-        for crn in ("77777", "89999", "66666"):
-            await session.execute(
-                text("DELETE FROM meetings WHERE crn = :crn"), {"crn": crn}
-            )
-            await session.execute(
-                text("DELETE FROM sections WHERE crn = :crn"), {"crn": crn}
-            )
-        for code in ("ZZZ997", "ZZZ996", "ZZZ995"):
-            await session.execute(
-                text("DELETE FROM courses WHERE course_code = :code"), {"code": code}
-            )
-
-        # Remove scraper_runs created in the last 5 minutes (test runs are fast)
-        await session.execute(
-            text("""
-                DELETE FROM scraper_runs
-                WHERE scraper = 'banner'
-                AND started_at > NOW() - INTERVAL '5 minutes'
-            """)
-        )
-
-        # Remove RMP cache entries created by tests
-        for name in _TEST_PROFESSOR_NAMES:
-            await session.execute(
-                text("DELETE FROM rmp_cache WHERE professor_name = :name"),
-                {"name": name},
-            )
-
-        await session.commit()
-
-    await engine.dispose()
+        # The session context rolls back failed transactions and closes before
+        # isolated_database drops only this test's schema, even on test failure.

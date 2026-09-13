@@ -230,6 +230,13 @@ other database/role names, connection query parameters, and unmarked databases
 are rejected before fixtures run. CI provisions and checks the same database
 identity in its disposable PostgreSQL service.
 
+Each database test creates a uniquely named schema and uses only that schema for
+its connections. Real commits and multiple sessions work normally. Teardown closes
+the test's connections and drops only its own schema, including after a failed or
+cancelled test. It never deletes shared rows by course code, professor name, or
+scraper-run age. Scraper advisory lock IDs are also unique per test, so repeated
+and concurrent pytest runs can share this disposable service safely.
+
 For pure and mocked tests without Docker, run from `apps/api`:
 
 ```bash
@@ -248,8 +255,9 @@ docker compose -f compose.test.yml down --volumes
 ```
 
 Stopping the service discards its data. Start it again to recreate a clean schema.
-The current fixture cleanup is intended for a single test run at a time; fixture
-ownership and concurrent-run isolation are the next backlog goal.
+If a pytest process is forcibly killed, stopping the service also removes any test
+schemas whose teardown could not run. After changing the bootstrap SQL, recreate
+the service with the cleanup and startup commands above to apply the new grants.
 
 ---
 

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from src.schemas.plan import ParsedDegree, ParsedDegreeValidated, StillNeededItem
+from src.schemas.plan import ParsedDegree, ParsedDegreeValidated, PlanPreferences, StillNeededItem
 from src.services.dw_parser import _extract_still_needed
 from src.services import plan
 from src.services.course_metadata import course_response
@@ -156,9 +156,9 @@ async def test_slots_keep_identity_and_requirement_details_across_regeneration(m
     )
     degree = ParsedDegreeValidated(majors=["Synthetic"], credits_remaining=20, still_needed=requirements)
     before = degree.model_dump()
-    first = await plan.generate_plan(degree, {"courses": [], "credits_per_semester": target}, AsyncMock())
+    first = await plan.generate_plan(degree, PlanPreferences.model_validate({"courses": [], "credits_per_semester": target}), AsyncMock())
     second = await plan.generate_plan(ParsedDegreeValidated.model_validate_json(degree.model_dump_json()),
-                                      {"courses": ["CS480"], "credits_per_semester": 12}, AsyncMock())
+                                      PlanPreferences.model_validate({"courses": ["CS480"], "credits_per_semester": 12}), AsyncMock())
     rows = [c for s in first.semesters for c in s.courses]
     assert all(c.slot_id for c in rows)
     assert len({c.slot_id for c in rows}) == len(rows)
@@ -180,12 +180,12 @@ async def test_extra_electives_and_load_filler_have_distinct_stable_non_requirem
     mock_catalog(monkeypatch)
     degree = ParsedDegreeValidated(majors=["Synthetic"], credits_remaining=12,
         still_needed=_extract_still_needed("Senior project\nStill needed: 1 Class in HSS 404"))
-    preferences = {"courses": ["CS400", "CS400"], "credits_per_semester": 12}
-    first = await plan.generate_plan(degree, preferences, AsyncMock())
-    second = await plan.generate_plan(degree, preferences, AsyncMock())
+    preferences = {"courses": ["CS400", "CS401"], "credits_per_semester": 12}
+    first = await plan.generate_plan(degree, PlanPreferences.model_validate(preferences), AsyncMock())
+    second = await plan.generate_plan(degree, PlanPreferences.model_validate(preferences), AsyncMock())
     assert asdict(first) == asdict(second)
     rows = [c for s in first.semesters for c in s.courses]
     assert len({c.slot_id for c in rows}) == len(rows)
     assert any(c.course_code == "FREE" for c in rows)
-    assert all(c.requirement is None for c in rows if c.course_code in {"FREE", "CS400"})
+    assert all(c.requirement is None for c in rows if c.course_code in {"FREE", "CS400", "CS401"})
     assert all(c.requirement is not None for c in rows if c.course_code == "HSS404")

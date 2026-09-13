@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.config import Settings, settings
-from src.schemas.plan import StillNeededItem
+from src.schemas.plan import PlanPreferences, StillNeededItem
 from src.services.plan import generate_plan
 from tests.deployment.test_config_validation import make_settings
 from tests.plan.test_dw_parser import TestParsePipeline as _ParseFixture
@@ -53,9 +53,9 @@ def plan_for(code, rows, *, requested=False, credit_target=15):
     parsed = make_validated(still_needed=[StillNeededItem(
         requirement="Test requirement", options=["@" if requested else code],
     )])
-    return asyncio.run(generate_plan(parsed, {
+    return asyncio.run(generate_plan(parsed, PlanPreferences.model_validate({
         "courses": [code] if requested else [], "credits_per_semester": credit_target,
-    }, session))
+    }), session))
 
 
 def test_missing_course_is_flagged_even_when_required(monkeypatch):

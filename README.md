@@ -123,6 +123,32 @@ Quantity-aware allocation remains Goal 24, option parsing Goal 23, reconciliatio
 Goal 26, and validated swaps Goal 46. Goal 20 requires no database migration;
 release the updated API before its frontend consumer.
 
+Plan generation validates browser-supplied data again. `GenerateRequest` contains
+a `ParsedDegree` and `PlanPreferences`; the route runs the same
+`validate_parsed_degree` business checks as PDF parsing before calling the planner.
+An empty degree, missing major, inconsistent known credit totals, or an empty
+requirement list without explicitly zero remaining credits returns HTTP 422.
+A completed degree with no remaining requirements and zero remaining credits
+still succeeds. Unknown totals and quantities remain supported when requirements
+are present; validation does not certify extraction completeness or eligibility.
+
+Preferences default to no elective courses and 15 credits per semester. Explicit
+credit targets must be integers from 3 through 24; nulls, booleans, numeric strings,
+and fractional values are rejected. Each elective must be one concrete ASCII
+course code. Case and spaces normalize before duplicate detection; wildcards,
+comma-separated entries, invalid types, and duplicate electives receive a useful
+field error. Unknown preference/envelope keys are rejected to catch misspellings.
+Both request objects are required, even when `preferences` is `{}`.
+
+Plan-route validation errors contain field locations, messages, and error types,
+without echoing submitted input or validator context. This also keeps malformed
+numeric JSON such as `NaN` from crashing the error response. Degree totals use
+strict nonnegative integers, labels/history entries must be nonblank strings, and
+catalog years must have four digits. Existing transfer-code filtering still runs
+at the shared business boundary. Typed frontend request aliases come from the
+generated API contract; browser storage validation remains Goal 37. Goal 21 adds
+no migration or dependency changes.
+
 ### 4. PostgreSQL advisory lock for scraper concurrency
 
 A scrape during registration week can take longer than 30 minutes (Banner slows under load). Without a guard, the next Railway cron fires while the first run is still in progress — doubling the Banner request rate and creating race conditions on the `DELETE + INSERT` in the meetings table.
@@ -594,9 +620,10 @@ Contract details that previously differed between the two sides:
   refresh, and data-age cutoff. Counts and errors belong to their run objects.
   Unknown runs, timestamps, and counts remain nullable; an actual zero stays zero.
 
-These checks establish response-shape consistency; they do not validate arbitrary
-JSON at runtime in the browser. Planner generation inputs remain broad dictionaries
-in the backend schema pending the separate input-validation work.
+These checks establish request/response-shape consistency; they do not validate
+arbitrary JSON at runtime in the browser. Generation uses a typed `ParsedDegree`
+and `PlanPreferences` request plus the shared parser business checks. Python and
+TypeScript model names do not establish trust in previously stored client data.
 
 ## Frontend API errors and cancellation
 

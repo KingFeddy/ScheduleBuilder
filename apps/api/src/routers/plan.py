@@ -7,13 +7,15 @@ from collections import defaultdict
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dependencies import get_db
 from src.config import settings
-from src.schemas.plan import GerCoursesResponse, ParseValidationError, ParsedDegreeValidated
+from src.schemas.plan import GerCoursesResponse, ParseValidationError, ParsedDegree, ParsedDegreeValidated, PlanPreferences
 from src.services.dw_parser import parse_degree_works_regex
 from src.services.plan import GeneratedPlan, generate_plan, validate_parsed_degree
 from src.services.catalog import course_coverage, scope_warnings
@@ -23,7 +25,28 @@ from main import limiter
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["plan"])
+class PlanRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def validated_request(request: Request):
+            try:
+                return await handler(request)
+            except RequestValidationError as error:
+                # Raw input/ctx can contain an entire audit or non-JSON numbers.
+                # Keep useful field locations and messages without echoing them.
+                raise HTTPException(status_code=422, detail=[
+                    {key: issue[key] for key in ("loc", "msg", "type")}
+                    for issue in error.errors()
+                    # A missing derived ID is a consequence of another invalid
+                    # field, not something the student can correct independently.
+                    if issue["type"] != "default_factory_not_called"
+                ]) from error
+
+        return validated_request
+
+
+router = APIRouter(tags=["plan"], route_class=PlanRoute)
 
 MAX_PDF_BYTES = 5 * 1024 * 1024  # 5 MB
 MIN_PDF_BYTES = 5 * 1024          # 5 KB — DegreeWorks PDFs are never this small
@@ -136,8 +159,10 @@ async def parse_degree_works(request: Request, body: ParseRequest) -> ParseRespo
 # ── POST /api/plan/generate ───────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
-    parsed_degree: dict     # ParsedDegreeValidated serialized to JSON by the client
-    preferences: dict       # {courses: list[str], credits_per_semester: int}
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    parsed_degree: ParsedDegree
+    preferences: PlanPreferences
 
 
 @router.post("/api/plan/generate", response_model=GeneratedPlan)
@@ -148,14 +173,16 @@ async def generate_degree_plan(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Stateless plan generation. Accepts a ParsedDegreeValidated (from /api/plan/parse)
-    and student preferences, returns a semester-by-semester plan.
+    Stateless plan generation. Revalidates client-supplied degree data and typed
+    preferences, then returns a semester-by-semester plan.
     Nothing is stored server-side — the client persists the result to localStorage.
     """
     try:
-        validated = ParsedDegreeValidated.model_validate(body.parsed_degree)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Invalid parsed degree data: {e}")
+        validated = validate_parsed_degree(body.parsed_degree)
+    except ParseValidationError as e:
+        raise HTTPException(status_code=422, detail=[{
+            "loc": ["body", "parsed_degree", e.field], "msg": e.message, "type": "value_error",
+        }]) from e
 
     try:
         plan = await generate_plan(validated, body.preferences, db)

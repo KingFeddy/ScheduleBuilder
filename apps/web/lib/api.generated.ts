@@ -79,8 +79,8 @@ export interface paths {
         put?: never;
         /**
          * Generate Degree Plan
-         * @description Stateless plan generation. Accepts a ParsedDegreeValidated (from /api/plan/parse)
-         *     and student preferences, returns a semester-by-semester plan.
+         * @description Stateless plan generation. Revalidates client-supplied degree data and typed
+         *     preferences, then returns a semester-by-semester plan.
          *     Nothing is stored server-side — the client persists the result to localStorage.
          */
         post: operations["generate_degree_plan_api_plan_generate_post"];
@@ -375,14 +375,8 @@ export interface components {
         };
         /** GenerateRequest */
         GenerateRequest: {
-            /** Parsed Degree */
-            parsed_degree: {
-                [key: string]: unknown;
-            };
-            /** Preferences */
-            preferences: {
-                [key: string]: unknown;
-            };
+            parsed_degree: components["schemas"]["ParsedDegree"];
+            preferences: components["schemas"]["PlanPreferences"];
         };
         /** GerCourse */
         GerCourse: {
@@ -461,6 +455,29 @@ export interface components {
             /** Start Time */
             start_time: string | null;
         };
+        /** ParsedDegree */
+        ParsedDegree: {
+            /** Catalog Year */
+            catalog_year?: number | null;
+            /** Completed Courses */
+            completed_courses?: string[];
+            /** Credits Completed */
+            credits_completed?: number | null;
+            /** Credits Remaining */
+            credits_remaining?: number | null;
+            /** Credits Required */
+            credits_required?: number | null;
+            /** In Progress Courses */
+            in_progress_courses?: string[];
+            /** Majors */
+            majors?: string[];
+            /** Minors */
+            minors?: string[];
+            /** Still Needed */
+            still_needed?: components["schemas"]["StillNeededItem-Input"][];
+            /** Student Name */
+            student_name?: string | null;
+        };
         /**
          * ParsedDegreeValidated
          * @description Produced only by validate_parsed_degree(). Never instantiate directly.
@@ -484,7 +501,7 @@ export interface components {
             /** Minors */
             minors: string[];
             /** Still Needed */
-            still_needed: components["schemas"]["StillNeededItem"][];
+            still_needed: components["schemas"]["StillNeededItem-Output"][];
             /** Student Name */
             student_name: string | null;
         };
@@ -537,7 +554,7 @@ export interface components {
             credits_note: string;
             /** Reason */
             reason: string;
-            requirement: components["schemas"]["StillNeededItem"] | null;
+            requirement: components["schemas"]["StillNeededItem-Output"] | null;
             /** Slot Id */
             slot_id: string;
             /** Title */
@@ -548,6 +565,16 @@ export interface components {
              * @enum {string}
              */
             title_status: "verified" | "unverified" | "missing";
+        };
+        /** PlanPreferences */
+        PlanPreferences: {
+            /** Courses */
+            courses?: string[];
+            /**
+             * Credits Per Semester
+             * @default 15
+             */
+            credits_per_semester?: number;
         };
         /** ProfessorResponse */
         ProfessorResponse: {
@@ -565,7 +592,21 @@ export interface components {
             rmp_would_take_again: number | null;
         };
         /** RequirementSource */
-        RequirementSource: {
+        "RequirementSource-Input": {
+            /** Block Index */
+            block_index: number;
+            /** Document Id */
+            document_id?: string | null;
+            /**
+             * Line
+             * @description One-based line in extracted text, not a PDF page coordinate.
+             */
+            line: number;
+            /** Text */
+            text: string;
+        };
+        /** RequirementSource */
+        "RequirementSource-Output": {
             /** Block Index */
             block_index: number;
             /** Document Id */
@@ -706,7 +747,25 @@ export interface components {
             total_seats: number;
         };
         /** StillNeededItem */
-        StillNeededItem: {
+        "StillNeededItem-Input": {
+            /** Options */
+            options?: string[];
+            /**
+             * Quantity Unit
+             * @default unknown
+             * @enum {string}
+             */
+            quantity_unit?: "classes" | "credits" | "unknown";
+            /** Remaining Quantity */
+            remaining_quantity?: number | null;
+            /** Requirement */
+            requirement: string;
+            /** Requirement Id */
+            requirement_id?: string;
+            source?: components["schemas"]["RequirementSource-Input"] | null;
+        };
+        /** StillNeededItem */
+        "StillNeededItem-Output": {
             /** Options */
             options: string[];
             /**
@@ -726,7 +785,7 @@ export interface components {
             requirement: string;
             /** Requirement Id */
             requirement_id: string;
-            source: components["schemas"]["RequirementSource"] | null;
+            source: components["schemas"]["RequirementSource-Output"] | null;
         };
         /** SubjectCoverage */
         SubjectCoverage: {

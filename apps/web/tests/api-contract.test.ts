@@ -1,7 +1,7 @@
 // Compile-time regressions for JSON shapes actually returned by the API.
 // These fixtures must remain valid without pretending nulls or absent keys exist.
 import type {
-  CourseResponse, GerGroup, ParsedDegreeValidated, ProfessorResponse,
+  CourseResponse, GenerateRequest, GerGroup, ParsedDegreeValidated, PlanPreferences, ProfessorResponse,
   SolveRequest, SolveResponse,
 } from '../lib/api'
 import type { getCoursesSections, getScraperStatus } from '../lib/api'
@@ -26,8 +26,23 @@ export const unnamedGer: GerGroup = { prefix: 'HUM', courses: [{ code: 'HUM101',
 export const incompleteDegree: ParsedDegreeValidated = {
   student_name: null, majors: ['Computer Science'], minors: [], catalog_year: null,
   credits_completed: null, credits_required: null, credits_remaining: null,
-  completed_courses: [], in_progress_courses: [], still_needed: [],
+  completed_courses: [], in_progress_courses: [], still_needed: [{
+    requirement_id: 'req-synthetic', requirement: 'Unresolved elective', options: [],
+    remaining_quantity: null, quantity_unit: 'unknown', quantity_status: 'unresolved', source: null,
+  }],
 }
+
+export const defaultPlanRequest: GenerateRequest = { parsed_degree: incompleteDegree, preferences: {} }
+export const selectedPlanPreferences: PlanPreferences = { courses: ['CS435'], credits_per_semester: 15 }
+
+// @ts-expect-error Generation preferences require individual string course codes.
+export const malformedPlanCourses: PlanPreferences = { courses: [435] }
+// @ts-expect-error The credit target must be a number, not a stored input string.
+export const malformedPlanTarget: PlanPreferences = { credits_per_semester: '15' }
+// @ts-expect-error Misspelled preference keys cannot silently use defaults.
+export const misspelledPlanPreferences: PlanPreferences = { electives: ['CS435'] }
+// @ts-expect-error Degree course history must be a list of strings.
+export const malformedPlanDegree: GenerateRequest = { parsed_degree: { completed_courses: [435] }, preferences: {} }
 export const neverScraped: Awaited<ReturnType<typeof getScraperStatus>> = {
   term: '202690', status: 'never_run', checked_at: '2026-09-13T12:00:00Z',
   latest_attempt: null, last_successful_refresh: null, data_as_of: null,

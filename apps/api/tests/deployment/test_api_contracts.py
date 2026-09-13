@@ -104,7 +104,10 @@ def test_parse_response_preserves_missing_metadata(api, monkeypatch):
     from src.schemas.plan import ParsedDegree
 
     client, _ = api
-    monkeypatch.setattr(plan, "parse_degree_works_regex", lambda _: ParsedDegree(majors=["Computer Science"]))
+    raw = ParsedDegree(majors=["Computer Science"], still_needed=[{
+        "requirement_id": "req-synthetic", "requirement": "Unresolved elective", "options": [],
+    }])
+    monkeypatch.setattr(plan, "parse_degree_works_regex", lambda _: raw)
     response = client.post("/api/plan/parse", json={
         "pdf_base64": base64.b64encode(b"%PDF-" + b"x" * 6000).decode(), "client_pdf_hash": "",
     })
@@ -112,7 +115,7 @@ def test_parse_response_preserves_missing_metadata(api, monkeypatch):
     assert response.json()["parsed"] == {
         "student_name": None, "majors": ["Computer Science"], "minors": [], "catalog_year": None,
         "credits_completed": None, "credits_required": None, "credits_remaining": None,
-        "completed_courses": [], "in_progress_courses": [], "still_needed": [],
+        "completed_courses": [], "in_progress_courses": [], "still_needed": [raw.still_needed[0].model_dump()],
     }
 
 
@@ -152,7 +155,7 @@ def test_generated_plan_serializes_defaults_and_nullable_titles(api, monkeypatch
         ], projected_graduation="Spring 2027", warnings=["Synthetic advisory warning"],
     )))
     response = client.post("/api/plan/generate", json={
-        "parsed_degree": {"majors": ["Computer Science"]}, "preferences": {},
+        "parsed_degree": {"majors": ["Computer Science"], "still_needed": [{"requirement": "Synthetic requirement", "options": []}]}, "preferences": {},
     })
     assert response.status_code == 200
     assert response.json() == {

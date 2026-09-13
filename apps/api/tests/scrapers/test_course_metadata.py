@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import text
 
+from src.schemas.plan import PlanPreferences
 from src.scrapers import banner
 from tests.scrapers.test_banner_responses import TERM, SUBJECT, response, results, section, upstream
 
@@ -177,7 +178,7 @@ async def test_planner_uses_verified_credits_and_labels_estimates(db_session, up
     plan = await generate_plan(ParsedDegreeValidated(
         majors=["Synthetic major"], credits_remaining=4,
         still_needed=[StillNeededItem(requirement="Synthetic requirement", options=["ZZZ997"])],
-    ), {"courses": [], "credits_per_semester": 4}, db_session)
+    ), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 4}), db_session)
     course = next(c for s in plan.semesters for c in s.courses if c.course_code == "ZZZ997")
     assert course.credits == expected
     assert course.credits_estimated is estimated
@@ -192,7 +193,7 @@ async def test_variable_plan_estimate_uses_a_valid_bound_and_explains_it(db_sess
     await scrape(db_session, upstream, [section(creditHourLow=1, creditHourHigh=4, creditHourIndicator="OR")])
     plan = await generate_plan(ParsedDegreeValidated(
         majors=["Synthetic"], still_needed=[StillNeededItem(requirement="Research", options=["ZZZ997"])],
-    ), {"courses": [], "credits_per_semester": 4}, db_session)
+    ), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 4}), db_session)
     course = next(c for s in plan.semesters for c in s.courses if c.course_code == "ZZZ997")
     assert course.credits == 4 and course.credits_estimated
     assert "1 or 4" in course.credits_note
@@ -204,7 +205,7 @@ async def test_legacy_credit_value_is_an_estimate_until_refreshed(db_session):
     from src.schemas.plan import ParsedDegreeValidated, StillNeededItem
     plan = await generate_plan(ParsedDegreeValidated(
         majors=["Synthetic"], still_needed=[StillNeededItem(requirement="Legacy", options=["CS999"])],
-    ), {"courses": [], "credits_per_semester": 3}, db_session)
+    ), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 3}), db_session)
     course = next(c for s in plan.semesters for c in s.courses if c.course_code == "CS999")
     assert course.credits == 3 and course.credits_estimated
     assert "unverified" in course.credits_note.lower()

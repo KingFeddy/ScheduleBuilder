@@ -21,8 +21,9 @@ import unittest.mock as mock
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
-from src.schemas.plan import ParsedDegreeValidated, ParseValidationError, StillNeededItem
+from src.schemas.plan import ParsedDegreeValidated, ParseValidationError, PlanPreferences, StillNeededItem
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -251,7 +252,7 @@ def test_in_progress_courses_not_in_plan():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         make_validated(),
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     all_codes = [c.course_code for s in plan.semesters for c in s.courses]
@@ -265,7 +266,7 @@ def test_completed_courses_not_in_plan():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         make_validated(),
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     all_codes = [c.course_code for s in plan.semesters for c in s.courses]
@@ -287,7 +288,7 @@ def test_graduating_student_produces_no_semesters():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         validated,
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     assert plan.semesters == []
@@ -314,7 +315,7 @@ def test_elective_matches_wildcard_requirement():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         validated,
-        {"courses": ["PHYS310"], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": ["PHYS310"], "credits_per_semester": 15}),
         session,
     ))
     all_codes  = [c.course_code for s in plan.semesters for c in s.courses]
@@ -345,7 +346,7 @@ def test_all_wildcard_requirement_becomes_tbd():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         validated,
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     tbd_courses = [
@@ -361,7 +362,7 @@ def test_credit_target_respected_within_tolerance():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         make_validated(),
-        {"courses": [], "credits_per_semester": 12},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 12}),
         session,
     ))
     for sem in plan.semesters[:-1]:  # Last semester is allowed to overflow
@@ -404,7 +405,7 @@ def test_single_oversized_course_forces_its_own_semester():
     session.execute = AsyncMock(side_effect=[availability_empty, availability_empty, course_result])
 
     plan = asyncio.run(generate_plan(
-        validated, {"courses": [], "credits_per_semester": 3}, session,
+        validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 3}), session,
     ))
 
     assert len(plan.semesters) == 2, "Two 4-credit courses at target=3 must never combine into one semester"
@@ -445,7 +446,7 @@ def test_mixed_course_sizes_defer_oversized_course_to_later_semester():
     session.execute = AsyncMock(side_effect=[availability_empty, availability_empty, availability_empty, course_result])
 
     plan = asyncio.run(generate_plan(
-        validated, {"courses": [], "credits_per_semester": 3}, session,
+        validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 3}), session,
     ))
 
     assert len(plan.semesters) == 3
@@ -464,7 +465,7 @@ def test_total_credits_matches_course_sum():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         make_validated(),
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     for sem in plan.semesters:
@@ -552,7 +553,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -572,7 +573,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 3}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 3}), session,
         ))
 
         assert len(plan.semesters) == 2
@@ -596,7 +597,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 2
@@ -618,7 +619,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 12}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 12}), session,
         ))
 
         assert len(plan.semesters) == 2
@@ -646,7 +647,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -676,7 +677,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert {c.course_code for sem in plan.semesters for c in sem.courses} == {"CS500", "CS491", "FREE"}
@@ -714,7 +715,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 4}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 4}), session,
         ))
 
         assert len(plan.semesters) == 2
@@ -750,7 +751,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 3
@@ -779,7 +780,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -806,7 +807,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -836,7 +837,7 @@ class TestCapstoneLastSemester:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 3
@@ -1016,7 +1017,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 2
@@ -1036,7 +1037,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -1055,7 +1056,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -1072,7 +1073,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 1
@@ -1095,7 +1096,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert len(plan.semesters) == 3
@@ -1130,7 +1131,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 3}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 3}), session,
         ))
 
         assert len(plan.semesters) == 5
@@ -1150,7 +1151,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         placed_codes = {c.course_code for sem in plan.semesters for c in sem.courses}
@@ -1169,7 +1170,7 @@ class TestPrerequisiteAwarePlanning:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         assert (
@@ -1180,10 +1181,8 @@ class TestPrerequisiteAwarePlanning:
 
 # ── Credit target validation ─────────────────────────────────────────────────
 #
-# preferences is a raw, untyped dict (routers/plan.py's GenerateRequest) coming
-# from a public, unauthenticated API — credits_per_semester must be validated
-# at the point it's consumed, not trusted as always 3-24 just because every
-# legitimate frontend control happens to send values in that range.
+# PlanPreferences is validated before the planner consumes it. Its public request
+# boundary must reject invalid credit targets independently of frontend controls.
 
 class TestCreditTargetValidation:
 
@@ -1191,7 +1190,7 @@ class TestCreditTargetValidation:
         from src.services.plan import generate_plan
 
         session = _make_mock_session()
-        plan = asyncio.run(generate_plan(make_validated(), {"courses": []}, session))
+        plan = asyncio.run(generate_plan(make_validated(), PlanPreferences.model_validate({"courses": []}), session))
         assert plan.semesters  # didn't raise, produced a plan
 
     def test_minimum_boundary_3_is_accepted(self):
@@ -1199,7 +1198,7 @@ class TestCreditTargetValidation:
 
         session = _make_mock_session()
         plan = asyncio.run(generate_plan(
-            make_validated(), {"courses": [], "credits_per_semester": 3}, session,
+            make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 3}), session,
         ))
         assert plan.semesters
 
@@ -1208,7 +1207,7 @@ class TestCreditTargetValidation:
 
         session = _make_mock_session()
         plan = asyncio.run(generate_plan(
-            make_validated(), {"courses": [], "credits_per_semester": 24}, session,
+            make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 24}), session,
         ))
         assert plan.semesters
 
@@ -1216,48 +1215,46 @@ class TestCreditTargetValidation:
         from src.services.plan import generate_plan
 
         session = _make_mock_session()
-        with pytest.raises(ParseValidationError):
+        with pytest.raises(ValidationError):
             asyncio.run(generate_plan(
-                make_validated(), {"courses": [], "credits_per_semester": 0}, session,
+                make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 0}), session,
             ))
 
     def test_negative_is_rejected(self):
         from src.services.plan import generate_plan
 
         session = _make_mock_session()
-        with pytest.raises(ParseValidationError):
+        with pytest.raises(ValidationError):
             asyncio.run(generate_plan(
-                make_validated(), {"courses": [], "credits_per_semester": -5}, session,
+                make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": -5}), session,
             ))
 
     def test_below_minimum_is_rejected(self):
         from src.services.plan import generate_plan
 
         session = _make_mock_session()
-        with pytest.raises(ParseValidationError):
+        with pytest.raises(ValidationError):
             asyncio.run(generate_plan(
-                make_validated(), {"courses": [], "credits_per_semester": 2}, session,
+                make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 2}), session,
             ))
 
     def test_above_maximum_is_rejected(self):
         from src.services.plan import generate_plan
 
         session = _make_mock_session()
-        with pytest.raises(ParseValidationError):
+        with pytest.raises(ValidationError):
             asyncio.run(generate_plan(
-                make_validated(), {"courses": [], "credits_per_semester": 25}, session,
+                make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": 25}), session,
             ))
 
     def test_non_numeric_value_is_rejected_cleanly(self):
-        """A malformed request (e.g. a string) must raise the same clean,
-        catchable error the router already handles — not an unhandled
-        TypeError from deep inside the packing loop's arithmetic."""
+        """Malformed preferences fail validation before any packing arithmetic."""
         from src.services.plan import generate_plan
 
         session = _make_mock_session()
-        with pytest.raises(ParseValidationError):
+        with pytest.raises(ValidationError):
             asyncio.run(generate_plan(
-                make_validated(), {"courses": [], "credits_per_semester": "abc"}, session,
+                make_validated(), PlanPreferences.model_validate({"courses": [], "credits_per_semester": "abc"}), session,
             ))
 
 
@@ -1268,7 +1265,7 @@ def test_already_completed_elective_excluded_with_warning():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         make_validated(),
-        {"courses": ["CS280"], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": ["CS280"], "credits_per_semester": 15}),
         session,
     ))
     elective_cs280 = [
@@ -1287,7 +1284,7 @@ def test_prerequisite_disclaimer_always_present():
     session = _make_mock_session()
     plan = asyncio.run(generate_plan(
         make_validated(),
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     assert any("prerequisite" in w.lower() for w in plan.warnings), \
@@ -1302,8 +1299,8 @@ def test_plan_is_deterministic():
     prefs = {"courses": ["PHYS310"], "credits_per_semester": 15}
 
     # Two independent calls with fresh sessions must produce identical output
-    plan1 = asyncio.run(generate_plan(validated, prefs, _make_mock_session()))
-    plan2 = asyncio.run(generate_plan(validated, prefs, _make_mock_session()))
+    plan1 = asyncio.run(generate_plan(validated, PlanPreferences.model_validate(prefs), _make_mock_session()))
+    plan2 = asyncio.run(generate_plan(validated, PlanPreferences.model_validate(prefs), _make_mock_session()))
 
     codes1 = [c.course_code for s in plan1.semesters for c in s.courses]
     codes2 = [c.course_code for s in plan2.semesters for c in s.courses]
@@ -1323,7 +1320,7 @@ def test_no_requirements_dropped():
 
     plan = asyncio.run(generate_plan(
         validated,
-        {"courses": [], "credits_per_semester": 15},
+        PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}),
         session,
     ))
     total_planned = sum(len(s.courses) for s in plan.semesters)
@@ -1376,7 +1373,7 @@ class TestElectiveDetectionAndTitleFallback:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         course = plan.semesters[0].courses[0]
@@ -1398,7 +1395,7 @@ class TestElectiveDetectionAndTitleFallback:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         course = plan.semesters[0].courses[0]
@@ -1418,7 +1415,7 @@ class TestElectiveDetectionAndTitleFallback:
         session = self._mock_session([])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         course = plan.semesters[0].courses[0]
@@ -1438,7 +1435,7 @@ class TestElectiveDetectionAndTitleFallback:
         ])
 
         plan = asyncio.run(generate_plan(
-            validated, {"courses": [], "credits_per_semester": 15}, session,
+            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
         course = plan.semesters[0].courses[0]

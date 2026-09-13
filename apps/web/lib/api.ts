@@ -60,6 +60,8 @@ export type ParseResponse = paths['/api/plan/parse']['post']['responses'][200]['
 export type ParsedDegreeValidated = ParseResponse['parsed']
 export type StillNeededItem = ParsedDegreeValidated['still_needed'][number]
 export type RequirementSource = NonNullable<StillNeededItem['source']>
+export type GenerateRequest = paths['/api/plan/generate']['post']['requestBody']['content']['application/json']
+export type PlanPreferences = GenerateRequest['preferences']
 export type GenerateResponse = paths['/api/plan/generate']['post']['responses'][200]['content']['application/json']
 export type SemesterPlan = GenerateResponse['semesters'][number]
 export type PlannedCourse = SemesterPlan['courses'][number]
@@ -135,8 +137,8 @@ export function parsePlan(
 }
 
 export function generatePlan(
-  parsedDegree: ParsedDegreeValidated,
-  preferences: { courses: string[]; credits_per_semester: number },
+  parsedDegree: GenerateRequest['parsed_degree'],
+  preferences: PlanPreferences,
   options: ApiRequestOptions = {},
 ): Promise<GenerateResponse> {
   return apiFetch('/api/plan/generate', {

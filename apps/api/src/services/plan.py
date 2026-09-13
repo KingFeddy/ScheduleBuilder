@@ -16,6 +16,7 @@ from src.schemas.plan import (
     WILDCARD_PATTERN,
     ParsedDegree,
     ParsedDegreeValidated,
+    PlanPreferences,
     ParseValidationError,
     StillNeededItem,
     StableIdentifier,
@@ -36,8 +37,6 @@ from src.services.catalog import course_coverage
 logger = logging.getLogger(__name__)
 
 CREDIT_CONSISTENCY_TOLERANCE = 6
-MIN_CREDITS_PER_SEMESTER = 3
-MAX_CREDITS_PER_SEMESTER = 24
 FULL_TIME_CREDITS = 12
 
 
@@ -173,6 +172,13 @@ def validate_parsed_degree(raw: ParsedDegree) -> ParsedDegreeValidated:
             "credits_required",
             f"credits_required={raw.credits_required} is outside the plausible NJIT "
             f"range (100–160).",
+        )
+
+    if not raw.still_needed and raw.credits_remaining != 0:
+        raise ParseValidationError(
+            "still_needed",
+            "No remaining requirements were provided, but remaining credits are not explicitly zero. "
+            "Re-upload your DegreeWorks audit and verify its remaining requirements.",
         )
 
     # Filter completed_courses: keep valid NJIT codes, log and drop the rest.
@@ -358,26 +364,6 @@ async def select_best_option(
 
     # Priority 3: first available
     return available[0], len(available)
-
-
-def _validate_credit_target(preferences: dict) -> int:
-    """
-    preferences is a raw, untyped dict from a public, unauthenticated API —
-    credits_per_semester must be checked here, not assumed to already be a
-    sane int just because every legitimate UI control sends one.
-    """
-    raw = preferences.get("credits_per_semester", 15)
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        raise ParseValidationError(
-            "credits_per_semester", f"must be a whole number, got {raw!r}."
-        )
-    if not (MIN_CREDITS_PER_SEMESTER <= raw <= MAX_CREDITS_PER_SEMESTER):
-        raise ParseValidationError(
-            "credits_per_semester",
-            f"must be between {MIN_CREDITS_PER_SEMESTER} and "
-            f"{MAX_CREDITS_PER_SEMESTER}, got {raw}.",
-        )
-    return raw
 
 
 # ── Prerequisite dependency graph ─────────────────────────────────────────────
@@ -656,22 +642,20 @@ def _synchronized_capstone_start(
 
 async def generate_plan(
     validated: ParsedDegreeValidated,
-    preferences: dict,
+    preferences: PlanPreferences,
     session: AsyncSession,
 ) -> GeneratedPlan:
     """
     Produces a semester-by-semester plan from a validated ParsedDegree.
 
-    preferences keys:
+    Validated preferences:
       courses (list[str])        — student-chosen electives
       credits_per_semester (int) — MIN_CREDITS_PER_SEMESTER..MAX_CREDITS_PER_SEMESTER
     """
     warnings: list[str] = []
 
-    credit_target: int = _validate_credit_target(preferences)
-    student_electives: list[str] = [
-        e.strip().upper() for e in preferences.get("courses", [])
-    ]
+    credit_target = preferences.credits_per_semester
+    student_electives = preferences.courses
 
     completed   = set(validated.completed_courses)
     in_progress = set(validated.in_progress_courses)
@@ -679,7 +663,7 @@ async def generate_plan(
 
     # ── 1. Early exit: already graduated ─────────────────────────────────────
 
-    if not validated.still_needed and (validated.credits_remaining or 0) == 0:
+    if not validated.still_needed and validated.credits_remaining == 0:
         return GeneratedPlan(
             semesters=[],
             projected_graduation="This semester",

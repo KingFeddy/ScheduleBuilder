@@ -366,16 +366,13 @@
         "type": "object"
       },
       "GenerateRequest": {
+        "additionalProperties": false,
         "properties": {
           "parsed_degree": {
-            "additionalProperties": true,
-            "title": "Parsed Degree",
-            "type": "object"
+            "$ref": "#/components/schemas/ParsedDegree"
           },
           "preferences": {
-            "additionalProperties": true,
-            "title": "Preferences",
-            "type": "object"
+            "$ref": "#/components/schemas/PlanPreferences"
           }
         },
         "required": [
@@ -680,12 +677,13 @@
         "title": "ParseResponse",
         "type": "object"
       },
-      "ParsedDegreeValidated": {
-        "description": "Produced only by validate_parsed_degree(). Never instantiate directly.\nNothing downstream should accept a raw ParsedDegree.",
+      "ParsedDegree": {
         "properties": {
           "catalog_year": {
             "anyOf": [
               {
+                "maximum": 9999.0,
+                "minimum": 1000.0,
                 "type": "integer"
               },
               {
@@ -696,6 +694,7 @@
           },
           "completed_courses": {
             "items": {
+              "minLength": 1,
               "type": "string"
             },
             "title": "Completed Courses",
@@ -736,6 +735,7 @@
           },
           "in_progress_courses": {
             "items": {
+              "minLength": 1,
               "type": "string"
             },
             "title": "In Progress Courses",
@@ -743,6 +743,7 @@
           },
           "majors": {
             "items": {
+              "minLength": 1,
               "type": "string"
             },
             "title": "Majors",
@@ -750,6 +751,7 @@
           },
           "minors": {
             "items": {
+              "minLength": 1,
               "type": "string"
             },
             "title": "Minors",
@@ -757,7 +759,110 @@
           },
           "still_needed": {
             "items": {
-              "$ref": "#/components/schemas/StillNeededItem"
+              "$ref": "#/components/schemas/StillNeededItem-Input"
+            },
+            "title": "Still Needed",
+            "type": "array"
+          },
+          "student_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Name"
+          }
+        },
+        "title": "ParsedDegree",
+        "type": "object"
+      },
+      "ParsedDegreeValidated": {
+        "description": "Produced only by validate_parsed_degree(). Never instantiate directly.\nNothing downstream should accept a raw ParsedDegree.",
+        "properties": {
+          "catalog_year": {
+            "anyOf": [
+              {
+                "maximum": 9999.0,
+                "minimum": 1000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Year"
+          },
+          "completed_courses": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Completed Courses",
+            "type": "array"
+          },
+          "credits_completed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Completed"
+          },
+          "credits_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Remaining"
+          },
+          "credits_required": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Required"
+          },
+          "in_progress_courses": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "In Progress Courses",
+            "type": "array"
+          },
+          "majors": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Majors",
+            "type": "array"
+          },
+          "minors": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Minors",
+            "type": "array"
+          },
+          "still_needed": {
+            "items": {
+              "$ref": "#/components/schemas/StillNeededItem-Output"
             },
             "title": "Still Needed",
             "type": "array"
@@ -787,6 +892,27 @@
           "still_needed"
         ],
         "title": "ParsedDegreeValidated",
+        "type": "object"
+      },
+      "PlanPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "courses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Courses",
+            "type": "array"
+          },
+          "credits_per_semester": {
+            "default": 15,
+            "maximum": 24.0,
+            "minimum": 3.0,
+            "title": "Credits Per Semester",
+            "type": "integer"
+          }
+        },
+        "title": "PlanPreferences",
         "type": "object"
       },
       "PlannedCourse": {
@@ -842,7 +968,7 @@
           "requirement": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/StillNeededItem"
+                "$ref": "#/components/schemas/StillNeededItem-Output"
               },
               {
                 "type": "null"
@@ -971,7 +1097,45 @@
         "title": "ProfessorResponse",
         "type": "object"
       },
-      "RequirementSource": {
+      "RequirementSource-Input": {
+        "properties": {
+          "block_index": {
+            "minimum": 1.0,
+            "title": "Block Index",
+            "type": "integer"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "line": {
+            "description": "One-based line in extracted text, not a PDF page coordinate.",
+            "minimum": 1.0,
+            "title": "Line",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_index",
+          "line",
+          "text"
+        ],
+        "title": "RequirementSource",
+        "type": "object"
+      },
+      "RequirementSource-Output": {
         "properties": {
           "block_index": {
             "minimum": 1.0,
@@ -1462,10 +1626,72 @@
         "title": "SolveSectionResponse",
         "type": "object"
       },
-      "StillNeededItem": {
+      "StillNeededItem-Input": {
         "properties": {
           "options": {
             "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "quantity_unit": {
+            "default": "unknown",
+            "enum": [
+              "classes",
+              "credits",
+              "unknown"
+            ],
+            "title": "Quantity Unit",
+            "type": "string"
+          },
+          "remaining_quantity": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Quantity"
+          },
+          "requirement": {
+            "minLength": 1,
+            "title": "Requirement",
+            "type": "string"
+          },
+          "requirement_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementSource-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "requirement"
+        ],
+        "title": "StillNeededItem",
+        "type": "object"
+      },
+      "StillNeededItem-Output": {
+        "properties": {
+          "options": {
+            "items": {
+              "minLength": 1,
               "type": "string"
             },
             "title": "Options",
@@ -1503,6 +1729,7 @@
             "title": "Remaining Quantity"
           },
           "requirement": {
+            "minLength": 1,
             "title": "Requirement",
             "type": "string"
           },
@@ -1516,7 +1743,7 @@
           "source": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RequirementSource"
+                "$ref": "#/components/schemas/RequirementSource-Output"
               },
               {
                 "type": "null"
@@ -1933,7 +2160,7 @@
     },
     "/api/plan/generate": {
       "post": {
-        "description": "Stateless plan generation. Accepts a ParsedDegreeValidated (from /api/plan/parse)\nand student preferences, returns a semester-by-semester plan.\nNothing is stored server-side \u2014 the client persists the result to localStorage.",
+        "description": "Stateless plan generation. Revalidates client-supplied degree data and typed\npreferences, then returns a semester-by-semester plan.\nNothing is stored server-side \u2014 the client persists the result to localStorage.",
         "operationId": "generate_degree_plan_api_plan_generate_post",
         "requestBody": {
           "content": {

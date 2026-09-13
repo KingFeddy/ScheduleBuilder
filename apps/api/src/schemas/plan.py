@@ -6,11 +6,37 @@ import re
 from collections import Counter
 from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, computed_field, field_validator, model_validator
 from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 
 COURSE_CODE_PATTERN = re.compile(r"^[A-Z]{2,5}\d{3}[A-Z]?$")
 WILDCARD_PATTERN = re.compile(r"[Xx@*]")
+MIN_CREDITS_PER_SEMESTER = 3
+MAX_CREDITS_PER_SEMESTER = 24
+NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def normalize_elective(code: str) -> str:
+    if not code.isascii():
+        raise ValueError("Use a course code such as CS435 with ASCII letters and digits.")
+    normalized = code.strip().upper().replace(" ", "")
+    if not COURSE_CODE_PATTERN.fullmatch(normalized):
+        raise ValueError("Use one specific course code such as CS435 per entry.")
+    return normalized
+
+
+class PlanPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    courses: list[Annotated[str, AfterValidator(normalize_elective)]] = Field(default_factory=list)
+    credits_per_semester: int = Field(default=15, ge=MIN_CREDITS_PER_SEMESTER, le=MAX_CREDITS_PER_SEMESTER)
+
+    @field_validator("courses")
+    @classmethod
+    def distinct_courses(cls, courses: list[str]) -> list[str]:
+        if len(set(courses)) != len(courses):
+            raise ValueError("List each elective course only once.")
+        return courses
 
 
 StableIdentifier = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
@@ -23,7 +49,7 @@ def stable_identity(kind: str, *parts: object) -> str:
 
 
 class RequirementSource(BaseModel):
-    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True)
+    model_config = ConfigDict(extra="ignore", strict=True, json_schema_serialization_defaults_required=True)
 
     document_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     block_index: int = Field(ge=1)
@@ -32,10 +58,10 @@ class RequirementSource(BaseModel):
 
 
 class StillNeededItem(BaseModel):
-    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True)
+    model_config = ConfigDict(extra="ignore", strict=True, json_schema_serialization_defaults_required=True)
 
-    requirement: str
-    options: list[str] = Field(default_factory=list)
+    requirement: NonBlankText
+    options: list[NonBlankText] = Field(default_factory=list)
     remaining_quantity: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     quantity_unit: Literal["classes", "credits", "unknown"] = "unknown"
     source: RequirementSource | None = None
@@ -72,17 +98,17 @@ class StillNeededItem(BaseModel):
 
 
 class ParsedDegree(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", strict=True)
 
     student_name: Optional[str] = None
-    majors: list[str] = Field(default_factory=list)
-    minors: list[str] = Field(default_factory=list)
-    catalog_year: Optional[int] = None
+    majors: list[NonBlankText] = Field(default_factory=list)
+    minors: list[NonBlankText] = Field(default_factory=list)
+    catalog_year: Optional[int] = Field(default=None, ge=1000, le=9999)
     credits_completed: Optional[int] = None
     credits_required: Optional[int] = None
     credits_remaining: Optional[int] = None
-    completed_courses: list[str] = Field(default_factory=list)
-    in_progress_courses: list[str] = Field(default_factory=list)
+    completed_courses: list[NonBlankText] = Field(default_factory=list)
+    in_progress_courses: list[NonBlankText] = Field(default_factory=list)
     still_needed: list[StillNeededItem] = Field(default_factory=list)
     # semesters_remaining deliberately absent — computed by the planner from
     # credits_remaining and the student's chosen credits_per_semester
@@ -109,10 +135,10 @@ class ParsedDegree(BaseModel):
         object.__setattr__(self, "still_needed", identified)
         return self
 
-    @field_validator("completed_courses", "in_progress_courses", mode="before")
+    @field_validator("completed_courses", "in_progress_courses")
     @classmethod
     def normalize_course_codes(cls, v: list[str]) -> list[str]:
-        return [c.strip().upper().replace(" ", "") for c in v if c]
+        return [c.upper().replace(" ", "") for c in v]
 
     @field_validator("credits_completed", "credits_required", "credits_remaining")
     @classmethod

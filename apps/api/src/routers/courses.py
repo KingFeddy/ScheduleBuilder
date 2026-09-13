@@ -11,13 +11,23 @@ from src.config import settings
 from src.dependencies import get_db
 from src.scheduler.models import SectionSlot
 from src.schemas.courses import CourseDetailResponse, CourseResponse, ProfessorResponse
+from src.schemas.catalog import CatalogCoverageResponse
 from src.schemas.schedule import MeetingResponse, SectionResponse
 from src.services.courses import load_sections_with_meetings
 from src.services.course_metadata import course_response
+from src.services.catalog import load_catalog_coverage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["courses"])
+
+
+@router.get("/api/catalog/coverage", response_model=CatalogCoverageResponse)
+async def catalog_coverage(
+    term: str = Query(..., pattern=r"^\d{4}(10|50|90)$"),
+    db: AsyncSession = Depends(get_db),
+) -> CatalogCoverageResponse:
+    return await load_catalog_coverage(db, term)
 
 
 def _slot_to_response(section: SectionSlot) -> SectionResponse:

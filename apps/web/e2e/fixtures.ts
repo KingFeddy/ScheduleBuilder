@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
 import { test as base, expect, type ConsoleMessage, type Request, type Route } from '@playwright/test'
 import {
-  courses, parseResponse, planResponse, scraperStatus, sectionList, solveResponse, syntheticPdf,
+  catalogCoverage, courses, parseResponse, planResponse, scraperStatus, sectionList, solveResponse, syntheticPdf,
 } from './data'
 import type {
-  CourseResponse, GenerateResponse, GerCoursesResponse, ParseResponse,
+  CatalogCoverageResponse, CourseResponse, GenerateResponse, GerCoursesResponse, ParseResponse,
   ProfessorResponse, ScraperStatusResponse, SectionResponse, SolveResponse,
 } from '../lib/api'
 
@@ -12,6 +12,7 @@ type Handler = (route: Route) => Promise<void>
 
 type SuccessResponses = {
   GET: {
+    '/api/catalog/coverage': CatalogCoverageResponse
     '/api/courses': CourseResponse[]
     '/api/scraper/status': ScraperStatusResponse
     '/api/plan/ger-courses': GerCoursesResponse
@@ -30,6 +31,10 @@ class MockApi {
   private readonly overrides = new Map<string, Handler>()
   private readonly received: Request[] = []
   private readonly defaults = new Map<string, Handler>([
+    ['GET /api/catalog/coverage', async (route) => {
+      const term = new URL(route.request().url()).searchParams.get('term') || ''
+      await route.fulfill({ json: { ...catalogCoverage, term } })
+    }],
     ['GET /api/courses', async (route) => {
       const query = new URL(route.request().url()).searchParams.get('q') || ''
       const normalized = query.toUpperCase().replace(/\s+/g, '')

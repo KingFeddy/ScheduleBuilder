@@ -77,6 +77,7 @@ def test_test_environment_disables_inherited_external_services():
         "DATABASE_URL": "production", "SENTRY_DSN": "production",
         "SUPABASE_URL": "production", "SUPABASE_ANON_KEY": "production",
         "CORS_ORIGINS": "production", "CURRENT_TERM": "209990",
+        "CATALOG_SUBJECTS": "invalid-production", "GER_SUBJECTS": "invalid-production",
     }
     config = load_test_database_config(environment)
     configure_test_environment(environment, config)
@@ -85,6 +86,9 @@ def test_test_environment_disables_inherited_external_services():
     assert environment["SUPABASE_URL"] == "http://localhost"
     assert environment["SUPABASE_ANON_KEY"] == "test"
     assert environment["CURRENT_TERM"] == "202690"
+    from src.catalog import DEFAULT_CATALOG_SUBJECTS, DEFAULT_GER_SUBJECTS
+    assert environment["CATALOG_SUBJECTS"] == DEFAULT_CATALOG_SUBJECTS
+    assert environment["GER_SUBJECTS"] == DEFAULT_GER_SUBJECTS
 
 
 def test_test_settings_do_not_read_an_application_dotenv(tmp_path, monkeypatch):

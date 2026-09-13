@@ -1,6 +1,51 @@
 {
   "components": {
     "schemas": {
+      "CatalogCoverageResponse": {
+        "properties": {
+          "configured_subjects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Configured Subjects",
+            "type": "array"
+          },
+          "elective_subjects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Elective Subjects",
+            "type": "array"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectCoverage"
+            },
+            "title": "Subjects",
+            "type": "array"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "term",
+          "configured_subjects",
+          "elective_subjects",
+          "subjects",
+          "warnings"
+        ],
+        "title": "CatalogCoverageResponse",
+        "type": "object"
+      },
       "CommuterOptions": {
         "properties": {
           "blocked_days": {
@@ -48,6 +93,23 @@
       },
       "CourseDetailResponse": {
         "properties": {
+          "catalog_note": {
+            "default": "Catalog coverage has not been checked. Regenerate the plan to check it.",
+            "title": "Catalog Note",
+            "type": "string"
+          },
+          "catalog_status": {
+            "default": "unknown",
+            "enum": [
+              "present",
+              "subject_not_configured",
+              "course_missing",
+              "unresolved",
+              "unknown"
+            ],
+            "title": "Catalog Status",
+            "type": "string"
+          },
           "course_code": {
             "title": "Course Code",
             "type": "string"
@@ -156,6 +218,8 @@
           "credits_max",
           "credits_options",
           "metadata_warnings",
+          "catalog_status",
+          "catalog_note",
           "prerequisites",
           "sections"
         ],
@@ -164,6 +228,23 @@
       },
       "CourseResponse": {
         "properties": {
+          "catalog_note": {
+            "default": "Catalog coverage has not been checked. Regenerate the plan to check it.",
+            "title": "Catalog Note",
+            "type": "string"
+          },
+          "catalog_status": {
+            "default": "unknown",
+            "enum": [
+              "present",
+              "subject_not_configured",
+              "course_missing",
+              "unresolved",
+              "unknown"
+            ],
+            "title": "Catalog Status",
+            "type": "string"
+          },
           "course_code": {
             "title": "Course Code",
             "type": "string"
@@ -257,7 +338,9 @@
           "credits_min",
           "credits_max",
           "credits_options",
-          "metadata_warnings"
+          "metadata_warnings",
+          "catalog_status",
+          "catalog_note"
         ],
         "title": "CourseResponse",
         "type": "object"
@@ -333,6 +416,23 @@
       },
       "GerCourse": {
         "properties": {
+          "catalog_note": {
+            "default": "Catalog coverage has not been checked. Regenerate the plan to check it.",
+            "title": "Catalog Note",
+            "type": "string"
+          },
+          "catalog_status": {
+            "default": "unknown",
+            "enum": [
+              "present",
+              "subject_not_configured",
+              "course_missing",
+              "unresolved",
+              "unknown"
+            ],
+            "title": "Catalog Status",
+            "type": "string"
+          },
           "code": {
             "title": "Code",
             "type": "string"
@@ -362,7 +462,9 @@
         "required": [
           "code",
           "title",
-          "title_status"
+          "title_status",
+          "catalog_status",
+          "catalog_note"
         ],
         "title": "GerCourse",
         "type": "object"
@@ -375,10 +477,42 @@
             },
             "title": "Groups",
             "type": "array"
+          },
+          "missing_subjects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Subjects",
+            "type": "array"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Subjects",
+            "type": "array"
+          },
+          "unconfigured_subjects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unconfigured Subjects",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
-          "groups"
+          "groups",
+          "subjects",
+          "missing_subjects",
+          "unconfigured_subjects",
+          "warnings"
         ],
         "title": "GerCoursesResponse",
         "type": "object"
@@ -666,6 +800,23 @@
             "title": "Badge",
             "type": "string"
           },
+          "catalog_note": {
+            "default": "Catalog coverage has not been checked. Regenerate the plan to check it.",
+            "title": "Catalog Note",
+            "type": "string"
+          },
+          "catalog_status": {
+            "default": "unknown",
+            "enum": [
+              "present",
+              "subject_not_configured",
+              "course_missing",
+              "unresolved",
+              "unknown"
+            ],
+            "title": "Catalog Status",
+            "type": "string"
+          },
           "course_code": {
             "title": "Course Code",
             "type": "string"
@@ -718,7 +869,9 @@
           "reason",
           "credits_estimated",
           "credits_note",
-          "title_status"
+          "title_status",
+          "catalog_status",
+          "catalog_note"
         ],
         "title": "PlannedCourse",
         "type": "object"
@@ -1143,6 +1296,34 @@
         "title": "StillNeededItem",
         "type": "object"
       },
+      "SubjectCoverage": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "course_count": {
+            "title": "Course Count",
+            "type": "integer"
+          },
+          "section_count": {
+            "title": "Section Count",
+            "type": "integer"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "configured",
+          "course_count",
+          "section_count"
+        ],
+        "title": "SubjectCoverage",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1214,6 +1395,49 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/catalog/coverage": {
+      "get": {
+        "operationId": "catalog_coverage_api_catalog_coverage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "term",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{4}(10|50|90)$",
+              "title": "Term",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogCoverageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Catalog Coverage",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/courses": {
       "get": {
         "operationId": "search_courses_api_courses_get",

@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from src.catalog import DEFAULT_CATALOG_SUBJECTS, DEFAULT_GER_SUBJECTS
 
 
 def main() -> int:
@@ -20,6 +21,7 @@ def main() -> int:
         "APP_ENV": "test", "DATABASE_URL": "postgresql+asyncpg://127.0.0.1:1/disabled_schema_export",
         "SUPABASE_URL": "http://127.0.0.1:1", "SUPABASE_ANON_KEY": "synthetic-schema-export",
         "CURRENT_TERM": "202690", "CORS_ORIGINS": "http://127.0.0.1:3000",
+        "CATALOG_SUBJECTS": DEFAULT_CATALOG_SUBJECTS, "GER_SUBJECTS": DEFAULT_GER_SUBJECTS,
         "SENTRY_DSN": "", "LOG_LEVEL": "WARNING",
     })
     from main import app

@@ -46,6 +46,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 type CoursesResponse = paths['/api/courses']['get']['responses'][200]['content']['application/json']
 type CourseSectionsResponse = paths['/api/courses/{code}/sections']['get']['responses'][200]['content']['application/json']
 export type CourseResponse = CoursesResponse[number]
+export type CatalogCoverageResponse = paths['/api/catalog/coverage']['get']['responses'][200]['content']['application/json']
 export type CourseDetailResponse = paths['/api/courses/{code}']['get']['responses'][200]['content']['application/json']
 export type SectionResponse = CourseSectionsResponse[number]
 export type SolveRequest = paths['/api/schedule/solve']['post']['requestBody']['content']['application/json']
@@ -64,6 +65,10 @@ export type GerGroup = GerCoursesResponse['groups'][number]
 export type ScraperStatusResponse = paths['/api/scraper/status']['get']['responses'][200]['content']['application/json']
 
 // ─── Endpoints ────────────────────────────────────────────────────────────────
+
+export function getCatalogCoverage(term: string, options: ApiRequestOptions = {}): Promise<CatalogCoverageResponse> {
+  return apiFetch(`/api/catalog/coverage?term=${encodeURIComponent(term)}`, { signal: options.signal })
+}
 
 export function getCourses(params: {
   q?: string

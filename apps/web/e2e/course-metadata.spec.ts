@@ -1,8 +1,8 @@
 import { test, expect } from './fixtures'
-import { parsedDegree, planResponse, syntheticPdf } from './data'
+import { gerCoverage, parsedDegree, planResponse, presentCatalog, syntheticPdf } from './data'
 
 test('labels fixed, variable, missing, and unverified catalog metadata', async ({ page, api }, testInfo) => {
-  const metadata = { title_status: 'verified' as const, credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }
+  const metadata = { ...presentCatalog, title_status: 'verified' as const, credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }
   api.respond('GET', '/api/courses', [
     { ...metadata, course_code: 'ZZZ101', title: 'One credit', credits: 1, credits_status: 'fixed', credits_min: 1, credits_max: 1 },
     { ...metadata, course_code: 'ZZZ104', title: 'Four credits', credits: 4, credits_status: 'fixed', credits_min: 4, credits_max: 4 },
@@ -27,9 +27,9 @@ test('shows estimates on required course rows and totals after generation and re
   api.respond('POST', '/api/plan/generate', {
     ...planResponse,
     semesters: [{ term: '202690', term_label: 'Fall 2026', total_credits: 8, courses: [
-      { course_code: 'ZZZ101', title: 'Verified lab', title_status: 'verified', credits: 1, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
-      { course_code: 'ZZZ104', title: 'Verified class', title_status: 'verified', credits: 4, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
-      { course_code: 'ZZZ199', title: 'Requirement label', title_status: 'unverified', credits: 3, credits_estimated: true, credits_note: 'Credits unknown; using 3 credits as an estimate.', badge: 'Required', reason: '' },
+      { ...presentCatalog, course_code: 'ZZZ101', title: 'Verified lab', title_status: 'verified', credits: 1, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
+      { ...presentCatalog, course_code: 'ZZZ104', title: 'Verified class', title_status: 'verified', credits: 4, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
+      { ...presentCatalog, course_code: 'ZZZ199', title: 'Requirement label', title_status: 'unverified', credits: 3, credits_estimated: true, credits_note: 'Credits unknown; using 3 credits as an estimate.', badge: 'Required', reason: '' },
     ] }],
   })
   await page.goto('/planner')
@@ -58,10 +58,11 @@ test('treats credit amounts in an older saved plan as unverified estimates', asy
   await page.goto('/planner')
   await expect(page.getByText('3 cr (estimated)', { exact: true })).toBeVisible()
   await expect(page.getByText('3 credits (estimated)', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Catalog coverage unchecked.', { exact: true })).toBeVisible()
 })
 
 test('marks inherited credits as an estimate when a different course is selected', async ({ page, api }) => {
-  api.respond('GET', '/api/plan/ger-courses', { groups: [{ prefix: 'HUM', courses: [{ code: 'HUM201', title: 'Replacement', title_status: 'unverified' }] }] })
+  api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM201', title: 'Replacement', title_status: 'unverified' }] }] })
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
@@ -70,4 +71,5 @@ test('marks inherited credits as an estimate when a different course is selected
   await page.getByRole('button', { name: 'HUM201 Replacement Title unverified' }).click()
   await expect(page.getByText('3 cr (estimated)', { exact: true })).toBeVisible()
   await expect(page.getByText('Credits for this replacement are unverified; this amount is an estimate.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Catalog coverage unchecked.', { exact: true })).toBeVisible()
 })

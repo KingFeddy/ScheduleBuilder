@@ -12,9 +12,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dependencies import get_db
+from src.config import settings
 from src.schemas.plan import GerCoursesResponse, ParseValidationError, ParsedDegreeValidated
 from src.services.dw_parser import parse_degree_works_regex
 from src.services.plan import GeneratedPlan, generate_plan, validate_parsed_degree
+from src.services.catalog import course_coverage, scope_warnings
 
 # Single shared limiter defined once in main.py — never instantiate a second one here
 from main import limiter
@@ -26,9 +28,6 @@ router = APIRouter(tags=["plan"])
 MAX_PDF_BYTES = 5 * 1024 * 1024  # 5 MB
 MIN_PDF_BYTES = 5 * 1024          # 5 KB — DegreeWorks PDFs are never this small
 PDF_MAGIC = b"%PDF-"
-
-GER_PREFIXES = ["COM", "ENG", "HUM", "HIST", "PHIL", "PSYC", "SOC", "STS", "ARH", "MUS"]
-
 
 class ParseRequest(BaseModel):
     pdf_base64: str
@@ -179,18 +178,26 @@ async def ger_courses(db: AsyncSession = Depends(get_db)):
             WHERE SUBSTRING(course_code FROM '^[A-Z]+') = ANY(:prefixes)
             ORDER BY course_code
         """),
-        {"prefixes": GER_PREFIXES},
+        {"prefixes": settings.ger_subjects},
     )
     rows = result.mappings().all()
 
     groups: defaultdict[str, list] = defaultdict(list)
     for row in rows:
-        groups[row["prefix"]].append({"code": row["course_code"], "title": row["title"], "title_status": title_status(row)})
+        catalog_status, catalog_note = course_coverage(row["course_code"], exists=True)
+        groups[row["prefix"]].append({
+            "code": row["course_code"], "title": row["title"], "title_status": title_status(row),
+            "catalog_status": catalog_status, "catalog_note": catalog_note,
+        })
 
     return {
         "groups": [
             {"prefix": p, "courses": groups[p]}
-            for p in GER_PREFIXES
+            for p in settings.ger_subjects
             if groups.get(p)
-        ]
+        ],
+        "subjects": settings.ger_subjects,
+        "missing_subjects": [p for p in settings.ger_subjects if not groups.get(p)],
+        "unconfigured_subjects": [p for p in settings.ger_subjects if p not in settings.catalog_subjects],
+        "warnings": scope_warnings(settings.ger_subjects, set(groups)),
     }

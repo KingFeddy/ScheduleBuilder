@@ -210,7 +210,49 @@ upgrades, API contracts, planner use, and browser rendering. Fixtures are synthe
 the current NJIT production formats and existing data still require the later
 catalog audit and release checks.
 
-### 7. Design system built on CSS tokens
+### 7. Configurable catalog coverage
+
+`CATALOG_SUBJECTS` is the comma-separated collection scope used by the scraper and
+interpreted by the API. Set the same value on both services. The default covers 28
+subject codes: the original 18 plus subjects referenced by the existing synthetic
+parser/planner fixtures and elective browsers, including HSS, IS, and HUM. These
+defaults are a collection scope, not a verified list of all NJIT subjects or a
+claim that real program audits have passed acceptance. PSY and PSYC remain distinct;
+no subject aliases are guessed. Case and surrounding whitespace are normalized,
+duplicates are removed, and blank entries or non-letter subject codes are rejected.
+
+`GER_SUBJECTS` configures the broad elective browser independently. Its defaults
+retain the previous browser subjects and include LIB/SSC, which already had swap
+controls. Subject membership alone does not establish GER eligibility; requirement
+validation and regenerated swaps remain Goals 31 and 46. The browser reports missing
+data and subjects excluded from collection instead of silently hiding those gaps.
+
+`GET /api/catalog/coverage?term=202690` returns configured subjects, elective browser
+subjects, and per-subject course/section counts. Course counts span all retained
+catalog records; section counts include only the requested term. It includes
+configured subjects with zero records and retained subjects outside configuration.
+Warnings distinguish excluded subjects, missing catalog courses, and missing term
+sections. Zero collected sections does **not** prove that NJIT offers no classes.
+These counts do not describe scrape completion or freshness; those remain Goal 19.
+
+Course search/detail, elective candidates, and planned courses carry a separate
+`catalog_status` and `catalog_note`. `present` means a row exists for a configured
+subject; it never means degree eligibility or future availability is verified.
+`subject_not_configured` warns even when an old row has verified credits.
+`course_missing` identifies an absent course within the collection scope.
+`unresolved` identifies TBD/FREE slots, and `unknown` means coverage has not been
+checked. Missing courses can remain advisory planning options with visible warnings
+and credit estimates. Unconfigured wildcard requirement subjects are also reported.
+
+The scheduler exposes coverage details and warns about excluded/empty subjects
+while searching. Course-specific warnings remain visible on required plan rows and
+survive reloads. Older stored rows and replacements without a new catalog lookup
+show unchecked coverage. Coverage describes configuration/data at lookup time;
+regenerate a saved plan to check it again. Versioned storage validation and general
+warning persistence remain Goals 37 and 40. No database migration is required for
+coverage; newly configured subjects acquire data on subsequent successful scrapes.
+
+### 8. Design system built on CSS tokens
 
 The UI targets a specific aesthetic: Linear's layout and density, Vercel's data-heavy tables, Raycast's command-palette interaction. The design is enforced through a Tailwind token layer — no raw color classes anywhere in the codebase.
 
@@ -303,6 +345,8 @@ pnpm dev               # proxies /api/* to localhost:8000 via next.config.ts
 | `SUPABASE_URL` | API | Supabase project URL |
 | `SUPABASE_ANON_KEY` | API | Supabase anon key (read-only queries) |
 | `CURRENT_TERM` | API | 6-digit NJIT term code, e.g. `202690` |
+| `CATALOG_SUBJECTS` | API + scraper | Optional comma-separated override of the 28-subject collection default; use identical values on both services |
+| `GER_SUBJECTS` | API | Optional comma-separated elective browser subject scope; membership does not establish eligibility |
 | `CORS_ORIGINS` | API | Comma-separated allowed origins |
 | `NEXT_PUBLIC_API_URL` | Frontend | Empty in production (relative), `http://localhost:8000` in dev |
 

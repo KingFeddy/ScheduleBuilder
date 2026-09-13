@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { syntheticPdf } from './data'
+import { gerCoverage, presentCatalog, syntheticPdf } from './data'
 
 test('shows validation details without confusing course numbers with HTTP status', async ({ page, api }) => {
   api.respond('POST', '/api/plan/generate', { detail: [
@@ -63,7 +63,7 @@ test('closing GER search cancels its request without showing an application erro
   } finally {
     release()
   }
-  api.respond('GET', '/api/plan/ger-courses', { groups: [{ prefix: 'HUM', courses: [{ code: 'HUM101', title: 'Synthetic GER', title_status: 'verified' }] }] })
+  api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM101', title: 'Synthetic GER', title_status: 'verified' }] }] })
   await page.getByRole('button', { name: 'swap →', exact: true }).click()
   await expect(page.getByText('Synthetic GER', { exact: true })).toBeVisible()
   await expect(page.getByText('Failed to load GER courses.', { exact: true })).toHaveCount(0)

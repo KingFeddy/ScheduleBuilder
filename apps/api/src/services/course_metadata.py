@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from src.schemas.courses import CourseResponse
+from src.services.catalog import course_coverage
 
 
 def _object(value):
@@ -21,8 +22,10 @@ def course_response(row) -> CourseResponse:
     value = source.get("value", {})
     kind = value.get("kind")
     attempt = _object(row.get("metadata_latest_attempt"))
+    catalog_status, catalog_note = course_coverage(row["course_code"], exists=True)
     return CourseResponse(
         course_code=row["course_code"], title=row["title"], credits=row["credits"],
+        catalog_status=catalog_status, catalog_note=catalog_note,
         title_status=title_status(row),
         credits_status=("fixed" if kind == "fixed" else "variable") if kind else (
             "unverified" if row["credits"] is not None else "missing"

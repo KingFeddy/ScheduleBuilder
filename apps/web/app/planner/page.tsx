@@ -109,6 +109,7 @@ export default function PlannerPage() {
             courses: sem.courses.map((c) =>
               c.course_code === gerModal.courseCode
                 ? { ...c, course_code: newCode, title: null, title_status: 'missing' as const,
+                    catalog_status: 'unknown' as const, catalog_note: 'Catalog coverage for this replacement has not been checked. Regenerate the plan to check it.',
                     credits_estimated: true, credits_note: 'Credits for this replacement are unverified; this amount is an estimate.' }
                 : c,
             ),

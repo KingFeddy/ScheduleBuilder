@@ -109,11 +109,14 @@ def test_catalog_and_ger_titles_can_be_null(api):
         "course_code": "HUM101", "title": None, "credits": 3,
         "title_status": "missing", "credits_status": "unverified", "credits_min": None,
         "credits_max": None, "credits_options": [], "metadata_warnings": [],
+        "catalog_status": "present", "catalog_note": "",
     }]
     result.mappings.return_value.all.return_value = [{"prefix": "HUM", "course_code": "HUM101", "title": None}]
     response = client.get("/api/plan/ger-courses")
     assert response.status_code == 200
-    assert response.json() == {"groups": [{"prefix": "HUM", "courses": [{"code": "HUM101", "title": None, "title_status": "missing"}]}]}
+    assert response.json()["groups"] == [{"prefix": "HUM", "courses": [{"code": "HUM101", "title": None, "title_status": "missing", "catalog_status": "present", "catalog_note": ""}]}]
+    assert "HUM" in response.json()["subjects"]
+    assert "HUM" not in response.json()["missing_subjects"]
 
 
 def test_parse_response_preserves_missing_metadata(api, monkeypatch):
@@ -181,6 +184,7 @@ def test_generated_plan_serializes_defaults_and_nullable_titles(api, monkeypatch
                 "course_code": "TBD", "title": None, "credits": 3, "badge": "TBD",
                 "reason": "Synthetic unresolved requirement",
                 "credits_estimated": True, "credits_note": "Credit estimate for an unresolved course.", "title_status": "unverified",
+                "catalog_status": "unknown", "catalog_note": "Catalog coverage has not been checked. Regenerate the plan to check it.",
             }]},
         ], "projected_graduation": "Spring 2027", "warnings": ["Synthetic advisory warning"],
     }
@@ -192,7 +196,7 @@ def test_frontend_endpoints_publish_structured_response_schemas(api):
     schema = client.get("/openapi.json").json()
     for path, method in [
         ("/api/scraper/status", "get"), ("/api/plan/generate", "post"),
-        ("/api/plan/ger-courses", "get"),
+        ("/api/plan/ger-courses", "get"), ("/api/catalog/coverage", "get"),
     ]:
         response_schema = schema["paths"][path][method]["responses"]["200"]["content"]["application/json"]["schema"]
         assert "$ref" in response_schema, f"{method.upper()} {path} must name its response schema"
@@ -216,6 +220,8 @@ def test_schema_export_ignores_application_environment(api, tmp_path):
     (tmp_path / ".env").write_text("SENTRY_DSN=invalid-dotenv-secret\nDATABASE_URL=invalid-dotenv-database\n")
     environment = {**os.environ, "APP_ENV": "production", "SENTRY_DSN": "invalid-inherited-secret"}
     environment["DATABASE_URL"] = "invalid-inherited-database"
+    environment["CATALOG_SUBJECTS"] = "invalid-inherited-subjects"
+    environment["GER_SUBJECTS"] = "invalid-inherited-subjects"
     environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     result = subprocess.run(
         [sys.executable, "-m", "scripts.export_openapi", "--stdout"],

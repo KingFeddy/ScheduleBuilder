@@ -3,6 +3,7 @@
 import { Printer, RefreshCw } from 'lucide-react'
 import type { SemesterPlan as SemesterPlanType } from '@/lib/api'
 import { formatCredits } from '@/lib/course-metadata'
+import { CatalogNote } from '@/components/ui/catalog-note'
 
 // Known GER subject prefixes at NJIT — swap button shown only for these
 const GER_PREFIXES = new Set(['HUM', 'COM', 'HIST', 'STS', 'LIB', 'SSC'])
@@ -19,12 +20,14 @@ interface CourseRowProps {
   estimated: boolean
   creditsNote: string
   titleStatus: string
+  catalogStatus: SemesterPlanType['courses'][number]['catalog_status']
+  catalogNote: string
   badge: 'Required' | 'Elective' | 'TBD'
   reason: string
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, badge, reason, onSwap }: CourseRowProps) {
+function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, onSwap }: CourseRowProps) {
   const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
 
@@ -37,6 +40,7 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
         </span>
         {title && titleStatus !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
         {estimated && <span className="block text-xs text-muted">{creditsNote || 'Credits are unverified; this amount is an estimate.'}</span>}
+        <CatalogNote status={catalogStatus} note={catalogNote} />
         {showReason && (
           <span className="block text-xs text-faint truncate">{reason}</span>
         )}
@@ -180,6 +184,8 @@ export function SemesterPlan({
                     estimated={course.credits_estimated !== false}
                     creditsNote={course.credits_note}
                     titleStatus={course.title_status}
+                    catalogStatus={course.catalog_status}
+                    catalogNote={course.catalog_note}
                     badge={course.badge}
                     reason={course.reason}
                     onSwap={

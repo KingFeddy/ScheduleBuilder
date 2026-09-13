@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { test, expect } from './fixtures'
-import { parsedDegree, parseResponse, planResponse, syntheticPdf } from './data'
+import { gerCoverage, parsedDegree, parseResponse, planResponse, presentCatalog, syntheticPdf } from './data'
 
 test('uploads a synthetic audit, generates a plan, and restores it on reload', async ({ page, api }) => {
   await page.goto('/scheduler')
@@ -94,7 +94,7 @@ test('shows missing degree metadata as unknown without inventing credit totals',
 
 test('searches GER courses when catalog titles are missing', async ({ page, api }) => {
   api.respond('GET', '/api/plan/ger-courses', {
-    groups: [{ prefix: 'HUM', courses: [{ code: 'HUM101', title: null, title_status: 'missing' }] }],
+    ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM101', title: null, title_status: 'missing' }] }],
   })
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)

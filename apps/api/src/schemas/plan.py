@@ -4,6 +4,7 @@ import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 
 COURSE_CODE_PATTERN = re.compile(r"^[A-Z]{2,5}\d{3}[A-Z]?$")
 WILDCARD_PATTERN = re.compile(r"[Xx@*]")
@@ -63,6 +64,8 @@ class GerCourse(BaseModel):
     code: str
     title: str | None
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
+    catalog_status: CatalogStatus = "unknown"
+    catalog_note: str = UNCHECKED_CATALOG_NOTE
 
 
 class GerGroup(BaseModel):
@@ -72,6 +75,10 @@ class GerGroup(BaseModel):
 
 class GerCoursesResponse(BaseModel):
     groups: list[GerGroup]
+    subjects: list[str]
+    missing_subjects: list[str]
+    unconfigured_subjects: list[str]
+    warnings: list[str]
 
 
 class ParseValidationError(Exception):

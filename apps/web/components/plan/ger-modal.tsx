@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { getApiErrorMessage, getGerCourses, type GerGroup } from '@/lib/api'
+import { CatalogNote } from '@/components/ui/catalog-note'
 
 interface GerModalProps {
   isOpen: boolean
@@ -13,6 +14,7 @@ interface GerModalProps {
 
 export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps) {
   const [groups, setGroups] = useState<GerGroup[]>([])
+  const [coverageWarnings, setCoverageWarnings] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -26,10 +28,12 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
     setQuery('')
     setLoading(true)
     setError(null)
+    setCoverageWarnings([])
     getGerCourses({ signal: controller.signal })
       .then((res) => {
         if (controller.signal.aborted) return
         setGroups(res.groups)
+        setCoverageWarnings(res.warnings)
         setExpanded(new Set(res.groups.map((g) => g.prefix)))
       })
       .catch((err) => {
@@ -112,6 +116,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
           <p className="text-xs text-muted mb-3">
             Select a course to replace the current GER requirement slot.
           </p>
+          <p className="text-xs text-muted mb-3">Browsing a subject does not confirm that a course satisfies this requirement.</p>
           <div className="relative flex items-center">
             <Search className="absolute left-3 w-4 h-4 text-muted pointer-events-none" />
             <input
@@ -126,6 +131,9 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
 
         {/* Scrollable list */}
         <div className="flex-1 overflow-y-auto">
+          {!loading && !error && coverageWarnings.map((warning) => (
+            <p key={warning} className="px-6 py-2 text-xs text-yellow font-mono">{warning}</p>
+          ))}
           {loading ? (
             <div className="px-6 py-4 flex flex-col gap-5">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -175,6 +183,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
                           <span className="text-sm text-muted">
                             {course.title || 'Title unavailable'}
                             {course.title && course.title_status !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
+                            <CatalogNote status={course.catalog_status} note={course.catalog_note} />
                           </span>
                         </button>
                       ))}

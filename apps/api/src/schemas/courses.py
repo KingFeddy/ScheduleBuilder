@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from .schedule import SectionResponse
+from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 
 
 class CourseResponse(BaseModel):
@@ -15,6 +16,8 @@ class CourseResponse(BaseModel):
     credits_max: float | None = None
     credits_options: list[float] = Field(default_factory=list)
     metadata_warnings: list[str] = Field(default_factory=list)
+    catalog_status: CatalogStatus = "unknown"
+    catalog_note: str = UNCHECKED_CATALOG_NOTE
 
 
 class CourseDetailResponse(CourseResponse):

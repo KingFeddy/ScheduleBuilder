@@ -26,6 +26,10 @@ from src.scheduler.time_utils import (
 )
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
+from src.catalog import course_subject
+from src.config import settings
+from src.schemas.catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
+from src.services.catalog import course_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +130,11 @@ async def get_course_data(
     for code in course_codes:
         if code not in data:
             logger.warning("Course %r not found in catalog; metadata remains unknown", code)
+            catalog_status, catalog_note = course_coverage(code, exists=False)
             data[code] = (CourseResponse(
                 course_code=code, title=None, credits=None,
                 title_status="missing", credits_status="missing",
+                catalog_status=catalog_status, catalog_note=catalog_note,
             ), [])
 
     return data
@@ -237,6 +243,8 @@ class PlannedCourse:
     credits_estimated: bool = True
     credits_note: str = "Credit estimate for an unresolved course."
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
+    catalog_status: CatalogStatus = "unknown"
+    catalog_note: str = UNCHECKED_CATALOG_NOTE
 
 
 @dataclass
@@ -287,6 +295,8 @@ class _ResolvedItem:
     credits_estimated: bool = True
     credits_note: str = "Credit estimate for an unresolved course."
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
+    catalog_status: CatalogStatus = "unresolved"
+    catalog_note: str = "No specific catalog course has been selected for this slot."
 
 
 # ── Option selection ──────────────────────────────────────────────────────────
@@ -525,6 +535,8 @@ def _pack_semesters(
                     credits_estimated=item.credits_estimated,
                     credits_note=item.credits_note,
                     title_status=item.title_status,
+                    catalog_status=item.catalog_status,
+                    catalog_note=item.catalog_note,
                 ))
                 placed_at[idx] = term_idx
                 credits_used = round(credits_used + item.credits, 2)
@@ -547,6 +559,8 @@ def _pack_semesters(
                 credits_estimated=forced.credits_estimated,
                 credits_note=forced.credits_note,
                 title_status=forced.title_status,
+                catalog_status=forced.catalog_status,
+                catalog_note=forced.catalog_note,
             ))
             placed_at[forced_idx] = term_idx
             credits_used = forced.credits
@@ -677,6 +691,17 @@ async def generate_plan(
 
     # ── 3. Resolve still_needed → concrete courses ────────────────────────────
 
+    required_subjects = {
+        subject for item in validated.still_needed for option in item.options
+        if (subject := course_subject(option)) is not None
+    }
+    excluded_subjects = sorted(required_subjects - set(settings.catalog_subjects))
+    if excluded_subjects:
+        warnings.append(
+            f"Requirement options include subjects outside collection scope: {', '.join(excluded_subjects)}. "
+            "Options in those subjects need confirmation with NJIT."
+        )
+
     planning_terms = get_planning_terms(n=10)
     current_term   = planning_terms[0]
 
@@ -708,6 +733,14 @@ async def generate_plan(
                 item, completed, in_progress, electives_to_place, current_term, session
             )
             is_choice = best is not None and num_available > 1
+            missing_scope = sorted({
+                subject for option in item.options
+                if (subject := course_subject(option)) is not None
+                and subject not in settings.catalog_subjects
+            })
+            catalog_note = "No specific catalog course has been selected for this slot."
+            if best is None and missing_scope:
+                catalog_note += f" Requirement subjects outside collection scope: {', '.join(missing_scope)}. Confirm options with NJIT."
             resolved.append(_ResolvedItem(
                 requirement=item.requirement,
                 course_code=best,
@@ -718,6 +751,7 @@ async def generate_plan(
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
                 must_be_last=must_be_last,
+                catalog_note=catalog_note,
             ))
 
     # Add unmatched electives as extra courses
@@ -739,6 +773,11 @@ async def generate_plan(
     for r in resolved:
         if r.course_code:
             course, prereqs = course_data[r.course_code]
+            r.catalog_status, r.catalog_note = course.catalog_status, course.catalog_note
+            if r.catalog_note:
+                warnings.append(f"{r.course_code}: {r.catalog_note}")
+                if r.badge == "Elective":
+                    r.reason = f"Option for '{r.requirement}'; catalog coverage needs confirmation."
             r.credits, r.credits_estimated, r.credits_note = planning_credits(course)
             # A course never scraped into `courses` has no title — the bare
             # code repeated as its own title ("IS350: IS350") is far less
@@ -863,6 +902,8 @@ async def generate_plan(
             gap = round(pad_target - last.total_credits, 2)
             last.courses.append(PlannedCourse(
                 course_code="FREE",
+                catalog_status="unresolved",
+                catalog_note="No specific catalog course has been selected for this slot.",
                 title="Free Elective",
                 credits=gap,
                 badge="Elective",

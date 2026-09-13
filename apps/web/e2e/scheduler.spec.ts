@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { solveResponse } from './data'
+import { presentCatalog, solveResponse } from './data'
 
 test('searches courses, submits filters, and renders timed and async meetings', async ({ page, api }) => {
   await page.goto('/')
@@ -69,7 +69,7 @@ test('shows a no-results warning and can solve again', async ({ page, api }) => 
 })
 
 test('lets students select a course with an unknown catalog title', async ({ page, api }) => {
-  api.respond('GET', '/api/courses', [{ course_code: 'CS280', title: null, credits: null,
+  api.respond('GET', '/api/courses', [{ ...presentCatalog, course_code: 'CS280', title: null, credits: null,
     title_status: 'missing', credits_status: 'missing', credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }])
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')

@@ -1,0 +1,64 @@
+import type { CourseResponse, ParsedDegreeValidated, SectionSlot, SolveResponse } from '../lib/api'
+
+// Handwritten, fictional data. These fixtures are not a catalog or a DegreeWorks
+// parser acceptance sample; the real API, database, and PDF parser are not used.
+export const courses: CourseResponse[] = [
+  { course_code: 'CS280', title: 'Programming Language Concepts', credits: 3 },
+  { course_code: 'HUM101', title: 'Writing and Communication', credits: 3 },
+]
+
+export const sections: SectionSlot[] = [
+  {
+    crn: '99001', term: '202690', course_code: 'CS280', section_number: '001',
+    professor_name: 'Test Lecturer, Taylor', total_seats: 30, open_seats: 12,
+    scraped_at: '2026-09-12T14:55:00Z',
+    meetings: [
+      { days: 'M', start_time: '09:00:00', end_time: '10:20:00', location: 'TEST 101' },
+      { days: 'R', start_time: '13:00:00', end_time: '14:20:00', location: 'TEST 102' },
+    ],
+  },
+  {
+    crn: '99002', term: '202690', course_code: 'HUM101', section_number: '851',
+    professor_name: 'Instructor, Test', total_seats: 20, open_seats: 5,
+    scraped_at: '2026-09-12T14:55:00Z',
+    meetings: [{ days: null, start_time: null, end_time: null, location: 'Online' }],
+  },
+]
+
+export const solveResponse: SolveResponse = {
+  results: [{ sections, campus_days: 2, has_async_sections: true, truncated: false }],
+  warnings: ['Synthetic schedule warning: verify registration availability.'],
+}
+
+export const parsedDegree: ParsedDegreeValidated = {
+  student_name: 'Synthetic Test Student', majors: ['Computer Science'], minors: [],
+  catalog_year: 2024, credits_completed: 114, credits_required: 120, credits_remaining: 6,
+  completed_courses: ['CS100', 'CS113'], in_progress_courses: [],
+  still_needed: [
+    { requirement: 'Programming languages', options: ['CS280'] },
+    { requirement: 'Writing elective', options: ['HUM101'] },
+  ],
+}
+
+export const planResponse = {
+  semesters: [
+    {
+      term: '202690', term_label: 'Fall 2026', total_credits: 3,
+      courses: [{ course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '' }],
+    },
+    {
+      term: '202710', term_label: 'Spring 2027', total_credits: 3,
+      courses: [{ course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective' }],
+    },
+  ],
+  projected_graduation: 'Spring 2027',
+  warnings: ['Synthetic plan warning: confirm this advisory plan with an advisor.'],
+}
+
+// Upload-shaped bytes above the UI's 5 KiB minimum. The mocked parse endpoint
+// never reads a real PDF; this deliberately contains no actual student data.
+export const syntheticPdf = {
+  name: 'synthetic-degree-audit.pdf',
+  mimeType: 'application/pdf',
+  buffer: Buffer.from(`%PDF-1.4\n${'% Synthetic browser upload fixture only.\n'.repeat(160)}%%EOF\n`),
+}

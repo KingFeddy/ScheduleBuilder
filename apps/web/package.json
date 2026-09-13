@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "E2E_TEST_MODE=development playwright test",
+    "test:e2e:prod": "E2E_TEST_MODE=production playwright test"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.56.0",
@@ -24,6 +26,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

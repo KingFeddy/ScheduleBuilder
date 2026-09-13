@@ -208,6 +208,63 @@ pnpm dev               # proxies /api/* to localhost:8000 via next.config.ts
 
 ---
 
+## Running frontend browser regressions
+
+Run from the repository root (Node.js 20.9+ and pnpm 9.15):
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter web exec playwright install chromium
+pnpm --filter web test:e2e         # next dev, http://127.0.0.1:3100
+pnpm --filter web test:e2e:prod    # fresh next build + next start, port 3101
+pnpm --filter web typecheck
+pnpm --filter web lint
+```
+
+On Linux CI, install Chromium's system dependencies with
+`pnpm --filter web exec playwright install --with-deps chromium`.
+The production-mode command tests a **local production build**. Both commands own
+their server, refuse an occupied port, and stop it after the run. They use separate
+build directories under `apps/web/.next/e2e-*`, leaving the normal `.next` build
+available. Next's Geist font compilation still needs access to Google Fonts on a
+cold build; browser installation also requires network access.
+
+The six baseline tests cover course search, solve request filters, timed and async
+meeting rendering, scheduler selection persistence, empty results and retry, a
+synthetic PDF upload, generated semesters and saved-plan restoration, and upload /
+generation errors with retry. All API responses are mocked. The upload bytes and
+student profile in `apps/web/e2e/data.ts` are fictional; they do not validate the
+real DegreeWorks parser or academic planning rules.
+
+Tests import `test` and `expect` from `apps/web/e2e/fixtures.ts`. This installs
+context-wide request interception before navigation, rejects unmocked API and
+external HTTP requests, and fails on page or unexpected console errors. Chromium's
+HTTP-status messages are allowed only for observed failing mock API responses.
+Every test starts with
+empty cookies and storage; reloads within a test retain that test's data. The
+clock is fixed while timers keep running. Application API and Sentry environment
+variables are overridden, and API rewrites are disabled only for the test server.
+No backend, database, real PDF, or personal browser profile is needed.
+
+Use `api.respond(method, pathname, json, status)` to override a response,
+`api.reset(method, pathname)` to restore the default, or `api.handle(...)` for a
+delayed response. Assert submitted payloads using `api.requests(...)` alongside
+visible outcomes. Add focused regressions as later goals fix the remaining UI
+issues; this baseline does not establish full frontend or API-contract coverage.
+
+```bash
+pnpm --filter web test:e2e e2e/scheduler.spec.ts
+pnpm --filter web test:e2e --headed
+pnpm --filter web exec playwright show-report playwright-report/development
+```
+
+Reports, failure screenshots, and traces are ignored by Git under
+`apps/web/playwright-report/{development,production}` and
+`apps/web/test-results/{development,production}`. There are no automatic retries
+that could hide a failing first attempt. The test design follows Playwright's
+[API mocking](https://playwright.dev/docs/mock) and
+[browser isolation](https://playwright.dev/docs/browser-contexts) guidance.
+
 ## Running backend tests safely
 
 Database tests use a separate, disposable PostgreSQL service. They never use the

@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { useSchedulerStore } from '@/store/scheduler'
-import { solveSchedule, getProfessor, type ProfessorResponse } from '@/lib/api'
+import { solveSchedule, getApiErrorMessage, getProfessor, type ProfessorResponse } from '@/lib/api'
 import { useScraperStatus } from '@/hooks/useScraperStatus'
 import { CourseSelector } from '@/components/scheduler/course-selector'
 import { CommuterToggles } from '@/components/scheduler/commuter-toggles'
@@ -66,7 +66,7 @@ export default function SchedulerPage() {
           .catch(() => {})
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to solve schedule')
+      setError(getApiErrorMessage(err, 'Failed to solve schedule. Please try again.'))
     } finally {
       setLoading(false)
     }

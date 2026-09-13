@@ -74,7 +74,7 @@ class MockApi {
   }
 
   requests(method: string, pathname: string) {
-    return this.received.filter((r) => r.method() === method && new URL(r.url()).pathname === pathname)
+    return this.received.filter((r) => r.method() === method && decodeURIComponent(new URL(r.url()).pathname) === pathname)
   }
 
   async dispatch(route: Route): Promise<boolean> {

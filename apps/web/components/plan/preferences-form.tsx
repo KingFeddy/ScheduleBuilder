@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
 import { X, Loader2 } from 'lucide-react'
-import { generatePlan, type ParsedDegreeValidated, type SemesterPlan } from '@/lib/api'
+import { generatePlan, getApiErrorMessage, type ParsedDegreeValidated, type SemesterPlan } from '@/lib/api'
 
 interface PreferencesFormProps {
   parsed: ParsedDegreeValidated
@@ -112,12 +112,7 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
       } catch { /* ignore */ }
       onPlanGenerated(res.semesters, res.projected_graduation, res.warnings)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : ''
-      if (msg.includes('429')) {
-        setError('Too many requests — please wait a moment and try again.')
-      } else {
-        setError('Failed to generate plan. Please try again.')
-      }
+      setError(getApiErrorMessage(err, 'Failed to generate plan. Please try again.'))
     } finally {
       setIsLoading(false)
     }

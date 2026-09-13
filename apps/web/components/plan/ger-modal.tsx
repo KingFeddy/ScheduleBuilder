@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, ChevronDown, ChevronUp } from 'lucide-react'
-import { getGerCourses, type GerGroup } from '@/lib/api'
+import { getApiErrorMessage, getGerCourses, type GerGroup } from '@/lib/api'
 
 interface GerModalProps {
   isOpen: boolean
@@ -21,18 +21,28 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
 
   useEffect(() => {
     if (!isOpen) return
+    const controller = new AbortController()
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery('')
     setLoading(true)
     setError(null)
-    getGerCourses()
+    getGerCourses({ signal: controller.signal })
       .then((res) => {
+        if (controller.signal.aborted) return
         setGroups(res.groups)
         setExpanded(new Set(res.groups.map((g) => g.prefix)))
       })
-      .catch(() => setError('Failed to load GER courses.'))
-      .finally(() => setLoading(false))
-    setTimeout(() => searchRef.current?.focus(), 50)
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(getApiErrorMessage(err, 'Failed to load GER courses.'))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    const focusTimer = setTimeout(() => searchRef.current?.focus(), 50)
+    return () => {
+      controller.abort()
+      clearTimeout(focusTimer)
+    }
   }, [isOpen])
 
   useEffect(() => {

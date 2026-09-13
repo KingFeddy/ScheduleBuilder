@@ -58,7 +58,9 @@ export function CourseSelector() {
           ] as string[]
           setProfessorsByCourse(code, names)
           if (names.length === 0) return
-          Promise.all(
+          // Return the promise so a failed lookup reaches the catch below.
+          // Only fulfilled lookups (including true 404s) may populate the cache.
+          return Promise.all(
             names.map((n) =>
               getProfessor(n).then((data) => [n, data] as [string, ProfessorResponse | null]),
             ),

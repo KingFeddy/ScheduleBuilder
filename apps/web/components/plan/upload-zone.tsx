@@ -2,7 +2,7 @@
 
 import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
 import { UploadCloud } from 'lucide-react'
-import { parsePlan, type ParsedDegreeValidated } from '@/lib/api'
+import { getApiErrorMessage, parsePlan, type ParsedDegreeValidated } from '@/lib/api'
 
 interface UploadZoneProps {
   onParsed: (parsed: ParsedDegreeValidated) => void
@@ -60,16 +60,7 @@ export function UploadZone({ onParsed }: UploadZoneProps) {
       } catch { /* Safari private mode */ }
       onParsed(res.parsed)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : ''
-      if (msg.includes('422')) {
-        setError('Could not read your DegreeWorks PDF. Make sure you exported it directly from DegreeWorks.')
-      } else if (msg.includes('413')) {
-        setError('File too large — maximum size is 5MB.')
-      } else if (msg.includes('429')) {
-        setError('Too many requests — please wait a moment and try again.')
-      } else {
-        setError('Failed to parse PDF. Please try again.')
-      }
+      setError(getApiErrorMessage(err, 'Failed to parse PDF. Please try again.'))
     } finally {
       setIsLoading(false)
     }

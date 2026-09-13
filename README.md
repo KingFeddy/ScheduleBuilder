@@ -352,6 +352,51 @@ These checks establish response-shape consistency; they do not validate arbitrar
 JSON at runtime in the browser. Planner generation inputs remain broad dictionaries
 in the backend schema pending the separate input-validation work.
 
+## Frontend API errors and cancellation
+
+API helpers in `apps/web/lib/api.ts` reject failures with `ApiError`, which keeps:
+
+- `kind`: `http`, `network`, or `invalid-response`.
+- `status`: the received HTTP status, or null when no response was received.
+- `detail`: the original validation detail, error object, or fallback text.
+- `retryAfter`: the received `Retry-After` header, and `retryAfterMs`: its delay
+  calculated when the error is created. Missing/invalid delays stay null.
+- `cause`: the underlying transport or decoding error when available.
+
+`getApiErrorMessage(error, fallback)` supplies display text. It formats validation
+field locations/messages without stringifying submitted `input` or `ctx`, uses
+HTTP status to identify rate limiting, and uses the caller's fallback for server
+errors and unreadable successful responses. Keep structured details out of routine
+logs because validation errors can contain submitted audit data.
+
+Every helper accepts an optional final `{ signal }` argument. Use a fresh
+`AbortController` for each request lifetime and abort it when that work is no
+longer needed. Cancellation rejects with an `AbortError`, including during body
+reading; `isAbortError(error)` recognizes it and `getApiErrorMessage` returns null.
+Timeout signals remain failures. Callers must also guard their state updates when
+work becomes obsolete. The GER dialog and scraper-status polling cancel on cleanup;
+the separate upload/search/solve request-identity work remains in the backlog.
+
+`getProfessor` resolves null only for HTTP 404. Network/server failures reject and
+must not be cached as missing professors. The modal displays failed lookups
+separately from a successful not-found result. No API helper automatically retries
+requests. Retry metadata is available only when the server/proxy exposes the header;
+the client does not invent a server delay or configure backend rate limiting.
+
+Run the API client tests without a browser, server, or database:
+
+```bash
+pnpm --filter web test:unit
+```
+
+The 35 tests reuse the installed Playwright runner with a separate unit-test
+configuration. They replace fetch before each test and restore it afterward;
+every response is synthetic. The existing frontend CI job runs them after
+typechecking. Cancellation and retry handling follow the browser's
+[AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) and
+[Retry-After](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After)
+contracts.
+
 ## Running frontend browser regressions
 
 Run from the repository root (Node.js 20.9+ and pnpm 9.15):
@@ -362,6 +407,7 @@ pnpm --filter web exec playwright install chromium
 pnpm --filter web test:e2e         # next dev, http://127.0.0.1:3100
 pnpm --filter web test:e2e:prod    # fresh next build + next start, port 3101
 pnpm --filter web typecheck
+pnpm --filter web test:unit
 pnpm --filter web lint
 ```
 
@@ -373,11 +419,13 @@ build directories under `apps/web/.next/e2e-*`, leaving the normal `.next` build
 available. Next's Geist font compilation still needs access to Google Fonts on a
 cold build; browser installation also requires network access.
 
-The nine browser tests cover course search, solve request filters, timed and async
+The 13 browser tests cover course search, solve request filters, timed and async
 meeting rendering, scheduler selection persistence, empty results and retry, a
 synthetic PDF upload, generated semesters and saved-plan restoration, and upload /
 generation errors with retry. They also cover missing course titles, missing degree
-metadata, and GER search with a missing title. All API responses are mocked. The upload bytes and
+metadata, GER search with a missing title, validation details, rate-limit retry
+delays, failed versus missing professor lookups, and GER request cancellation.
+All API responses are mocked. The upload bytes and
 student profile in `apps/web/e2e/data.ts` are fictional; they do not validate the
 real DegreeWorks parser or academic planning rules.
 
@@ -396,7 +444,8 @@ Use `api.respond(method, pathname, json, status)` to override a response,
 delayed response. Successful `respond` payloads and default fixtures use the
 generated API types; error overrides supply an explicit error status and `detail`.
 Assert submitted payloads using `api.requests(...)` alongside
-visible outcomes. Add focused regressions as later goals fix the remaining UI
+visible outcomes. All mock helper paths use decoded names, including professor
+names containing spaces and commas. Add focused regressions as later goals fix the remaining UI
 issues; these tests do not establish full frontend or academic-rule coverage.
 
 ```bash

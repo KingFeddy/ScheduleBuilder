@@ -20,6 +20,7 @@ HEAD = "<thead><tr>" + "".join(
     ["And/Or", "", "Test", "Score", "Subject", "Course Number", "Level", "Grade", ""]
 ) + "</tr></thead>"
 SUBJECTS = [{"code": SUBJECT, "description": "Fake Test Subject"}]
+EMPTY_COREQUISITES = '<table class="basePreqTable"><thead><tr><th>Subject</th><th>Course Number</th><th>Title</th></tr></thead><tbody></tbody></table>'
 
 
 def row(subject="Fake Test Subject", number="996", **overrides):
@@ -52,13 +53,7 @@ INVALID_HTML = [
     pytest.param(table(row()).replace(HEAD, ""), id="missing-headers"),
     pytest.param(table(row()).replace("<th>Subject</th>", "<th>Department</th>"), id="changed-headers"),
     pytest.param(table(row(), "<tr><td>Missing columns</td></tr>"), id="partial-row"),
-    pytest.param(table(row(), row(subject="", connector="And")), id="missing-subject"),
-    pytest.param(table(row(), row(number="", connector="And")), id="missing-number"),
-    pytest.param(table(row(), row(number="3@", connector="And")), id="unsupported-wildcard"),
-    pytest.param(table(row(), row(subject="", number="", test="Placement", score="80", connector="And")), id="test-only-rule"),
-    pytest.param(table(row(), row(connector="Or")), id="unsupported-or"),
     pytest.param(table(row(), row()), id="missing-connector"),
-    pytest.param(table(row(opening="("), row(closing=")")), id="unsupported-group"),
     pytest.param(table(row()) + table(row()), id="multiple-tables"),
     pytest.param(table(row()).replace("<td>996</td>", '<td colspan="2">996</td>'), id="spanning-cell"),
 ]
@@ -67,22 +62,24 @@ INVALID_HTML = [
 @pytest.mark.parametrize("body", INVALID_HTML)
 def test_unrecognized_or_incomplete_html_is_not_an_empty_or_partial_result(body):
     with pytest.raises(RuntimeError):
-        prerequisites.parse_prerequisite_table(body)
+        prerequisites.parse_prerequisite_rules(body, {"Fake Test Subject": SUBJECT})
 
 
 def test_complete_empty_section_and_complete_course_rows_are_supported():
-    assert prerequisites.parse_prerequisite_table(EMPTY_HTML) == []
-    assert prerequisites.parse_prerequisite_table(table(row(), row(number="995", connector="And"))) == [
-        ("Fake Test Subject", "996"), ("Fake Test Subject", "995"),
-    ]
+    from src.schemas.prerequisites import is_empty
+    assert is_empty(prerequisites.parse_prerequisite_rules(EMPTY_HTML, {"Fake Test Subject": SUBJECT}))
+    rules = prerequisites.parse_prerequisite_rules(table(row(), row(number="995", connector="And")), {"Fake Test Subject": SUBJECT})
+    assert [rule.course_code for rule in rules.items] == ["ZZZ996", "ZZZ995"]
 
 
 def test_partial_subject_resolution_rejects_the_entire_replacement():
-    with pytest.raises(RuntimeError):
-        prerequisites.resolve_prerequisite_codes(
-            [("Fake Test Subject", "996"), ("Unknown subject", "100")],
-            {"Fake Test Subject": SUBJECT}, "ZZZ997",
-        )
+    from src.schemas.prerequisites import has_unresolved
+    rule = prerequisites.parse_prerequisite_rules(
+        table(row(), row(subject="Unknown subject", number="100", connector="And")),
+        {"Fake Test Subject": SUBJECT},
+    )
+    assert has_unresolved(rule)
+    assert rule.items[1].reason == "unresolved_subject"
 
 
 @pytest.mark.parametrize("entries", [
@@ -103,8 +100,8 @@ def test_normalizes_entity_and_whitespace_differences_consistently():
     lookup = prerequisites.build_subject_lookup([
         {"code": "ECE", "description": "Electrical &amp;  Computer\u00a0Engr"},
     ])
-    pairs = prerequisites.parse_prerequisite_table(table(row(subject="Electrical &amp; Computer Engr")))
-    assert prerequisites.resolve_prerequisite_codes(pairs, lookup, "ZZZ997") == ["ECE996"]
+    rule = prerequisites.parse_prerequisite_rules(table(row(subject="Electrical &amp; Computer Engr")), lookup)
+    assert rule.course_code == "ECE996"
 
 
 @pytest.mark.asyncio
@@ -127,7 +124,7 @@ async def test_failed_or_potentially_truncated_lookup_is_rejected(reply):
 async def test_prerequisite_endpoint_must_return_html(content_type):
     page = MagicMock(request=MagicMock(post=AsyncMock(return_value=response(EMPTY_HTML, content_type=content_type))))
     with pytest.raises(RuntimeError):
-        await prerequisites.fetch_prerequisites(page, "https://example.test/ssb", TERM, "81111")
+        await prerequisites.fetch_rule_source(page, "https://example.test/ssb", TERM, "81111", "prerequisites")
 
 
 @pytest.fixture
@@ -138,7 +135,8 @@ def source(monkeypatch):
     page = browser.new_context.return_value.new_page.return_value
     state = SimpleNamespace(
         lookup=response(json.dumps(SUBJECTS), content_type="application/json"),
-        prerequisite=response(table(row())), sections=[section()], browser=browser,
+        prerequisite=response(table(row())), corequisite=response(EMPTY_COREQUISITES),
+        sections=[section()], browser=browser,
         prerequisite_requests=[],
     )
 
@@ -151,6 +149,10 @@ def source(monkeypatch):
     async def post(url, **kwargs):
         if "/term/search?" in url:
             return response('{"fwdURL": ""}', content_type="application/json")
+        if url.endswith("/searchResults/getCorequisites"):
+            if isinstance(state.corequisite, BaseException):
+                raise state.corequisite
+            return state.corequisite
         assert url.endswith("/searchResults/getSectionPrerequisites")
         state.prerequisite_requests.append(kwargs["form"])
         if isinstance(state.prerequisite, BaseException):
@@ -189,7 +191,7 @@ FAILURES = [
     pytest.param("prerequisite", response("<h1>Session expired</h1>"), "unresolved", id="unexpected-html"),
     pytest.param("prerequisite", response(table(row(), row(subject="Unknown subject", connector="And"))), "unresolved", id="partly-resolved"),
     pytest.param("prerequisite", response(table(row(), "<tr><td>Broken</td></tr>")), "unresolved", id="partly-extracted"),
-    pytest.param("prerequisite", response(table(row(), row(connector="Or"))), "unresolved", id="unsupported-rule"),
+    pytest.param("prerequisite", response(table(row(), row(connector="Or", subject="", number="", test="Placement", score="80"))), "unresolved", id="unsupported-rule"),
 ]
 
 

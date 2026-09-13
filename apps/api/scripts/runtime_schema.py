@@ -25,6 +25,9 @@ COLUMNS = {
         "prerequisites_attempted_at": Column("timestamp with time zone", nullable=True),
         "prerequisites_verified_at": Column("timestamp with time zone", nullable=True),
         "prerequisites_error": Column("text", nullable=True),
+        "prerequisites_rules": Column("jsonb", nullable=True),
+        "prerequisites_source": Column("jsonb", nullable=True),
+        "prerequisites_latest_attempt": Column("jsonb", nullable=True),
     },
     "sections": {
         "crn": Column("text"),
@@ -98,6 +101,10 @@ FOREIGN_KEYS = (
 CHECKS = {
     "courses": {
         "prerequisites_status": "(prerequisites_status = ANY (ARRAY['unverified'::text, 'verified'::text, 'verified_empty'::text, 'failed'::text, 'unresolved'::text]))",
+        "prerequisites_rules_object": "((prerequisites_rules IS NULL) OR (jsonb_typeof(prerequisites_rules) = 'object'::text))",
+        "prerequisites_source_object": "((prerequisites_source IS NULL) OR (jsonb_typeof(prerequisites_source) = 'object'::text))",
+        "prerequisites_attempt_object": "((prerequisites_latest_attempt IS NULL) OR (jsonb_typeof(prerequisites_latest_attempt) = 'object'::text))",
+        "prerequisites_source_pair": "((prerequisites_rules IS NULL) = (prerequisites_source IS NULL))",
     },
     "meetings": {
         "time_pair": "(((start_time IS NULL) AND (end_time IS NULL)) OR ((start_time IS NOT NULL) AND (end_time IS NOT NULL)))",

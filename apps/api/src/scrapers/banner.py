@@ -16,13 +16,14 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.schemas.prerequisites import PrerequisiteRefresh, SubjectLookup, legacy_course_codes
+
 from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID
 from .prerequisites import (
     PrerequisiteDataError,
     PrerequisiteRequestError,
     fetch_subject_lookup,
     fetch_prerequisites,
-    resolve_prerequisite_codes,
 )
 
 logger = logging.getLogger(__name__)
@@ -453,52 +454,59 @@ async def _delete_stale_sections(
 
 async def _refresh_course_prerequisites(
     session: AsyncSession, page, term: str, crn: str, course_code: str,
-    subject_lookup: dict[str, str],
+    subject_lookup: SubjectLookup | None,
     lookup_error: PrerequisiteDataError | PrerequisiteRequestError | None,
 ) -> None:
     """Save a complete replacement atomically, or record uncertainty without erasing data.
 
-    The previous verified timestamp belongs to the retained array, so a failed
-    attempt updates only its own outcome/time. Cancellation propagates; a database
-    failure while recording the outcome is logged by the caller.
+    The verified timestamp belongs to the retained rules and source evidence.
+    Failed attempts preserve those together and record their candidate/evidence
+    separately. Cancellation propagates; persistence failures are logged by type.
     """
-    try:
-        if lookup_error is not None:
-            # Reusing one exception for every course would grow its traceback
-            # throughout the subject scrape. Keep only the original failure reason.
-            raise type(lookup_error)(str(lookup_error)) from None
-        pairs = await fetch_prerequisites(page, BANNER_BASE, term, crn)
-        codes = resolve_prerequisite_codes(pairs, subject_lookup, course_code)
-    except PrerequisiteDataError as exc:
-        status, error = "unresolved", str(exc)
-    except PrerequisiteRequestError as exc:
-        status, error = "failed", str(exc)
-    except Exception:
-        # Do not persist raw network responses, exception payloads, or credentials.
-        status, error = "failed", "Prerequisite request failed."
+    if lookup_error is not None:
+        refresh = PrerequisiteRefresh(
+            rules=None, sources=[lookup_error.source] if lookup_error.source else [],
+            status="unresolved" if isinstance(lookup_error, PrerequisiteDataError) else "failed",
+            error=str(lookup_error),
+        )
     else:
+        refresh = await fetch_prerequisites(page, BANNER_BASE, term, crn, subject_lookup)
+    status, error = refresh.status, refresh.error
+    attempt = {
+        "schema_version": 1, "scope": {"term": term, "crn": crn},
+        **refresh.model_dump(mode="json"),
+    }
+    if status in {"verified", "verified_empty"}:
         try:
             async with session.begin():
                 await session.execute(text("""
-                    UPDATE courses SET prerequisites = :prerequisites,
+                    UPDATE courses SET prerequisites = COALESCE(CAST(:prerequisites AS text[]), prerequisites),
+                        prerequisites_rules = CAST(:rules AS jsonb),
+                        prerequisites_source = CAST(:source AS jsonb),
+                        prerequisites_latest_attempt = CAST(:attempt AS jsonb),
                         prerequisites_status = :status,
                         prerequisites_attempted_at = now(), prerequisites_verified_at = now(),
                         prerequisites_error = NULL
                     WHERE course_code = :course_code
                 """), {
-                    "prerequisites": codes, "status": "verified" if codes else "verified_empty",
+                    "prerequisites": legacy_course_codes(refresh.rules), "status": status,
+                    "rules": refresh.rules.model_dump_json(),
+                    "source": json.dumps({"schema_version": 1, "sources": attempt["sources"]}),
+                    "attempt": json.dumps(attempt),
                     "course_code": course_code,
                 })
             return
         except Exception:
             status, error = "failed", "Could not save prerequisite refresh."
 
+    attempt.update(status=status, error=error)
     async with session.begin():
         await session.execute(text("""
             UPDATE courses SET prerequisites_status = :status,
-                prerequisites_attempted_at = now(), prerequisites_error = :error
+                prerequisites_attempted_at = now(), prerequisites_error = :error,
+                prerequisites_latest_attempt = CAST(:attempt AS jsonb)
             WHERE course_code = :course_code
-        """), {"status": status, "error": error, "course_code": course_code})
+        """), {"status": status, "error": error, "course_code": course_code, "attempt": json.dumps(attempt)})
     logger.warning("Banner/%s/%s/%s: prerequisites %s: %s", term, crn, course_code, status, error)
 
 
@@ -591,7 +599,7 @@ async def scrape_subject(
                     "Banner/%s: prerequisite refreshes will retain previous data: %s",
                     subject, lookup_error,
                 )
-                subject_lookup = {}
+                subject_lookup = None
             seen_course_codes: set[str] = set()
 
             while True:
@@ -658,8 +666,8 @@ async def scrape_subject(
                                 )
                             except Exception as exc:
                                 logger.warning(
-                                    "Failed to record prerequisite outcome for %s: %s",
-                                    course_code, exc,
+                                    "Failed to record prerequisite outcome for %s (%s)",
+                                    course_code, type(exc).__name__,
                                 )
                     except Exception as exc:
                         logger.error(

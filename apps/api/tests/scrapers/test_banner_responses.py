@@ -57,7 +57,18 @@ def upstream(monkeypatch):
     page.goto = AsyncMock(side_effect=goto)
     monkeypatch.setattr(banner, "async_playwright", MagicMock(return_value=cm))
     monkeypatch.setattr(banner, "fetch_subject_lookup", AsyncMock(return_value={}))
-    monkeypatch.setattr(banner, "fetch_prerequisites", AsyncMock(return_value=[]))
+    async def empty_prerequisites(page, base, term, crn, lookup):
+        from src.schemas.prerequisites import (
+            AllConditions, ObservationScope, PrerequisiteRefresh, PrerequisiteRules,
+        )
+        return PrerequisiteRefresh(
+            rules=PrerequisiteRules(
+                scope=ObservationScope(term=term, crn=crn),
+                prerequisites=AllConditions(items=[]), corequisites=AllConditions(items=[]),
+            ), sources=[], status="verified_empty",
+        )
+
+    monkeypatch.setattr(banner, "fetch_prerequisites", empty_prerequisites)
     monkeypatch.setattr(banner, "PAGE_SIZE", 2)
     monkeypatch.setattr(banner, "RETRY_DELAYS", [0, 0])
     monkeypatch.setattr(banner, "asyncio", SimpleNamespace(sleep=AsyncMock()))

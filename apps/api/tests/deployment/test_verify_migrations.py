@@ -45,7 +45,7 @@ async def test_current_migrations_pass_without_touching_records(database):
     assert await _errors(database) == []
     async with database.session_factory() as session:
         assert await session.scalar(text("SELECT title FROM courses")) == "Keep this record"
-        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 6
+        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 7
 
 
 @pytest.mark.asyncio
@@ -53,10 +53,11 @@ async def test_current_migrations_pass_without_touching_records(database):
     ("007", "meetings"), ("009", "courses.prerequisites"),
     ("012", "scraper_runs"), ("013", "sections.section_number"),
     ("014", "courses.prerequisites_status"),
+    ("015", "courses.prerequisites_rules"),
 ])
-async def test_omitted_runtime_migration_fails(test_database_url, version, missing):
+async def test_unapplied_runtime_migration_fails(test_database_url, version, missing):
     async with isolated_test_database(test_database_url, initialize=False) as database:
-        migrations = [m for m in load_migrations() if m.version != version]
+        migrations = [m for m in load_migrations() if m.version < version]
         async with database.session_factory.begin() as session:
             await apply_migrations(await session.connection(), schema_name=database.schema_name, migrations=migrations)
         assert any(missing in error for error in await _errors(database))
@@ -65,7 +66,7 @@ async def test_omitted_runtime_migration_fails(test_database_url, version, missi
 # Independent runtime inventory: deleting any field must fail even with an intact
 # ledger. In particular, these include fields omitted by the former verifier.
 RUNTIME_COLUMNS = {
-    "courses": "course_code title credits prerequisites prerequisites_status prerequisites_attempted_at prerequisites_verified_at prerequisites_error",
+    "courses": "course_code title credits prerequisites prerequisites_status prerequisites_attempted_at prerequisites_verified_at prerequisites_error prerequisites_rules prerequisites_source prerequisites_latest_attempt",
     "sections": "crn term course_code professor_name total_seats open_seats location scraped_at section_number",
     "meetings": "id crn term days start_time end_time location",
     "professors": "professor_name department",
@@ -100,6 +101,10 @@ async def test_public_table_cannot_replace_missing_target_table(database, table)
     ("ALTER TABLE courses ALTER COLUMN prerequisites DROP DEFAULT", "DEFAULT: courses.prerequisites"),
     ("ALTER TABLE courses ALTER COLUMN prerequisites_status DROP DEFAULT", "DEFAULT: courses.prerequisites_status"),
     ("ALTER TABLE courses DROP CONSTRAINT courses_prerequisites_status_check", "CHECK: courses.prerequisites_status"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_prerequisites_rules_object", "CHECK: courses.prerequisites_rules_object"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_prerequisites_source_object", "CHECK: courses.prerequisites_source_object"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_prerequisites_attempt_object", "CHECK: courses.prerequisites_attempt_object"),
+    ("ALTER TABLE courses DROP CONSTRAINT courses_prerequisites_source_pair", "CHECK: courses.prerequisites_source_pair"),
     ("ALTER TABLE scraper_runs ALTER COLUMN started_at DROP DEFAULT", "DEFAULT: scraper_runs.started_at"),
     ("ALTER TABLE meetings ALTER COLUMN id DROP DEFAULT", "DEFAULT: meetings.id"),
     ("ALTER TABLE scraper_runs ALTER COLUMN duration_ms DROP EXPRESSION", "GENERATED: scraper_runs.duration_ms"),

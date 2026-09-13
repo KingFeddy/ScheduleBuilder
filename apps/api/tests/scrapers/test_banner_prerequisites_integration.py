@@ -66,6 +66,13 @@ async def test_prerequisites_written_to_courses_table(db_session):
     """
 
     async def fake_post(url, **kwargs):
+        if "getCorequisites" in url:
+            from tests.scrapers.test_prerequisite_verification import EMPTY_COREQUISITES
+            resp = AsyncMock()
+            resp.status = 200
+            resp.headers = {"content-type": "text/html"}
+            resp.text = AsyncMock(return_value=EMPTY_COREQUISITES)
+            return resp
         if "term/search" in url:
             resp = AsyncMock()
             resp.status = 200

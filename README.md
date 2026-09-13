@@ -118,28 +118,52 @@ The scraper distinguishes three error classes:
 
 Network timeouts and retryable request failures use `[5, 15, 30]` second backoff. Browser-free regressions in `apps/api/tests/scrapers/test_banner_responses.py` exercise the actual response parser and scraper against synthetic HTTP responses and an isolated PostgreSQL catalog, including first-page failures, later-page failures, and verified empty results.
 
-Prerequisite refreshes preserve the previous course-code list whenever Banner
-lookup, HTML extraction, subject resolution, or the replacement write fails.
-Every row must resolve before any replacement is saved. The supported empty
-response is a complete `section[aria-labelledby="preReqs"]` containing only the
-`Catalog Prerequisites` heading; a missing table, blank response, empty table body,
-or error page elsewhere does not verify that a course has no prerequisites.
-Changed/malformed tables and unsupported OR, grouping, test, or wildcard conditions
-remain unresolved. The subject lookup requires successful JSON, valid unambiguous
-entries, and fewer than its 100-entry limit; a full page remains unresolved until
-pagination support is added.
+Prerequisite refreshes store versioned expression trees in
+`courses.prerequisites_rules`. They preserve AND/OR alternatives, explicit groups,
+minimum grades, academic levels, and source-provided concurrency conditions.
+Corequisites are fetched separately and retain required section CRNs when supplied.
+Each rule set records the observed term and representative section CRN; it does
+not establish that every section or future term has identical requirements.
+Missing concurrency information stays `unspecified`. Unsupported tests, wildcards,
+grades, ambiguous corequisite section alternatives, or mixed AND/OR without explicit
+grouping stay unresolved, with their original evidence retained.
 
-Migration 014 adds `courses.prerequisites_status`: `unverified` for legacy/new
-data, `verified` for complete supported course-code extraction, `verified_empty`
-for the recognized empty response, `failed` for request/write failures, and
-`unresolved` for incomplete or unsupported data. `prerequisites_attempted_at`
-records the latest finished attempt. `prerequisites_verified_at` stays attached to
-the last successfully saved list and survives later failures. `prerequisites_error`
-records a failure reason and clears on recovery. Prerequisite failures leave section
-refreshes running; cancellation propagates without replacing the course data.
-These are stored extraction outcomes, not student eligibility checks. The public
-API and planner still use the legacy array; full rule/grade handling is Goal 15.
-Regression coverage lives in `apps/api/tests/scrapers/test_prerequisite_verification.py`.
+Both prerequisite and corequisite sources must be fully understood before replacing
+the retained rules. Failed lookup, extraction, resolution, or database writes keep
+the previous rules and their evidence together. Only a complete recognized
+`section[aria-labelledby="preReqs"]` containing the `Catalog Prerequisites` heading
+alone verifies no prerequisites; blank/error HTML or an empty prerequisite table
+does not. Corequisites support a recognized empty section or a complete table with
+the expected headers and no rows. Subject lookup still requires successful JSON,
+unambiguous entries, and fewer than its 100-entry limit; a full page stays unresolved
+until pagination support is added.
+
+`prerequisites_source` holds the subject lookup and both rule responses associated
+with the retained rules. `prerequisites_latest_attempt` separately records the
+latest candidate, outcome, and evidence, including failures. Evidence includes the
+URL, term/CRN, fetch time, HTTP status/content type, decoded response text, and its
+UTF-8 SHA-256 hash. Sources over 256 KiB retain a bounded text prefix and the full
+text hash, are marked truncated, and cannot verify rules. NUL-containing text uses
+reversible base64 encoding for PostgreSQL JSONB storage. Evidence is stored internally
+and is not rendered by the frontend or included in the public API.
+
+Migration 015 adds these three JSONB fields and invalidates old verification
+timestamps/statuses without changing any legacy arrays. `prerequisites_status` is
+`unverified` for legacy/new data, `verified` for supported structured extraction,
+`verified_empty` when both sources explicitly contain no conditions, `failed` for
+request/write failures, or `unresolved` for unsupported data. Attempt time and errors
+describe the latest finished attempt; the verification time remains attached to the
+last successfully saved rules and survives later failures. Cancellation propagates,
+and prerequisite failures allow independent section refreshes to continue.
+
+The legacy `prerequisites` array remains an unverified compatibility projection.
+Simple AND-only prerequisites can update its codes; alternatives, concurrency, or
+corequisites retain its historical value instead of being flattened. The public
+API and planner behavior are unchanged. Student eligibility enforcement remains
+Goal 27. Tests use synthetic Banner responses; they do not certify the current NJIT
+production formats. Regression coverage lives in
+`apps/api/tests/scrapers/test_prerequisite_rules.py` and
+`apps/api/tests/scrapers/test_prerequisite_verification.py`.
 
 ### 6. Design system built on CSS tokens
 
@@ -552,7 +576,7 @@ the service with the cleanup and startup commands above to apply the new bootstr
 ## Database migrations
 
 `apps/api/migrations/manifest.json` lists migrations in order. Fresh databases apply
-000, 007, 009, 012, 013, and 014. Migration 008 remains deferred until meeting backfill
+000, 007, 009, 012, 013, 014, and 015. Migration 008 remains deferred until meeting backfill
 coverage is verified and at least two weeks of production scraper data are
 confirmed; its legacy section columns remain available. Numbers 010 and 011 stay
 unused because their subsystems were removed.
@@ -592,8 +616,8 @@ DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE' \
 uv run --no-sync python -m scripts.verify_migrations
 ```
 
-It checks the six runtime tables and all 41 required columns, including
-`sections.section_number`, prerequisite verification metadata, and every
+It checks the six runtime tables and all 44 required columns, including
+`sections.section_number`, prerequisite rules/evidence/verification metadata, and every
 scraper-status field. It also checks column
 types and nullability, required defaults and generated values, primary and unique
 keys used by upserts, cascading foreign keys, validated meeting/status checks, and

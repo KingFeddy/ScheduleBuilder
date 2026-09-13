@@ -8,6 +8,7 @@
     },
     {"file": "009_courses_prerequisites.sql"},
     {"file": "012_scraper_health.sql"},
-    {"file": "013_section_number.sql"}
+    {"file": "013_section_number.sql"},
+    {"file": "014_prerequisite_verification.sql"}
   ]
 }

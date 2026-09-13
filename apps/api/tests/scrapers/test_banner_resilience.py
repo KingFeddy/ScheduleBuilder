@@ -269,9 +269,11 @@ def _mock_playwright_returning(sections: list[dict], total: int | None = None):
     mock_page.request.post = AsyncMock(return_value=mock_term_resp)
 
     # scrape_subject fetches the subject lookup (GET get_subject) once per
-    # run, before its pagination loop — give it a harmless empty list so
-    # tests that don't care about prerequisites don't crash on this call.
+    # run, before its pagination loop. An empty lookup is intentionally unresolved;
+    # section-only tests keep working while prerequisites retain previous data.
     mock_subject_resp = AsyncMock()
+    mock_subject_resp.status = 200
+    mock_subject_resp.headers = {"content-type": "application/json"}
     mock_subject_resp.text = AsyncMock(return_value="[]")
     mock_page.request.get = AsyncMock(return_value=mock_subject_resp)
 

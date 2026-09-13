@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.scrapers.prerequisites import (
     parse_prerequisite_table,
     build_subject_lookup,
@@ -69,7 +71,7 @@ class TestParsePrerequisiteTable:
         ]
 
     def test_no_prerequisites_returns_empty_list(self):
-        """A course with no prerequisites — no table, no rows to find."""
+        """Only the complete, recognized empty prerequisite section proves absence."""
         html = """
         <section aria-labelledby="preReqs">
             <h3>Catalog Prerequisites</h3>
@@ -119,15 +121,16 @@ class TestResolvePrerequisiteCodes:
         lookup = {"Computer Science": "CS"}
         assert resolve_prerequisite_codes(pairs, lookup, "CS288") == ["CS100", "CS280"]
 
-    def test_unknown_subject_is_skipped_not_fatal(self):
-        """A subject description not in the lookup is skipped, not an error — and processing continues past it to later entries."""
+    def test_unknown_subject_rejects_partial_resolution(self):
+        """One unresolved subject must prevent replacement of the entire course array."""
         pairs = [
             ("Computer Science", "280"),
             ("Mystery Subject", "999"),
             ("Computer Science", "100"),
         ]
         lookup = {"Computer Science": "CS"}
-        assert resolve_prerequisite_codes(pairs, lookup, "CS350") == ["CS280", "CS100"]
+        with pytest.raises(RuntimeError, match="Unresolved prerequisite subject"):
+            resolve_prerequisite_codes(pairs, lookup, "CS350")
 
     def test_empty_pairs_returns_empty_list(self):
         assert resolve_prerequisite_codes([], {"Computer Science": "CS"}, "CS101") == []
@@ -142,6 +145,8 @@ class TestFetchSubjectLookup:
 
         async def run():
             mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.headers = {"content-type": "application/json; charset=UTF-8"}
             mock_response.text = AsyncMock(
                 return_value=json.dumps([
                     {"code": "CS", "description": "Computer Science"},
@@ -173,9 +178,13 @@ class TestFetchPrerequisites:
         async def run():
             mock_response = MagicMock()
             mock_response.status = 200
+            mock_response.headers = {"content-type": "text/html; charset=UTF-8"}
             mock_response.text = AsyncMock(
                 return_value="""
-                <table class="basePreqTable"><tbody>
+                <table class="basePreqTable">
+                    <thead><tr><th>And/Or</th><th></th><th>Test</th><th>Score</th>
+                        <th>Subject</th><th>Course Number</th><th>Level</th><th>Grade</th><th></th></tr></thead>
+                    <tbody>
                     <tr><td></td><td></td><td></td><td></td>
                         <td>Accounting</td><td>215</td><td>Undergraduate</td><td>D</td><td></td></tr>
                 </tbody></table>

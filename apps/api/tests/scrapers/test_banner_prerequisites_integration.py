@@ -56,7 +56,10 @@ async def test_prerequisites_written_to_courses_table(db_session):
         [{"code": _FAKE_SUBJECT, "description": "Fake Test Subject"}]
     )
     prereq_html = """
-        <table class="basePreqTable"><tbody>
+        <table class="basePreqTable">
+            <thead><tr><th>And/Or</th><th></th><th>Test</th><th>Score</th>
+                <th>Subject</th><th>Course Number</th><th>Level</th><th>Grade</th><th></th></tr></thead>
+            <tbody>
             <tr><td></td><td></td><td></td><td></td>
                 <td>Fake Test Subject</td><td>996</td><td>Undergraduate</td><td>C</td><td></td></tr>
         </tbody></table>
@@ -71,6 +74,7 @@ async def test_prerequisites_written_to_courses_table(db_session):
         if "getSectionPrerequisites" in url:
             resp = AsyncMock()
             resp.status = 200
+            resp.headers = {"content-type": "text/html"}
             resp.text = AsyncMock(return_value=prereq_html)
             return resp
         raise AssertionError(f"Unexpected POST to {url}")
@@ -78,6 +82,8 @@ async def test_prerequisites_written_to_courses_table(db_session):
     async def fake_get(url, **kwargs):
         if "get_subject" in url:
             resp = AsyncMock()
+            resp.status = 200
+            resp.headers = {"content-type": "application/json"}
             resp.text = AsyncMock(return_value=subject_lookup_json)
             return resp
         raise AssertionError(f"Unexpected GET to {url}")

@@ -17,7 +17,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID
-from .prerequisites import fetch_subject_lookup, fetch_prerequisites, resolve_prerequisite_codes
+from .prerequisites import (
+    PrerequisiteDataError,
+    PrerequisiteRequestError,
+    fetch_subject_lookup,
+    fetch_prerequisites,
+    resolve_prerequisite_codes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +451,57 @@ async def _delete_stale_sections(
 
 # ─── Subject scrape ───────────────────────────────────────────────────────────
 
+async def _refresh_course_prerequisites(
+    session: AsyncSession, page, term: str, crn: str, course_code: str,
+    subject_lookup: dict[str, str],
+    lookup_error: PrerequisiteDataError | PrerequisiteRequestError | None,
+) -> None:
+    """Save a complete replacement atomically, or record uncertainty without erasing data.
+
+    The previous verified timestamp belongs to the retained array, so a failed
+    attempt updates only its own outcome/time. Cancellation propagates; a database
+    failure while recording the outcome is logged by the caller.
+    """
+    try:
+        if lookup_error is not None:
+            # Reusing one exception for every course would grow its traceback
+            # throughout the subject scrape. Keep only the original failure reason.
+            raise type(lookup_error)(str(lookup_error)) from None
+        pairs = await fetch_prerequisites(page, BANNER_BASE, term, crn)
+        codes = resolve_prerequisite_codes(pairs, subject_lookup, course_code)
+    except PrerequisiteDataError as exc:
+        status, error = "unresolved", str(exc)
+    except PrerequisiteRequestError as exc:
+        status, error = "failed", str(exc)
+    except Exception:
+        # Do not persist raw network responses, exception payloads, or credentials.
+        status, error = "failed", "Prerequisite request failed."
+    else:
+        try:
+            async with session.begin():
+                await session.execute(text("""
+                    UPDATE courses SET prerequisites = :prerequisites,
+                        prerequisites_status = :status,
+                        prerequisites_attempted_at = now(), prerequisites_verified_at = now(),
+                        prerequisites_error = NULL
+                    WHERE course_code = :course_code
+                """), {
+                    "prerequisites": codes, "status": "verified" if codes else "verified_empty",
+                    "course_code": course_code,
+                })
+            return
+        except Exception:
+            status, error = "failed", "Could not save prerequisite refresh."
+
+    async with session.begin():
+        await session.execute(text("""
+            UPDATE courses SET prerequisites_status = :status,
+                prerequisites_attempted_at = now(), prerequisites_error = :error
+            WHERE course_code = :course_code
+        """), {"status": status, "error": error, "course_code": course_code})
+    logger.warning("Banner/%s/%s/%s: prerequisites %s: %s", term, crn, course_code, status, error)
+
+
 async def scrape_subject(
     session: AsyncSession,
     subject: str,
@@ -522,12 +579,17 @@ async def scrape_subject(
                     wait_until="networkidle",
                 )
 
+            lookup_error = None
             try:
                 subject_lookup = await fetch_subject_lookup(page, BANNER_BASE, term)
             except Exception as exc:
+                lookup_error = (
+                    exc if isinstance(exc, (PrerequisiteDataError, PrerequisiteRequestError))
+                    else PrerequisiteRequestError("Subject lookup request failed.")
+                )
                 logger.warning(
-                    "Banner/%s: failed to fetch subject lookup, prerequisites will be skipped this run: %s",
-                    subject, exc,
+                    "Banner/%s: prerequisite refreshes will retain previous data: %s",
+                    subject, lookup_error,
                 )
                 subject_lookup = {}
             seen_course_codes: set[str] = set()
@@ -590,23 +652,13 @@ async def scrape_subject(
                         if course_code not in seen_course_codes:
                             seen_course_codes.add(course_code)
                             try:
-                                pairs = await fetch_prerequisites(
-                                    page, BANNER_BASE, term, raw["courseReferenceNumber"],
+                                await _refresh_course_prerequisites(
+                                    session, page, term, raw["courseReferenceNumber"],
+                                    course_code, subject_lookup, lookup_error,
                                 )
-                                codes = resolve_prerequisite_codes(
-                                    pairs, subject_lookup, course_code,
-                                )
-                                async with session.begin():
-                                    await session.execute(
-                                        text(
-                                            "UPDATE courses SET prerequisites = :prerequisites "
-                                            "WHERE course_code = :course_code"
-                                        ),
-                                        {"prerequisites": codes, "course_code": course_code},
-                                    )
                             except Exception as exc:
                                 logger.warning(
-                                    "Failed to fetch prerequisites for %s: %s",
+                                    "Failed to record prerequisite outcome for %s: %s",
                                     course_code, exc,
                                 )
                     except Exception as exc:

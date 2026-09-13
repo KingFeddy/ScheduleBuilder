@@ -21,6 +21,10 @@ COLUMNS = {
         "title": Column("text"),
         "credits": Column("integer"),
         "prerequisites": Column("text[]", default="'{}'::text[]"),
+        "prerequisites_status": Column("text", default="'unverified'::text"),
+        "prerequisites_attempted_at": Column("timestamp with time zone", nullable=True),
+        "prerequisites_verified_at": Column("timestamp with time zone", nullable=True),
+        "prerequisites_error": Column("text", nullable=True),
     },
     "sections": {
         "crn": Column("text"),
@@ -92,6 +96,9 @@ FOREIGN_KEYS = (
 # Match definitions, not names. Equivalent alternative definitions require review
 # and an explicit contract update; arbitrary SQL equivalence is not inferred.
 CHECKS = {
+    "courses": {
+        "prerequisites_status": "(prerequisites_status = ANY (ARRAY['unverified'::text, 'verified'::text, 'verified_empty'::text, 'failed'::text, 'unresolved'::text]))",
+    },
     "meetings": {
         "time_pair": "(((start_time IS NULL) AND (end_time IS NULL)) OR ((start_time IS NOT NULL) AND (end_time IS NOT NULL)))",
         "time_order": "((start_time IS NULL) OR (start_time < end_time))",

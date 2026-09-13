@@ -118,6 +118,29 @@ The scraper distinguishes three error classes:
 
 Network timeouts and retryable request failures use `[5, 15, 30]` second backoff. Browser-free regressions in `apps/api/tests/scrapers/test_banner_responses.py` exercise the actual response parser and scraper against synthetic HTTP responses and an isolated PostgreSQL catalog, including first-page failures, later-page failures, and verified empty results.
 
+Prerequisite refreshes preserve the previous course-code list whenever Banner
+lookup, HTML extraction, subject resolution, or the replacement write fails.
+Every row must resolve before any replacement is saved. The supported empty
+response is a complete `section[aria-labelledby="preReqs"]` containing only the
+`Catalog Prerequisites` heading; a missing table, blank response, empty table body,
+or error page elsewhere does not verify that a course has no prerequisites.
+Changed/malformed tables and unsupported OR, grouping, test, or wildcard conditions
+remain unresolved. The subject lookup requires successful JSON, valid unambiguous
+entries, and fewer than its 100-entry limit; a full page remains unresolved until
+pagination support is added.
+
+Migration 014 adds `courses.prerequisites_status`: `unverified` for legacy/new
+data, `verified` for complete supported course-code extraction, `verified_empty`
+for the recognized empty response, `failed` for request/write failures, and
+`unresolved` for incomplete or unsupported data. `prerequisites_attempted_at`
+records the latest finished attempt. `prerequisites_verified_at` stays attached to
+the last successfully saved list and survives later failures. `prerequisites_error`
+records a failure reason and clears on recovery. Prerequisite failures leave section
+refreshes running; cancellation propagates without replacing the course data.
+These are stored extraction outcomes, not student eligibility checks. The public
+API and planner still use the legacy array; full rule/grade handling is Goal 15.
+Regression coverage lives in `apps/api/tests/scrapers/test_prerequisite_verification.py`.
+
 ### 6. Design system built on CSS tokens
 
 The UI targets a specific aesthetic: Linear's layout and density, Vercel's data-heavy tables, Raycast's command-palette interaction. The design is enforced through a Tailwind token layer — no raw color classes anywhere in the codebase.
@@ -529,7 +552,7 @@ the service with the cleanup and startup commands above to apply the new bootstr
 ## Database migrations
 
 `apps/api/migrations/manifest.json` lists migrations in order. Fresh databases apply
-000, 007, 009, 012, and 013. Migration 008 remains deferred until meeting backfill
+000, 007, 009, 012, 013, and 014. Migration 008 remains deferred until meeting backfill
 coverage is verified and at least two weeks of production scraper data are
 confirmed; its legacy section columns remain available. Numbers 010 and 011 stay
 unused because their subsystems were removed.
@@ -569,8 +592,9 @@ DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE' \
 uv run --no-sync python -m scripts.verify_migrations
 ```
 
-It checks the six runtime tables and all 37 required columns, including
-`sections.section_number` and every scraper-status field. It also checks column
+It checks the six runtime tables and all 41 required columns, including
+`sections.section_number`, prerequisite verification metadata, and every
+scraper-status field. It also checks column
 types and nullability, required defaults and generated values, primary and unique
 keys used by upserts, cascading foreign keys, validated meeting/status checks, and
 indexes supporting the declared access paths. Missing or incompatible items are

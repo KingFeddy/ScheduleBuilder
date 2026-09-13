@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
+import math
 import re
+from decimal import Decimal
 
 import pdfplumber
 
-from src.schemas.plan import ParsedDegree, StillNeededItem
+from src.schemas.plan import ParsedDegree, RequirementSource, StillNeededItem, stable_identity
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +36,15 @@ _WILDCARD_CODE_RE = re.compile(r"(?:([A-Z]{2,5})\s{0,2})?(\d)@")
 # rejects alphanumeric prefixes like R510/R512, but kept for explicitness.
 _RUTGERS_DEPTS = {"R510", "R512"}
 
-# "Still needed: N Class(es) in ..." or "Still needed: N Credit(s) in ..."
-# DOTALL so .* captures multi-line option lists (H&H GER has 80+ options).
-# Stops at the next "Still needed:" or end of string.
+# Preserve every non-reference block, including an unreadable amount. A failed
+# amount extraction must not silently remove an unfulfilled requirement.
 _STILL_NEEDED_RE = re.compile(
-    r"Still needed:\s+\d+\s+(?:Class(?:es)?|Credits?)\s+in\s+(.*?)(?=Still needed:|$)",
+    r"Still needed:\s*(?P<body>.*?)(?=Still needed:|$)",
     re.DOTALL,
+)
+_REQUIREMENT_AMOUNT_RE = re.compile(
+    r"^(?:(?P<amount>.*?)\s+)?(?P<unit>Class(?:es)?|Credits?)\s+in\s+(?P<options>.*)$",
+    re.DOTALL | re.IGNORECASE,
 )
 
 # Credits summary
@@ -154,7 +160,7 @@ def _infer_requirement_name(pos: int, full_text: str, options: list[str]) -> str
     return f"{dept_match.group(1)} Requirement" if dept_match else "Requirement"
 
 
-def _extract_still_needed(text: str) -> list[StillNeededItem]:
+def _extract_still_needed(text: str, *, document_id: str | None = None) -> list[StillNeededItem]:
     """
     Extract all unfulfilled requirements from DegreeWorks text.
 
@@ -163,23 +169,42 @@ def _extract_still_needed(text: str) -> list[StillNeededItem]:
       Still needed: 3 Credits in CS 491 or PHYS 490
       Still needed: 3 Credits in PHYS 3@ or 4@
       Still needed: 1 Class in COM 303 or 310 or 312 ...  (long multi-line list)
-      Still needed: See [section name]                    ← never matches _STILL_NEEDED_RE
+      Unknown amounts are retained as unresolved; See-block references are skipped.
     """
     items: list[StillNeededItem] = []
 
-    for match in _STILL_NEEDED_RE.finditer(text):
-        options_text = match.group(1).strip()
+    identity_context = document_id or hashlib.sha256(text.encode()).hexdigest()
+    for block_index, match in enumerate(_STILL_NEEDED_RE.finditer(text), start=1):
+        body = match.group("body").strip()
+        amount_match = _REQUIREMENT_AMOUNT_RE.fullmatch(body)
+        quantity = None
+        unit = "unknown"
+        options_text = body
+        if amount_match:
+            options_text = amount_match.group("options").strip()
+            unit = "classes" if amount_match.group("unit").lower().startswith("class") else "credits"
+            raw_amount = (amount_match.group("amount") or "").strip()
+            if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw_amount):
+                candidate = float(raw_amount)
+                # Preserve the written amount; float rounding must not turn a
+                # fractional class count into an integer or a tiny amount into 0.
+                if (math.isfinite(candidate) and Decimal(str(candidate)) == Decimal(raw_amount)
+                        and (unit == "credits" or candidate.is_integer())):
+                    quantity = candidate
 
         # Safety net for malformed extractions like "Still needed: 1 Class in See ..."
         if re.match(r"^See\s+", options_text, re.IGNORECASE):
             continue
 
         options = _extract_course_codes(options_text)
-        if not options:
-            continue
-
         requirement = _infer_requirement_name(match.start(), text, options)
-        items.append(StillNeededItem(requirement=requirement, options=options))
+        items.append(StillNeededItem(
+            requirement_id=stable_identity("req", identity_context, block_index),
+            requirement=requirement, options=options,
+            remaining_quantity=quantity, quantity_unit=unit,
+            source=RequirementSource(document_id=document_id, block_index=block_index,
+                                     line=text.count("\n", 0, match.start()) + 1, text=match.group(0).strip()),
+        ))
 
     return items
 
@@ -286,7 +311,7 @@ def parse_degree_works_regex(pdf_bytes: bytes) -> ParsedDegree:
             completed.append(code)
 
     # Still needed requirements
-    still_needed = _extract_still_needed(full_text)
+    still_needed = _extract_still_needed(full_text, document_id=hashlib.sha256(pdf_bytes).hexdigest())
 
     logger.info(
         "DegreeWorks parse: majors=%r  credits_remaining=%s  "

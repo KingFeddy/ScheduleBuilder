@@ -18,6 +18,8 @@ from src.schemas.plan import (
     ParsedDegreeValidated,
     ParseValidationError,
     StillNeededItem,
+    StableIdentifier,
+    stable_identity,
 )
 from src.scheduler.time_utils import (
     get_next_njit_term,
@@ -240,6 +242,8 @@ class PlannedCourse:
     credits:     float
     badge:       Literal["Required", "Elective", "TBD"]
     reason:      str
+    slot_id:     StableIdentifier
+    requirement: StillNeededItem | None = None
     credits_estimated: bool = True
     credits_note: str = "Credit estimate for an unresolved course."
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
@@ -297,6 +301,8 @@ class _ResolvedItem:
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
     catalog_status: CatalogStatus = "unresolved"
     catalog_note: str = "No specific catalog course has been selected for this slot."
+    slot_id: str = ""
+    source_requirement: StillNeededItem | None = None
 
 
 # ── Option selection ──────────────────────────────────────────────────────────
@@ -527,6 +533,7 @@ def _pack_semesters(
                 blocked.append(item)
             elif credits_used + item.credits <= credit_target:
                 placed.append(PlannedCourse(
+                    slot_id=item.slot_id, requirement=item.source_requirement,
                     course_code=item.course_code or "TBD",
                     title=item.title,
                     credits=item.credits,
@@ -551,6 +558,7 @@ def _pack_semesters(
             forced = remaining[0]
             forced_idx = index_by_item[id(forced)]
             placed.append(PlannedCourse(
+                slot_id=forced.slot_id, requirement=forced.source_requirement,
                 course_code=forced.course_code or "TBD",
                 title=forced.title,
                 credits=forced.credits,
@@ -718,10 +726,13 @@ async def generate_plan(
 
     # Build resolved items
     for i, item in enumerate(validated.still_needed):
+        if item.quantity_status == "unresolved":
+            warnings.append(f"Remaining quantity for '{item.requirement}' is unknown. Confirm the required amount with your advisor.")
         must_be_last = _is_last_semester_requirement(item.requirement)
         if i in satisfied_indices:
             code = next(e for e, idx in elective_to_req.items() if idx == i)
             resolved.append(_ResolvedItem(
+                slot_id=stable_identity("slot", item.requirement_id, 1), source_requirement=item.model_copy(deep=True),
                 requirement=item.requirement,
                 course_code=code,
                 badge="Elective",
@@ -742,6 +753,7 @@ async def generate_plan(
             if best is None and missing_scope:
                 catalog_note += f" Requirement subjects outside collection scope: {', '.join(missing_scope)}. Confirm options with NJIT."
             resolved.append(_ResolvedItem(
+                slot_id=stable_identity("slot", item.requirement_id, 1), source_requirement=item.model_copy(deep=True),
                 requirement=item.requirement,
                 course_code=best,
                 badge="Elective" if is_choice else ("Required" if best else "TBD"),
@@ -755,9 +767,12 @@ async def generate_plan(
             ))
 
     # Add unmatched electives as extra courses
+    extra_occurrences: dict[str, int] = {}
     for code in electives_to_place:
         if code not in elective_to_req:
+            extra_occurrences[code] = extra_occurrences.get(code, 0) + 1
             resolved.append(_ResolvedItem(
+                slot_id=stable_identity("slot", "extra-elective", code, extra_occurrences[code]),
                 requirement="Elective",
                 course_code=code,
                 badge="Elective",
@@ -901,6 +916,7 @@ async def generate_plan(
         if last.total_credits < pad_target:
             gap = round(pad_target - last.total_credits, 2)
             last.courses.append(PlannedCourse(
+                slot_id=stable_identity("slot", "final-load-filler"),
                 course_code="FREE",
                 catalog_status="unresolved",
                 catalog_note="No specific catalog course has been selected for this slot.",

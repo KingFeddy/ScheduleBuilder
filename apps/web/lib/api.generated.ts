@@ -537,6 +537,9 @@ export interface components {
             credits_note: string;
             /** Reason */
             reason: string;
+            requirement: components["schemas"]["StillNeededItem"] | null;
+            /** Slot Id */
+            slot_id: string;
             /** Title */
             title: string | null;
             /**
@@ -560,6 +563,20 @@ export interface components {
             rmp_tags: string[];
             /** Rmp Would Take Again */
             rmp_would_take_again: number | null;
+        };
+        /** RequirementSource */
+        RequirementSource: {
+            /** Block Index */
+            block_index: number;
+            /** Document Id */
+            document_id: string | null;
+            /**
+             * Line
+             * @description One-based line in extracted text, not a PDF page coordinate.
+             */
+            line: number;
+            /** Text */
+            text: string;
         };
         /** ScheduleResult */
         ScheduleResult: {
@@ -692,8 +709,24 @@ export interface components {
         StillNeededItem: {
             /** Options */
             options: string[];
+            /**
+             * Quantity Status
+             * @enum {string}
+             */
+            readonly quantity_status: "known" | "unresolved";
+            /**
+             * Quantity Unit
+             * @default unknown
+             * @enum {string}
+             */
+            quantity_unit: "classes" | "credits" | "unknown";
+            /** Remaining Quantity */
+            remaining_quantity: number | null;
             /** Requirement */
             requirement: string;
+            /** Requirement Id */
+            requirement_id: string;
+            source: components["schemas"]["RequirementSource"] | null;
         };
         /** SubjectCoverage */
         SubjectCoverage: {

@@ -1,13 +1,34 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from typing import Literal, Optional
+from collections import Counter
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 
 COURSE_CODE_PATTERN = re.compile(r"^[A-Z]{2,5}\d{3}[A-Z]?$")
 WILDCARD_PATTERN = re.compile(r"[Xx@*]")
+
+
+StableIdentifier = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
+
+
+def stable_identity(kind: str, *parts: object) -> str:
+    """Versioned deterministic identity; never depends on Python's process hash."""
+    encoded = json.dumps(parts, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+    return f"{kind}_v1_{hashlib.sha256(encoded.encode()).hexdigest()[:32]}"
+
+
+class RequirementSource(BaseModel):
+    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True)
+
+    document_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    block_index: int = Field(ge=1)
+    line: int = Field(ge=1, description="One-based line in extracted text, not a PDF page coordinate.")
+    text: str
 
 
 class StillNeededItem(BaseModel):
@@ -15,11 +36,39 @@ class StillNeededItem(BaseModel):
 
     requirement: str
     options: list[str] = Field(default_factory=list)
+    remaining_quantity: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    quantity_unit: Literal["classes", "credits", "unknown"] = "unknown"
+    source: RequirementSource | None = None
+    # Keep omitted IDs out of model_fields_set so the parent audit can
+    # disambiguate identical legacy occurrences without changing callers.
+    # A factory also avoids advertising an invalid empty ID as an API default.
+    requirement_id: StableIdentifier = Field(default_factory=lambda fields: stable_identity(
+        "req", fields["requirement"], fields["options"], fields["remaining_quantity"],
+        fields["quantity_unit"], fields["source"].model_dump() if fields["source"] else None,
+    ))
 
     @field_validator("options")
     @classmethod
     def normalize_options(cls, v: list[str]) -> list[str]:
         return [code.strip().upper().replace(" ", "") for code in v]
+
+    @field_validator("remaining_quantity", mode="before")
+    @classmethod
+    def numeric_quantity(cls, value):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise ValueError("Remaining quantity must be a number or null.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_class_quantity(self):
+        if self.quantity_unit == "classes" and self.remaining_quantity is not None and not self.remaining_quantity.is_integer():
+            raise ValueError("A class quantity must be a whole number.")
+        return self
+
+    @computed_field
+    @property
+    def quantity_status(self) -> Literal["known", "unresolved"]:
+        return "known" if self.remaining_quantity is not None and self.quantity_unit != "unknown" else "unresolved"
 
 
 class ParsedDegree(BaseModel):
@@ -37,6 +86,28 @@ class ParsedDegree(BaseModel):
     still_needed: list[StillNeededItem] = Field(default_factory=list)
     # semesters_remaining deliberately absent — computed by the planner from
     # credits_remaining and the student's chosen credits_per_semester
+
+    @model_validator(mode="after")
+    def assign_requirement_identities(self):
+        explicit = [item.requirement_id for item in self.still_needed if "requirement_id" in item.model_fields_set]
+        if len(set(explicit)) != len(explicit):
+            raise ValueError("Duplicate requirement ID in this audit.")
+        used = set(explicit)
+        occurrences: Counter[str] = Counter()
+        identified = []
+        for item in self.still_needed:
+            if "requirement_id" not in item.model_fields_set:
+                base = item.requirement_id
+                occurrences[base] += 1
+                identifier = f"{base}_{occurrences[base]}"
+                while identifier in used:
+                    occurrences[base] += 1
+                    identifier = f"{base}_{occurrences[base]}"
+                used.add(identifier)
+                item = item.model_copy(update={"requirement_id": identifier})
+            identified.append(item)
+        object.__setattr__(self, "still_needed", identified)
+        return self
 
     @field_validator("completed_courses", "in_progress_courses", mode="before")
     @classmethod

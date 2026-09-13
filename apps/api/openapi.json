@@ -839,6 +839,23 @@
             "title": "Reason",
             "type": "string"
           },
+          "requirement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StillNeededItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slot_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Slot Id",
+            "type": "string"
+          },
           "title": {
             "anyOf": [
               {
@@ -867,6 +884,8 @@
           "credits",
           "badge",
           "reason",
+          "slot_id",
+          "requirement",
           "credits_estimated",
           "credits_note",
           "title_status",
@@ -950,6 +969,45 @@
           "department"
         ],
         "title": "ProfessorResponse",
+        "type": "object"
+      },
+      "RequirementSource": {
+        "properties": {
+          "block_index": {
+            "minimum": 1.0,
+            "title": "Block Index",
+            "type": "integer"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "line": {
+            "description": "One-based line in extracted text, not a PDF page coordinate.",
+            "minimum": 1.0,
+            "title": "Line",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "block_index",
+          "line",
+          "text"
+        ],
+        "title": "RequirementSource",
         "type": "object"
       },
       "ScheduleResult": {
@@ -1413,14 +1471,67 @@
             "title": "Options",
             "type": "array"
           },
+          "quantity_status": {
+            "enum": [
+              "known",
+              "unresolved"
+            ],
+            "readOnly": true,
+            "title": "Quantity Status",
+            "type": "string"
+          },
+          "quantity_unit": {
+            "default": "unknown",
+            "enum": [
+              "classes",
+              "credits",
+              "unknown"
+            ],
+            "title": "Quantity Unit",
+            "type": "string"
+          },
+          "remaining_quantity": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Quantity"
+          },
           "requirement": {
             "title": "Requirement",
             "type": "string"
+          },
+          "requirement_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "requirement",
-          "options"
+          "options",
+          "remaining_quantity",
+          "quantity_unit",
+          "source",
+          "requirement_id",
+          "quantity_status"
         ],
         "title": "StillNeededItem",
         "type": "object"

@@ -84,17 +84,44 @@ Day separation falls out of the arithmetic for free — Monday 10:00 = minute 60
 
 ### 3. Deterministic PDF parsing with pdfplumber + regex
 
-The DegreeWorks parser could have been an LLM call. It isn't, for three reasons:
-
-- **Determinism**: the same PDF always produces the same output. LLM responses vary — you can't write regression tests that pin parser output to specific inputs.
-- **Failure mode**: when regex misses a requirement, `validate_parsed_degree` catches the credit inconsistency and returns a 422. When an LLM hallucinates a course code, it returns a plausible-looking wrong result that passes validation and silently generates a wrong graduation plan.
-- **Cost**: ~$0.01–0.05 per parse × registration-week volume is a meaningful recurring cost for a free student tool.
-
-pdfplumber extracts text column-by-column from DegreeWorks' fixed-format PDF. Compiled regex patterns extract each field. A `ParsedDegreeValidated` subtype — only ever instantiated inside `validate_parsed_degree()` — enforces that downstream functions only receive validated data:
+DegreeWorks uploads use local `pdfplumber` text extraction and compiled regex
+patterns. The parse endpoint runs structural and business consistency checks before
+returning `ParsedDegreeValidated`. These checks catch supported inconsistencies;
+they do not establish that every requirement or academic rule was extracted.
+The planner accepts that structured type:
 
 ```python
 def generate_plan(degree: ParsedDegreeValidated) -> ...:  # type error to pass raw ParsedDegree
 ```
+
+Each still-needed requirement retains a stable `requirement_id`, its label and
+normalized `options`, `remaining_quantity`, `quantity_unit` (`classes`, `credits`,
+or `unknown`), computed `quantity_status`, and nullable `source` context. For
+example, `2 Classes` remains two classes and `6 Credits` remains six credits.
+Unreadable, ambiguous, or numerically unrepresentable amounts stay null and
+unresolved; zero and supported fractional credits remain explicit. Recognized
+blocks with unsupported options retain their raw context for later review.
+
+Source context records the PDF's server-computed SHA-256, block occurrence,
+one-based extracted-text line, and captured text through the next `Still needed:`
+marker. It is extraction evidence, not a page coordinate or proof of eligibility.
+The endpoint remains stateless. Context returned later by a client is untrusted.
+
+Identities are versioned deterministic hashes. Re-parsing the same PDF preserves
+IDs, while repeated requirements receive distinct IDs. Legacy JSON without IDs
+gets repeatable identities without invented quantities; explicitly supplied IDs
+are preserved and duplicates within an audit are rejected. Each generated course
+slot has a separate `slot_id` and carries its full source requirement. Changing
+the chosen course or semester keeps the slot identity; extra electives and load
+fillers have their own IDs and `requirement: null`.
+
+Planner rows show the audit amount or an unknown label and use slot IDs as React
+keys. Nested metadata survives save/reload and regeneration. Older saved rows
+remain readable with a temporary rendering key; they are not rewritten with
+invented identities. **A known quantity does not mean it has been fulfilled.**
+Quantity-aware allocation remains Goal 24, option parsing Goal 23, reconciliation
+Goal 26, and validated swaps Goal 46. Goal 20 requires no database migration;
+release the updated API before its frontend consumer.
 
 ### 4. PostgreSQL advisory lock for scraper concurrency
 
@@ -560,6 +587,9 @@ Contract details that previously differed between the two sides:
   and `section_number` through `SolveSectionResponse`.
 - Unknown titles, professor metadata, and degree credit totals remain nullable.
   The UI labels missing titles/totals and avoids calculations with unknown totals.
+- Still-needed requirements carry identity, amount/unit/status, options, and source
+  context. Planned slots carry `slot_id` and a nullable full `requirement` object.
+  Quantity status describes extraction certainty, not fulfillment.
 - Scraper status requires a term and separates the latest attempt, last full
   refresh, and data-age cutoff. Counts and errors belong to their run objects.
   Unknown runs, timestamps, and counts remain nullable; an actual zero stays zero.

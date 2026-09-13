@@ -75,8 +75,10 @@ export const parsedDegree: ParsedDegreeValidated = {
   catalog_year: 2024, credits_completed: 114, credits_required: 120, credits_remaining: 6,
   completed_courses: ['CS100', 'CS113'], in_progress_courses: [],
   still_needed: [
-    { requirement: 'Programming languages', options: ['CS280'] },
-    { requirement: 'Writing elective', options: ['HUM101'] },
+    { requirement_id: 'req-programming', requirement: 'Programming languages', options: ['CS280'],
+      remaining_quantity: 1, quantity_unit: 'classes', quantity_status: 'known', source: null },
+    { requirement_id: 'req-writing', requirement: 'Writing elective', options: ['HUM101'],
+      remaining_quantity: 1, quantity_unit: 'classes', quantity_status: 'known', source: null },
   ],
 }
 
@@ -84,11 +86,11 @@ export const planResponse: GenerateResponse = {
   semesters: [
     {
       term: '202690', term_label: 'Fall 2026', total_credits: 3,
-      courses: [{ ...presentCatalog, course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '', credits_estimated: false, credits_note: '', title_status: 'verified' }],
+      courses: [{ ...presentCatalog, slot_id: 'slot-programming', requirement: parsedDegree.still_needed[0], course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '', credits_estimated: false, credits_note: '', title_status: 'verified' }],
     },
     {
       term: '202710', term_label: 'Spring 2027', total_credits: 3,
-      courses: [{ ...presentCatalog, course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective', credits_estimated: false, credits_note: '', title_status: 'verified' }],
+      courses: [{ ...presentCatalog, slot_id: 'slot-writing', requirement: parsedDegree.still_needed[1], course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective', credits_estimated: false, credits_note: '', title_status: 'verified' }],
     },
   ],
   projected_graduation: 'Spring 2027',

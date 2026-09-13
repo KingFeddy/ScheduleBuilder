@@ -24,12 +24,17 @@ interface CourseRowProps {
   catalogNote: string
   badge: 'Required' | 'Elective' | 'TBD'
   reason: string
+  requirement: SemesterPlanType['courses'][number]['requirement'] | undefined
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, onSwap }: CourseRowProps) {
+function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, requirement, onSwap }: CourseRowProps) {
   const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
+  const knownQuantity = requirement?.quantity_status === 'known'
+    && typeof requirement.remaining_quantity === 'number' && Number.isFinite(requirement.remaining_quantity)
+    && requirement.remaining_quantity >= 0
+    && (requirement.quantity_unit === 'classes' || requirement.quantity_unit === 'credits')
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 hover:bg-surface-2 transition-colors duration-150 group">
@@ -40,6 +45,14 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
         </span>
         {title && titleStatus !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
         {estimated && <span className="block text-xs text-muted">{creditsNote || 'Credits are unverified; this amount is an estimate.'}</span>}
+        {requirement !== null && (knownQuantity ? (
+          <span className="block text-xs text-muted">
+            Audit requirement: <span className="font-mono">{requirement!.remaining_quantity}</span>{' '}
+            {requirement!.quantity_unit === 'classes'
+              ? (requirement!.remaining_quantity === 1 ? 'class' : 'classes')
+              : (requirement!.remaining_quantity === 1 ? 'credit' : 'credits')}.
+          </span>
+        ) : <span className="block text-xs text-yellow">Audit requirement quantity is unknown.</span>)}
         <CatalogNote status={catalogStatus} note={catalogNote} />
         {showReason && (
           <span className="block text-xs text-faint truncate">{reason}</span>
@@ -175,9 +188,9 @@ export function SemesterPlan({
                 </span>
               </div>
               <div className="divide-y divide-border">
-                {semester.courses.map((course) => (
+                {semester.courses.map((course, index) => (
                   <CourseRow
-                    key={course.course_code}
+                    key={course.slot_id || `legacy:${semester.term}:${index}`}
                     code={course.course_code}
                     title={course.title}
                     credits={course.credits}
@@ -188,6 +201,7 @@ export function SemesterPlan({
                     catalogNote={course.catalog_note}
                     badge={course.badge}
                     reason={course.reason}
+                    requirement={course.requirement}
                     onSwap={
                       onSwapCourse
                         ? () => onSwapCourse(semester.term, course.course_code)

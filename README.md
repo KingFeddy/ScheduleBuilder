@@ -100,7 +100,9 @@ def generate_plan(degree: ParsedDegreeValidated) -> ...:  # type error to pass r
 
 A scrape during registration week can take longer than 30 minutes (Banner slows under load). Without a guard, the next Railway cron fires while the first run is still in progress — doubling the Banner request rate and creating race conditions on the `DELETE + INSERT` in the meetings table.
 
-The guard uses `pg_try_advisory_xact_lock` (transaction-level), not `pg_try_advisory_lock` (session-level). Session-level locks are tied to the underlying connection — asyncpg returns connections to the pool between operations, which can silently release a session lock mid-scrape. Transaction-level locks release on commit or rollback, a boundary that's explicitly controlled.
+The guard holds `pg_try_advisory_xact_lock` in a dedicated connection and transaction for the entire Banner or RMP run. Saving the initial run record, committing progress, or rolling back the scraper's data transaction cannot release it. A second run of the same scraper skips while the first is active; Banner and RMP have separate lock IDs.
+
+The lock connection closes and rolls back when the guard exits, including on failure or cancellation. A skipped run releases its extra connection before logging the overlap. The guard uses a real transaction even if the supplied engine defaults to autocommit, and disables the idle-transaction timeout only within that owned transaction. The cron pool has room for both the lock and data connections and is disposed on every exit. Real PostgreSQL regressions in `apps/api/tests/scrapers/test_lock_lifetime.py` cover these lifetimes, overlapping runs, and connection reuse.
 
 ### 5. Scraper error taxonomy
 

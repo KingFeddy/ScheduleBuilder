@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 from uuid import uuid4
 
 import pytest
@@ -118,9 +119,12 @@ async def test_cleanup_preserves_other_tests_with_identical_record_keys(test_dat
             # Advisory locks belong to the database, not a schema: both tests
             # must be able to hold their own scraper locks at the same time.
             async with survivor.session_factory() as first, temporary.session_factory() as second:
-                for session, database in ((first, survivor), (second, temporary)):
-                    for lock_id in (database.banner_lock_id, database.rmp_lock_id):
-                        async with advisory_lock(session, lock_id, "test") as acquired:
+                async with AsyncExitStack() as held_locks:
+                    for session, database in ((first, survivor), (second, temporary)):
+                        for lock_id in (database.banner_lock_id, database.rmp_lock_id):
+                            acquired = await held_locks.enter_async_context(
+                                advisory_lock(session, lock_id, "test"),
+                            )
                             assert acquired is True
 
         assert not await _schema_exists(test_database_url, temporary.schema_name)

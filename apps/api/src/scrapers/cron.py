@@ -38,27 +38,28 @@ SUBJECTS = [
 
 
 async def main() -> None:
+    # A scraper reserves one connection for its run lock and another for data.
     engine = create_async_engine(settings.DATABASE_URL, pool_size=3)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        Session = async_sessionmaker(engine, expire_on_commit=False)
+        logger.info("Scraper cron starting — term %s", settings.CURRENT_TERM)
 
-    logger.info("Scraper cron starting — term %s", settings.CURRENT_TERM)
+        async with Session() as session:
+            await run_banner_scrape(
+                session=session,
+                subjects=SUBJECTS,
+                term=settings.CURRENT_TERM,
+            )
 
-    async with Session() as session:
-        await run_banner_scrape(
-            session=session,
-            subjects=SUBJECTS,
-            term=settings.CURRENT_TERM,
-        )
-
-    # RMP runs in a separate session after Banner completes so it sees the
-    # full, fresh professor list from the sections table.
-    async with Session() as session:
-        await run_rmp_scrape(
-            session=session,
-            term=settings.CURRENT_TERM,
-        )
-
-    await engine.dispose()
+        # RMP runs in a separate session after Banner completes so it sees the
+        # full, fresh professor list from the sections table.
+        async with Session() as session:
+            await run_rmp_scrape(
+                session=session,
+                term=settings.CURRENT_TERM,
+            )
+    finally:
+        await engine.dispose()
     logger.info("Scraper cron complete")
 
 

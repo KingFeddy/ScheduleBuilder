@@ -1,5 +1,5 @@
--- Test schema for CI. Applied to the empty PostgreSQL container before pytest runs.
--- Mirrors the production schema exactly. Kept in sync with the migration files.
+-- Shared test schema for local development and CI. Applied at bootstrap and
+-- inside each test's private schema by tests/database_isolation.py.
 -- When a new migration is added to apps/api/migrations/, update this file too.
 
 -- ── Base tables (no migration number — existed before migrations were tracked) ──

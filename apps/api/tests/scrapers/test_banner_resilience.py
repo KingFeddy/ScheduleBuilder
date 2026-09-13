@@ -287,14 +287,10 @@ def _mock_playwright_returning(sections: list[dict], total: int | None = None):
     return mock_pw_cm
 
 
-# Reserved fake subject for these tests only — NOT a real NJIT subject code.
-# _delete_stale_sections matches by subject prefix across the WHOLE subject,
-# so a test that used a real subject (e.g. "CS") would delete every real
-# section for that subject the mocked response didn't happen to include.
-# This exact mistake shipped once and deleted all 598 real CS sections from
-# production before being caught and recovered — never reuse a real subject
-# code here, and the assertion below is a second guardrail against it
-# happening silently again.
+# Reserved fake subject keeps these scenarios recognizable. Before test database
+# isolation, using a real subject here once deleted 598 production CS sections.
+# The verified disposable database and private per-test schema now isolate these
+# writes. The assertion below also catches unexpected fixture data in that schema.
 _FAKE_SUBJECT = "ZZZ"
 
 
@@ -306,9 +302,8 @@ async def _assert_fake_subject_is_actually_empty(db_session) -> None:
     )
     count = result.scalar()
     assert count == 0, (
-        f"Test subject '{_FAKE_SUBJECT}' has {count} real row(s) in the database — "
-        "STOP. Do not run this test until a genuinely unused subject prefix is chosen; "
-        "this test deletes everything matching it."
+        f"Test subject '{_FAKE_SUBJECT}' has {count} unexpected row(s) in its private schema. "
+        "Check fixture setup before testing subject-wide deletion."
     )
 
 

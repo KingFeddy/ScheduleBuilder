@@ -104,14 +104,17 @@ The guard holds `pg_try_advisory_xact_lock` in a dedicated connection and transa
 
 The lock connection closes and rolls back when the guard exits, including on failure or cancellation. A skipped run releases its extra connection before logging the overlap. The guard uses a real transaction even if the supplied engine defaults to autocommit, and disables the idle-transaction timeout only within that owned transaction. The cron pool has room for both the lock and data connections and is disposed on every exit. Real PostgreSQL regressions in `apps/api/tests/scrapers/test_lock_lifetime.py` cover these lifetimes, overlapping runs, and connection reuse.
 
-### 5. Scraper error taxonomy
+### 5. Scraper response validation and errors
 
-The Banner scraper distinguishes two non-retriable failure classes:
+Banner search results must be HTTP 200 JSON with `success: true`, a section array, and a non-negative integer `totalCount`. Only `data: []` with `totalCount: 0` proves an empty catalog. Each page is checked before any of its rows are written: required section structure, matching subject/term, unique CRNs, expected page length, stable total counts, and pagination echoes when supplied. Failed or ambiguous responses stop subject cleanup and preserve existing sections and meetings.
 
-- **`BannerBlockedError`** (403): log and continue to the next subject. One blocked subject doesn't mean all subjects are blocked.
-- **`BannerSchemaError`** (unexpected JSON structure): abort all remaining subjects. A Banner schema change from an Ellucian upgrade affects the entire instance — processing further subjects would write corrupt data.
+The scraper distinguishes three error classes:
 
-Network timeouts are retriable with `[5, 15, 30]` second backoff. Retrying a 403 against the same blocked IP (the old behaviour) wasted time and kept a hot connection to a system that had already flagged it.
+- **`BannerBlockedError`** (401/403 or non-JSON content): log and continue to the next subject without retrying the blocked request.
+- **`BannerSchemaError`** (unexpected response or required section structure): abort remaining subjects at the first malformed page.
+- **`BannerResponseError`** (failed search, incomplete/inconsistent results, or other non-200 HTTP status): preserve the catalog. Invalid result sets abort the subject; HTTP request failures use the existing retry loop.
+
+Network timeouts and retryable request failures use `[5, 15, 30]` second backoff. Browser-free regressions in `apps/api/tests/scrapers/test_banner_responses.py` exercise the actual response parser and scraper against synthetic HTTP responses and an isolated PostgreSQL catalog, including first-page failures, later-page failures, and verified empty results.
 
 ### 6. Design system built on CSS tokens
 

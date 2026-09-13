@@ -46,7 +46,11 @@ class BannerBlockedError(Exception):
 
 
 class BannerSchemaError(Exception):
-    """Banner JSON is missing expected keys — likely an Ellucian upgrade."""
+    """Banner JSON has an unexpected structure — possibly an Ellucian upgrade."""
+
+
+class BannerResponseError(Exception):
+    """Banner failed the search or returned an unverifiable result set."""
 
 
 # ─── Parsing helpers ──────────────────────────────────────────────────────────
@@ -136,11 +140,12 @@ def _extract_professor_name(raw_section: dict) -> Optional[str]:
 
 # ─── Schema validation ────────────────────────────────────────────────────────
 
-def _validate_section_schema(section: dict) -> None:
+def _validate_section_schema(section: object) -> None:
     """
-    Raise BannerSchemaError if the section dict is missing any required Banner key.
-    Called before processing each section — catches Ellucian upgrades early.
+    Validate the required section structure before writing any row on its page.
     """
+    if not isinstance(section, dict):
+        raise BannerSchemaError("Banner section must be a JSON object")
     missing = REQUIRED_SECTION_KEYS - set(section.keys())
     if missing:
         raise BannerSchemaError(
@@ -148,12 +153,77 @@ def _validate_section_schema(section: dict) -> None:
             f"Banner may have been upgraded. Keys present: {list(section.keys())[:10]}"
         )
 
-    for meeting in section.get("meetingsFaculty", []):
-        if "meetingTime" not in meeting:
+    for key in ("courseReferenceNumber", "subject", "courseNumber"):
+        value = section[key]
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            raise BannerSchemaError(f"Banner section '{key}' must be a non-empty string without surrounding whitespace")
+
+    meetings = section["meetingsFaculty"]
+    if not isinstance(meetings, list):
+        raise BannerSchemaError("Banner section 'meetingsFaculty' must be an array")
+    for meeting in meetings:
+        if not isinstance(meeting, dict):
+            raise BannerSchemaError("Banner meeting entry must be a JSON object")
+        if not isinstance(meeting.get("meetingTime"), dict):
             raise BannerSchemaError(
-                f"Banner meeting entry missing 'meetingTime'. "
+                f"Banner meeting entry missing or invalid 'meetingTime' object. "
                 f"Meeting keys present: {list(meeting.keys())}"
             )
+
+
+def _validate_results_page(
+    payload: object, *, subject: str, term: str, offset: int, page_size: int,
+    expected_total: int | None, received_crns: set[str],
+) -> tuple[list[dict], int]:
+    """Require a complete, consistent page before it can contribute to cleanup.
+
+    Only success=true, data=[], totalCount=0 at offset zero proves an empty
+    result set. The total must remain stable, each page must fill its expected
+    range, and every CRN must appear once in the requested subject and term.
+    Received IDs are independent of successful database writes.
+    """
+    if not isinstance(payload, dict):
+        raise BannerSchemaError("Banner search response must be a JSON object")
+    if payload.get("success") is False:
+        raise BannerResponseError(f"Banner search reported success=false at offset {offset}")
+    if payload.get("success") is not True:
+        raise BannerSchemaError("Banner search response must include boolean success=true")
+
+    sections = payload.get("data")
+    total = payload.get("totalCount")
+    if not isinstance(sections, list):
+        raise BannerSchemaError("Banner search 'data' must be an array; missing/null data is not an empty catalog")
+    # bool is a subclass of int in Python, but is not a valid result count.
+    if type(total) is not int or total < 0:
+        raise BannerSchemaError("Banner search 'totalCount' must be a non-negative integer")
+    if expected_total is not None and total != expected_total:
+        raise BannerResponseError(
+            f"Banner totalCount changed from {expected_total} to {total} at offset {offset}"
+        )
+
+    # Validate pagination echoes when supplied. Omitted echoes do not replace
+    # the count/identity checks.
+    for key, expected in (("pageOffset", offset), ("pageMaxSize", page_size)):
+        if key in payload and (type(payload[key]) is not int or payload[key] != expected):
+            raise BannerResponseError(f"Banner '{key}' does not match requested value {expected}")
+
+    expected_rows = min(page_size, total - offset)
+    if offset > total or len(sections) != expected_rows:
+        raise BannerResponseError(
+            f"Banner incomplete page at offset {offset}: received {len(sections)} rows, "
+            f"expected {expected_rows} for totalCount {total}"
+        )
+
+    page_crns: set[str] = set()
+    for section in sections:
+        _validate_section_schema(section)
+        if section["subject"] != subject or ("term" in section and section["term"] != term):
+            raise BannerResponseError(f"Banner section does not match requested subject {subject} and term {term}")
+        crn = section["courseReferenceNumber"]
+        if crn in received_crns or crn in page_crns:
+            raise BannerResponseError(f"Banner repeated CRN {crn} at offset {offset}")
+        page_crns.add(crn)
+    return sections, total
 
 
 # ─── HTTP layer ───────────────────────────────────────────────────────────────
@@ -165,10 +235,12 @@ async def _fetch_page(
     timeout_ms: int = 30_000,
 ) -> dict:
     """
-    Fetch one Banner results page and return parsed JSON.
+    Fetch an HTTP 200 JSON object. Search/pagination validation is by the caller.
 
     Raises:
-      BannerBlockedError — 403, HTML content-type, or non-JSON body
+      BannerBlockedError — 401/403, non-JSON content-type, or non-JSON body
+      BannerResponseError — absent response or any other non-200 HTTP status
+      BannerSchemaError — JSON root is not an object
       PlaywrightTimeout  — network timeout (retriable by caller)
     """
     query = "&".join(f"{k}={v}" for k, v in params.items())
@@ -178,14 +250,21 @@ async def _fetch_page(
         wait_until="networkidle",
     )
 
-    if response.status == 403:
-        raise BannerBlockedError(f"Banner returned 403 — IP may be blocked.")
+    if response is None:
+        raise BannerResponseError("Banner navigation returned no HTTP response")
+    if response.status in (401, 403):
+        raise BannerBlockedError(f"Banner returned {response.status} — session or IP may be blocked.")
 
-    content_type = response.headers.get("content-type", "")
+    content_type = response.headers.get("content-type", "").lower()
     if "text/html" in content_type:
         raise BannerBlockedError(
             f"Banner returned HTML (status {response.status}) — session may have expired."
         )
+    if response.status != 200:
+        raise BannerResponseError(f"Banner returned HTTP {response.status} for search results")
+    media_type = content_type.split(";", 1)[0].strip()
+    if media_type != "application/json" and not media_type.endswith("+json"):
+        raise BannerBlockedError(f"Banner returned non-JSON content type '{content_type}'")
 
     body = await response.text()
     try:
@@ -193,13 +272,15 @@ async def _fetch_page(
     except json.JSONDecodeError as exc:
         raise BannerBlockedError(f"Banner returned non-JSON body: {exc}") from exc
 
-    # Log the top-level keys and 'data' field type so we can diagnose null responses
-    # and term availability without having to decode the full payload.
+    if not isinstance(data, dict):
+        raise BannerSchemaError("Banner search response must be a JSON object")
+
+    # Log only structural metadata; the caller rejects ambiguous/null data.
     data_field = data.get("data")
     logger.debug(
         "_fetch_page: status=%s keys=%s data_type=%s totalCount=%s success=%s",
         response.status,
-        list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        list(data.keys()),
         type(data_field).__name__,
         data.get("totalCount"),
         data.get("success"),
@@ -369,19 +450,21 @@ async def scrape_subject(
     Scrape all sections for one subject+term via Playwright.
     Returns (sections_upserted, sections_failed, sections_deleted).
 
-    Raises BannerBlockedError or BannerSchemaError on unrecoverable failures.
+    Raises BannerBlockedError, BannerSchemaError, or BannerResponseError if the
+    subject's response set cannot be verified as complete.
     Timeouts and transient errors are retried per RETRY_DELAYS.
 
     Stale-section cleanup only runs when every page for this subject was
-    successfully fetched (the `complete` flag) — a block or exhausted
+    successfully fetched and validated (the `complete` flag) — a block or exhausted
     retries mid-scrape must never be treated as "Banner removed these",
     since we simply never got far enough to know.
     """
     upserted          = 0
     failed            = 0
     offset            = 0
-    schema_error_count = 0
     seen_crns: set[str] = set()
+    received_crns: set[str] = set()
+    expected_total: int | None = None
     complete           = False
 
     async with async_playwright() as pw:
@@ -485,26 +568,16 @@ async def scrape_subject(
                             raise
                         logger.warning("Banner/%s: %s, retrying", subject, exc)
 
-                if page_data is None:
-                    logger.error("Banner/%s: exhausted retries at offset %d", subject, offset)
-                    break
-
-                # Use `or []` not `get("data", [])` — Banner returns `"data": null`
-                # for terms with no sections, and get(key, default) only uses the
-                # default when the key is absent, not when its value is null.
-                sections = page_data.get("data") or []
-                total    = page_data.get("totalCount") or 0
-
-                if page_data.get("data") is None:
-                    logger.warning(
-                        "Banner/%s: 'data' field is null at offset %d "
-                        "(totalCount=%s, success=%s) — term may have no sections yet",
-                        subject, offset, page_data.get("totalCount"), page_data.get("success"),
-                    )
+                sections, total = _validate_results_page(
+                    page_data, subject=subject, term=term, offset=offset,
+                    page_size=PAGE_SIZE, expected_total=expected_total,
+                    received_crns=received_crns,
+                )
+                expected_total = total
+                received_crns.update(raw["courseReferenceNumber"] for raw in sections)
 
                 for raw in sections:
                     try:
-                        _validate_section_schema(raw)
                         await _upsert_section_with_meetings(session, raw, term)
                         upserted += 1
                         seen_crns.add(raw["courseReferenceNumber"])
@@ -532,17 +605,6 @@ async def scrape_subject(
                                     "Failed to fetch prerequisites for %s: %s",
                                     course_code, exc,
                                 )
-                    except BannerSchemaError as exc:
-                        schema_error_count += 1
-                        logger.error(
-                            "Schema error on CRN %s: %s",
-                            raw.get("courseReferenceNumber"), exc,
-                        )
-                        failed += 1
-                        if schema_error_count >= 5:
-                            raise BannerSchemaError(
-                                f"5+ schema errors in {subject} — Banner may have been upgraded."
-                            )
                     except Exception as exc:
                         logger.error(
                             "Failed to upsert CRN %s: %s",
@@ -550,8 +612,8 @@ async def scrape_subject(
                         )
                         failed += 1
 
-                offset += PAGE_SIZE
-                if offset >= total:
+                offset += len(sections)
+                if offset == total:
                     complete = True
                     break
 

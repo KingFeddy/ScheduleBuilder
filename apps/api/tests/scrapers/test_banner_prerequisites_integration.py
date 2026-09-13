@@ -86,7 +86,7 @@ async def test_prerequisites_written_to_courses_table(db_session):
     mock_page.request.get = AsyncMock(side_effect=fake_get)
 
     async def fake_fetch_page(page, url, params, timeout_ms=30_000):
-        return {"data": [raw_section], "totalCount": 1}
+        return {"success": True, "data": [raw_section], "totalCount": 1}
 
     with patch("src.scrapers.banner.async_playwright", return_value=mock_pw_cm):
         with patch("src.scrapers.banner._fetch_page", side_effect=fake_fetch_page):

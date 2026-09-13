@@ -144,13 +144,13 @@ def test_valid_json_response_returns_parsed_dict():
         mock_response.status = 200
         mock_response.headers = {"content-type": "application/json"}
         mock_response.text = AsyncMock(
-            return_value='{"data": [], "totalCount": 0}'
+            return_value='{"success": true, "data": [], "totalCount": 0}'
         )
         mock_page = AsyncMock()
         mock_page.goto = AsyncMock(return_value=mock_response)
 
         result = await _fetch_page(mock_page, "https://example.com", {})
-        assert result == {"data": [], "totalCount": 0}
+        assert result == {"success": True, "data": [], "totalCount": 0}
 
     asyncio.run(run())
 
@@ -345,7 +345,7 @@ async def test_stale_section_removed_after_complete_scrape(db_session):
     mock_pw_cm = _mock_playwright_returning([banner_section])
 
     async def fake_fetch_page(page, url, params, timeout_ms=30_000):
-        return {"data": [banner_section], "totalCount": 1}
+        return {"success": True, "data": [banner_section], "totalCount": 1}
 
     with patch("src.scrapers.banner.async_playwright", return_value=mock_pw_cm):
         with patch("src.scrapers.banner._fetch_page", side_effect=fake_fetch_page):

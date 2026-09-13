@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
-from asyncpg import DivisionByZeroError
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -197,11 +196,17 @@ async def test_partial_schema_setup_is_rolled_back(test_database_url, monkeypatc
     from tests import database_isolation
 
     identifier = uuid4()
+    original_apply = database_isolation.apply_migrations
+
+    async def failing_setup(connection, **kwargs):
+        await original_apply(connection, **kwargs)
+        await connection.execute(text("SELECT 1 / 0"))
+
     monkeypatch.setattr(database_isolation, "uuid4", lambda: identifier)
-    monkeypatch.setattr(database_isolation, "SCHEMA_SQL", database_isolation.SCHEMA_SQL + "\nSELECT 1 / 0;")
-    with pytest.raises(DivisionByZeroError, match="division by zero"):
+    monkeypatch.setattr(database_isolation, "apply_migrations", failing_setup)
+    with pytest.raises(DBAPIError, match="division by zero"):
         async with database_isolation.isolated_test_database(test_database_url):
-            pytest.fail("Invalid schema setup must not yield a database")
+            pytest.fail("Failed migration setup must not yield a database")
     assert not await _schema_exists(test_database_url, f"test_{identifier.hex}")
 
 

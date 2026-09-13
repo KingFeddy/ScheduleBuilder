@@ -217,21 +217,26 @@ from the repository root:
 ```bash
 docker compose -f compose.test.yml up -d --wait
 cd apps/api
+uv sync --frozen
+MIGRATION_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
+uv run --no-sync python -m scripts.migrate apply
 APP_ENV=test \
 TEST_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
-uv run pytest tests/ -q
+uv run --no-sync pytest tests/ -q
 ```
 
-The service binds only to `127.0.0.1:55432`, initializes the test schema, and keeps
-its data in memory. The credentials above are public, test-only credentials.
+The service binds only to `127.0.0.1:55432`, provisions a disposable database and
+restricted test role, and keeps its data in memory. The migration command builds
+the schema. The credentials above are public, test-only credentials.
 Before collecting tests, pytest verifies the database's identity and disposable
 marker using a read-only connection and a non-superuser test role. Remote hosts,
 other database/role names, connection query parameters, and unmarked databases
 are rejected before fixtures run. CI provisions and checks the same database
 identity in its disposable PostgreSQL service.
 
-Each database test creates a uniquely named schema and uses only that schema for
-its connections. Real commits and multiple sessions work normally. Teardown closes
+Each database test creates a uniquely named schema, applies the same real migration
+chain, and uses only that schema for its connections. There is no handwritten test
+schema. Real commits and multiple sessions work normally. Teardown closes
 the test's connections and drops only its own schema, including after a failed or
 cancelled test. It never deletes shared rows by course code, professor name, or
 scraper-run age. Scraper advisory lock IDs are also unique per test, so repeated
@@ -257,7 +262,43 @@ docker compose -f compose.test.yml down --volumes
 Stopping the service discards its data. Start it again to recreate a clean schema.
 If a pytest process is forcibly killed, stopping the service also removes any test
 schemas whose teardown could not run. After changing the bootstrap SQL, recreate
-the service with the cleanup and startup commands above to apply the new grants.
+the service with the cleanup and startup commands above to apply the new bootstrap.
+
+---
+
+## Database migrations
+
+`apps/api/migrations/manifest.json` lists migrations in order. Fresh databases apply
+000, 007, 009, 012, and 013. Migration 008 remains deferred until meeting backfill
+coverage is verified and at least two weeks of production scraper data are
+confirmed; its legacy section columns remain available. Numbers 010 and 011 stay
+unused because their subsystems were removed.
+
+From `apps/api`, explicitly select the database:
+
+```bash
+export MIGRATION_DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE'
+uv run --no-sync python -m scripts.migrate status
+uv run --no-sync python -m scripts.migrate apply
+```
+
+The commands target the existing `public` schema by default; `--schema NAME`
+selects another existing schema. They require `MIGRATION_DATABASE_URL` and never
+fall back to application settings or dotenv files. `status` is read-only and
+reports applied, pending, and deferred migrations. `apply` records each applied
+version, filename, SHA-256 checksum, and timestamp in `schema_migrations`.
+
+All pending migrations and history records commit together. A failed batch rolls
+back its changes, and concurrent runners serialize per schema. Migration files
+must contain transactional SQL without their own BEGIN/COMMIT commands; operations
+such as CREATE INDEX CONCURRENTLY are not supported by this runner.
+
+List every SQL file in the manifest with unique, increasing versions. Applied
+files are immutable: make corrections in a new migration. Changed checksums,
+unknown history versions, and gaps in applied active migrations cause a refusal.
+Databases with existing relations but no migration history also require reviewed
+schema reconciliation before adoption; the runner will not adopt them automatically.
+Application startup and production deployment do not automatically apply migrations.
 
 ---
 

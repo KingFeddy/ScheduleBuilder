@@ -1,0 +1,13 @@
+{
+  "migrations": [
+    {"file": "000_baseline.sql"},
+    {"file": "007_meetings_table.sql"},
+    {
+      "file": "008_drop_sections_deprecated_columns.sql",
+      "deferred_reason": "Requires verified meeting coverage and at least two weeks of confirmed production scraper data; complete the separate backfill and cleanup safeguards first."
+    },
+    {"file": "009_courses_prerequisites.sql"},
+    {"file": "012_scraper_health.sql"},
+    {"file": "013_section_number.sql"}
+  ]
+}

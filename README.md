@@ -48,7 +48,8 @@ A full-stack web app for NJIT students: conflict-free schedule generation, profe
                                    └──────────────────────┘
 ```
 
-**API and scraper share one Docker image** — the scraper is a separate Railway service with a different `startCommand`. One build pipeline, zero drift between environments.
+The repository provides separate API and scraper Dockerfiles. The scraper image
+includes Chromium; both install the same locked Python runtime dependencies.
 
 ---
 
@@ -184,8 +185,8 @@ docs/
 ```bash
 cd apps/api
 cp .env.example .env   # fill in DATABASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY
-uv sync
-uv run uvicorn main:app --reload --port 8000
+uv sync --locked
+uv run --no-sync uvicorn main:app --reload --port 8000
 ```
 
 **Frontend**
@@ -207,6 +208,41 @@ pnpm dev               # proxies /api/* to localhost:8000 via next.config.ts
 | `NEXT_PUBLIC_API_URL` | Frontend | Empty in production (relative), `http://localhost:8000` in dev |
 
 ---
+
+## Production Python dependencies and startup
+
+Both Dockerfiles install dependencies once with `uv sync --locked --no-dev`.
+`httpx` is a runtime dependency because the RMP scraper imports it. Pytest,
+pytest-asyncio, and Hypothesis remain in the development group. The lockfile fixes
+package versions, and `--locked` rejects inconsistent project/lockfile metadata
+instead of updating the lock during a build.
+
+API, scraper, browser-installation, and schema-verification commands use
+`uv run --no-sync` to run the installed environment without resolving or installing
+packages again. Docker pins uv 0.11.8 by image digest; CI uses the same uv version.
+Update these pins together when upgrading uv. Python's base-image tag and Debian
+browser libraries are separate from the Python lockfile; these builds are not
+claimed to be byte-identical images.
+
+The production dependency regressions create a separate environment containing
+only runtime packages and copy only runtime sources. Installation may download
+locked wheels when the uv cache is cold. Subsequent startup commands run with
+uv network access disabled, and tests compare installed packages and lockfile
+contents before and after startup. Scraper tests replace external scrape calls
+with synthetic callbacks. API health and schema-verification checks use only the
+opt-in disposable database described below; they read its migrated public schema.
+
+To run the import and scraper startup checks without PostgreSQL, from `apps/api`:
+
+```bash
+uv sync --locked
+uv run --no-sync pytest tests/deployment/test_production_dependencies.py -m "not database" -q
+```
+
+The complete backend test command below also runs the real API health and schema
+verification checks from that production-only environment. This validates the
+checked-in startup commands; confirming the commands selected by live Railway
+services remains part of deployment configuration review.
 
 ## Running frontend browser regressions
 
@@ -274,7 +310,7 @@ from the repository root:
 ```bash
 docker compose -f compose.test.yml up -d --wait
 cd apps/api
-uv sync --frozen
+uv sync --locked
 MIGRATION_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
 uv run --no-sync python -m scripts.migrate apply
 APP_ENV=test \
@@ -291,8 +327,8 @@ other database/role names, connection query parameters, and unmarked databases
 are rejected before fixtures run. CI provisions and checks the same database
 identity in its disposable PostgreSQL service.
 
-Each database test creates a uniquely named schema, applies the same real migration
-chain, and uses only that schema for its connections. There is no handwritten test
+Database tests that create records use a uniquely named schema, apply the same real migration
+chain, and use only that schema for their connections. There is no handwritten test
 schema. Real commits and multiple sessions work normally. Teardown closes
 the test's connections and drops only its own schema, including after a failed or
 cancelled test. It never deletes shared rows by course code, professor name, or
@@ -302,7 +338,7 @@ and concurrent pytest runs can share this disposable service safely.
 For pure and mocked tests without Docker, run from `apps/api`:
 
 ```bash
-uv run pytest tests/ -m "not database" -q
+uv run --no-sync pytest tests/ -m "not database" -q
 ```
 
 The `database` marker is applied automatically to tests using database fixtures.

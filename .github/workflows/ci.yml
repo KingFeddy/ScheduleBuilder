@@ -42,6 +42,12 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql+asyncpg://njit_test:test-only@localhost:5432/njit_test
         run: uv run --no-sync python -m scripts.migrate apply
 
+      - name: Verify migrated test schema
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://njit_test:test-only@localhost:5432/njit_test
+        run: uv run --no-sync python -m scripts.verify_migrations
+
       - name: Run backend tests
         working-directory: apps/api
         env:
@@ -93,12 +99,7 @@ jobs:
         working-directory: apps/api
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-          SUPABASE_URL: unused
-          SUPABASE_ANON_KEY: unused
-          CORS_ORIGINS: unused
-          APP_ENV: production
-          CURRENT_TERM: "202690"
-        run: uv run python scripts/verify_migrations.py
+        run: uv run --no-sync python -m scripts.verify_migrations
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli

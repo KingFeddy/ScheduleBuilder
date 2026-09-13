@@ -300,6 +300,41 @@ Databases with existing relations but no migration history also require reviewed
 schema reconciliation before adoption; the runner will not adopt them automatically.
 Application startup and production deployment do not automatically apply migrations.
 
+### Verify the runtime schema before deployment
+
+From `apps/api`, select the database explicitly and run the read-only deployment gate:
+
+```bash
+DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE' \
+uv run --no-sync python -m scripts.verify_migrations
+```
+
+It checks the six runtime tables and all 37 required columns, including
+`sections.section_number` and every scraper-status field. It also checks column
+types and nullability, required defaults and generated values, primary and unique
+keys used by upserts, cascading foreign keys, validated meeting/status checks, and
+indexes supporting the declared access paths. Missing or incompatible items are
+named in the output and return a nonzero exit code, blocking the Railway deploy.
+CI runs the same command against its freshly migrated disposable database first.
+
+The verifier uses only the explicit `DATABASE_URL`, does not load `.env` or require
+other application settings, and inspects the database in a read-only transaction
+with bounded connection, query, and lock waits. `--schema NAME` selects an existing
+schema other than `public`; tables in other schemas cannot satisfy its checks.
+
+When `schema_migrations` exists, recorded files/checksums must match and no active
+migrations may be pending. An older database without a ledger can pass by meeting
+the runtime contract, without being adopted or changed. Deferred migration 008
+and legacy section time columns are not required. This schema check does not
+verify meeting data coverage or authorize dropping those legacy columns.
+
+The contract is maintained in `apps/api/scripts/runtime_schema.py`; update it and
+its regressions alongside runtime SQL changes. Constraint and index names may
+differ, but CHECK/default/generated expressions must match the declared PostgreSQL
+definitions after whitespace normalization (with explicitly supported timestamp
+and identity alternatives). An equivalent custom expression needs review and a
+contract update; the verifier does not infer arbitrary SQL equivalence.
+
 ---
 
 ## Architectural decisions

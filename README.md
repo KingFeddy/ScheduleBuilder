@@ -335,6 +335,76 @@ definitions after whitespace normalization (with explicitly supported timestamp
 and identity alternatives). An equivalent custom expression needs review and a
 contract update; the verifier does not infer arbitrary SQL equivalence.
 
+### Preview and apply meeting backfill
+
+From `apps/api`, explicitly select the database to inspect. The default command
+is read-only and emits JSON containing candidate rows and unresolved CRN/term
+pairs. `--schema NAME` selects an existing schema; `--term 202690` optionally
+limits a backfill to one term.
+
+```bash
+export BACKFILL_DATABASE_URL='postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE'
+uv run --no-sync python -m scripts.backfill_meetings
+```
+
+Review the preview before applying the batch:
+
+```bash
+uv run --no-sync python -m scripts.backfill_meetings --apply
+```
+
+Only sections with no meeting rows and a complete valid legacy day/time pattern
+are candidates. Existing meeting patterns are preserved. Invalid times, missing
+days, unexplained empty meetings, and mismatches between existing meetings and
+legacy time coverage are reported for source reconciliation. Any unresolved row
+blocks the selected batch. Application rechecks under table locks, inserts in one
+transaction, and rolls everything back on error. Repeat and concurrent runs do
+not duplicate rows; reported insertion counts reflect committed inserts.
+
+Flat legacy data cannot reconstruct different lecture/lab patterns. A successful
+backfill preserves that legacy evidence, but source review and a correct scraper
+refresh are still necessary before confirming production correctness. All-null
+legacy fields alone do not prove that a section is asynchronous. The API returns
+503 with a `detail` message when selected courses contain missing or invalid
+meeting records, instead of returning an apparently valid untimed schedule.
+Explicit all-null meeting rows remain supported.
+
+### Deferred removal of legacy time columns
+
+Migration 008 stays deferred in the manifest and ordinary `migrate apply` skips it.
+Before cleanup, verify the meetings-based scraper against actual Banner patterns,
+including lecture/lab sections, and confirm at least 14 days of stable production
+data. Retain the reviewed run history and source comparisons. The timestamp and
+note below attest to that review; they are not inferred from table size or the
+age of an arbitrary scraper record. A database with no migration ledger requires
+reviewed reconciliation before using the migration runner.
+
+The read-only cleanup check always covers every term:
+
+```bash
+uv run --no-sync python -m scripts.backfill_meetings --check-cleanup \
+  --production-verified-since '<verified ISO timestamp with timezone>' \
+  --production-verification-note '<references to reviewed production and multi-pattern evidence>'
+```
+
+After the release backup/rehearsal and verified production prerequisites, use the
+guarded migration command, explicitly selecting the same database that was reviewed:
+
+```bash
+MIGRATION_DATABASE_URL="$BACKFILL_DATABASE_URL" \
+uv run --no-sync python -m scripts.migrate cleanup-meetings \
+  --production-verified-since '<verified ISO timestamp with timezone>' \
+  --production-verification-note '<references to reviewed production and multi-pattern evidence>'
+```
+
+Cleanup requires all active migrations to be recorded, nonempty meeting data,
+complete coverage for every section/term, and the dated production attestation.
+It locks the tables and repeats the checks in the same transaction that applies
+008 and records its checksum. A stale successful preview cannot authorize an
+incomplete current database. Failed checks or DDL preserve the legacy columns.
+Keep 008 deferred; executing its SQL file directly bypasses the runner's safeguards.
+The commands never load application `.env` files or fall back between database URLs.
+
 ---
 
 ## Architectural decisions

@@ -1,6 +1,7 @@
 """Apply the repository's ordered SQL migrations in one PostgreSQL transaction.
 
 CLI: MIGRATION_DATABASE_URL=... python -m scripts.migrate status|apply
+Deferred 008 has a separate cleanup-meetings command with coverage/evidence gates.
 The application environment and dotenv are deliberately not imported.
 """
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -28,6 +30,16 @@ MIGRATION_LOCK_NAMESPACE = 1935830381
 
 class MigrationError(ValueError):
     """Migration files or the database's recorded history cannot be trusted."""
+
+
+def parse_verified_since(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            raise ValueError
+        return parsed
+    except ValueError:
+        raise argparse.ArgumentTypeError("Use an ISO timestamp with a timezone, such as 2026-09-01T00:00:00Z.") from None
 
 
 @dataclass(frozen=True)
@@ -149,6 +161,9 @@ async def migration_status(
 
 async def apply_migrations(
     connection: AsyncConnection, *, schema_name: str = "public", migrations: list[Migration] | None = None,
+    cleanup_meetings: bool = False,
+    production_verified_since: datetime | None = None,
+    production_verification_note: str | None = None,
 ) -> list[Migration]:
     """Apply pending SQL inside the caller's READ COMMITTED transaction.
 
@@ -166,7 +181,29 @@ async def apply_migrations(
     # Inspect only after acquiring the lock: another runner may have committed
     # while this connection waited. READ COMMITTED sees its completed history.
     history = await _read_history(connection, schema_name)
+    if any(m.version == "008" and m.deferred_reason is None for m in migrations):
+        raise MigrationError("Migration 008 must remain deferred; use cleanup-meetings with verified production evidence.")
     applied = _validate_history(migrations, history)
+
+    pending = [m for m in migrations if m.version not in applied and m.deferred_reason is None]
+    if cleanup_meetings:
+        if pending:
+            raise MigrationError("Apply all active migrations before cleanup-meetings.")
+        cleanup = next((m for m in migrations if m.version == "008"), None)
+        if cleanup is None:
+            raise MigrationError("Migration 008 is missing from the manifest.")
+        if cleanup.version not in applied:
+            from scripts.backfill_meetings import BackfillError, guard_meetings_cleanup
+
+            try:
+                await guard_meetings_cleanup(
+                    connection, schema_name=schema_name,
+                    production_verified_since=production_verified_since,
+                    production_verification_note=production_verification_note,
+                )
+            except BackfillError as error:
+                raise MigrationError(str(error)) from error
+            pending = [cleanup]
     if history is None:
         await connection.execute(text("""
             CREATE TABLE schema_migrations (
@@ -177,7 +214,6 @@ async def apply_migrations(
             )
         """))
 
-    pending = [m for m in migrations if m.version not in applied and m.deferred_reason is None]
     raw_connection = await connection.get_raw_connection()
     for migration in pending:
         try:
@@ -193,7 +229,11 @@ async def apply_migrations(
     return pending
 
 
-async def _run(action: str, database_url: str, schema_name: str) -> None:
+async def _run(
+    action: str, database_url: str, schema_name: str,
+    production_verified_since: datetime | None = None,
+    production_verification_note: str | None = None,
+) -> None:
     migrations = load_migrations()
     engine = create_async_engine(database_url, isolation_level="READ COMMITTED", connect_args={"timeout": 10})
     try:
@@ -204,15 +244,27 @@ async def _run(action: str, database_url: str, schema_name: str) -> None:
                     reason = f" — {migration.deferred_reason}" if state == "deferred" else ""
                     print(f"{migration.version} {state.upper()} {migration.filename}{reason}")
             else:
-                applied = await apply_migrations(connection, schema_name=schema_name, migrations=migrations)
+                await connection.execute(text("SET LOCAL lock_timeout = '5s'"))
+                if action == "cleanup-meetings":
+                    await connection.execute(text("SET LOCAL statement_timeout = '30s'"))
+                applied = await apply_migrations(
+                    connection, schema_name=schema_name, migrations=migrations,
+                    cleanup_meetings=action == "cleanup-meetings",
+                    production_verified_since=production_verified_since,
+                    production_verification_note=production_verification_note,
+                )
+                states = await migration_status(connection, schema_name=schema_name, migrations=migrations)
         # Only report applied changes after the transaction has committed.
-        if action == "apply":
+        if action != "status":
             for migration in applied:
                 print(f"APPLIED {migration.filename}")
             if not applied:
-                print("No pending active migrations.")
-            for migration in migrations:
-                if migration.deferred_reason is not None:
+                print("No pending migrations for this command.")
+            if action == "cleanup-meetings" and applied:
+                print(f"Production meetings verified since: {production_verified_since.isoformat()}")
+                print(f"Verification evidence: {production_verification_note}")
+            for migration, state in states:
+                if state == "deferred":
                     print(f"DEFERRED {migration.filename}: {migration.deferred_reason}")
     finally:
         await engine.dispose()
@@ -220,9 +272,13 @@ async def _run(action: str, database_url: str, schema_name: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("status", "apply"))
+    parser.add_argument("action", choices=("status", "apply", "cleanup-meetings"))
     parser.add_argument("--schema", default="public", help="Existing target schema (default: public)")
+    parser.add_argument("--production-verified-since", type=parse_verified_since)
+    parser.add_argument("--production-verification-note")
     args = parser.parse_args()
+    if args.action != "cleanup-meetings" and (args.production_verified_since or args.production_verification_note):
+        parser.error("Production verification arguments are only used with cleanup-meetings.")
     database_url = os.environ.get("MIGRATION_DATABASE_URL")
     try:
         url = make_url(database_url or "")
@@ -233,7 +289,10 @@ def main() -> int:
         print("Set MIGRATION_DATABASE_URL explicitly to a postgresql+asyncpg URL with a host and database.", file=sys.stderr)
         return 2
     try:
-        asyncio.run(_run(args.action, database_url, args.schema))
+        asyncio.run(_run(
+            args.action, database_url, args.schema,
+            args.production_verified_since, args.production_verification_note,
+        ))
     except MigrationError as error:
         print(str(error), file=sys.stderr)
         return 1

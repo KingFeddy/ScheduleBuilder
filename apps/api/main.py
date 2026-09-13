@@ -6,6 +6,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src.config import settings
 from src.dependencies import get_db
+from src.services.meeting_integrity import IncompleteMeetingData
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -79,6 +81,11 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(IncompleteMeetingData)
+async def incomplete_meeting_data(request: Request, error: IncompleteMeetingData):
+    return JSONResponse(status_code=503, content={"detail": str(error)})
 
 
 @app.get("/health")

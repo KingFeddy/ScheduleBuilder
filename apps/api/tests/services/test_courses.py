@@ -109,17 +109,37 @@ class TestLoadSectionsWithMeetings:
         assert len(result["CS201"]) == 1
 
     @pytest.mark.asyncio
-    async def test_section_with_no_meetings_gets_empty_list(self):
-        """A section with no rows in meetings table gets meetings=[]."""
+    async def test_section_with_no_meetings_is_explicitly_unavailable(self):
+        """Missing migration data must not turn a scheduled class into async."""
         section_rows = [make_section_row("99999", "CS999")]
         meeting_rows = []   # no meetings for this CRN
         session = mock_session_with(section_rows, meeting_rows)
 
-        result = await load_sections_with_meetings(session, ["CS999"], "202690")
+        with pytest.raises(ValueError, match="[Mm]eeting data is incomplete"):
+            await load_sections_with_meetings(session, ["CS999"], "202690")
 
-        slot = result["CS999"][0]
-        assert slot.meetings == []
-        assert slot.is_async is True
+    @pytest.mark.asyncio
+    async def test_explicit_async_meeting_remains_supported(self):
+        session = mock_session_with(
+            [make_section_row("99999", "CS999")],
+            [make_meeting_row("99999", None, None, None)],
+        )
+        result = await load_sections_with_meetings(session, ["CS999"], "202690")
+        assert result["CS999"][0].is_async is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("days, start, end", [
+        ("MW", time(10), None), ("MW", None, None),
+        (None, time(10), time(11)), ("X", time(10), time(11)),
+        ("MW", time(11), time(10)),
+    ])
+    async def test_incomplete_meeting_pattern_is_unavailable(self, days, start, end):
+        session = mock_session_with(
+            [make_section_row("99999", "CS999")],
+            [make_meeting_row("99999", days, start, end)],
+        )
+        with pytest.raises(ValueError, match="[Mm]eeting data is incomplete"):
+            await load_sections_with_meetings(session, ["CS999"], "202690")
 
     @pytest.mark.asyncio
     async def test_requested_course_not_in_db_returns_empty_list(self):

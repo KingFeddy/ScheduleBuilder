@@ -1,0 +1,28 @@
+# Shared by Dockerfile and Dockerfile.scraper. Admit only runtime inputs.
+# New runtime asset types need an explicit allow rule and a context-test fixture.
+**
+!pyproject.toml
+!uv.lock
+!main.py
+!src/**/*.py
+!scripts/**/*.py
+!migrations/[0-9][0-9][0-9]_*.sql
+!migrations/manifest.json
+
+# Keep these exclusions LAST so Python files inside local tooling stay excluded.
+# Hidden files/directories cover .env*, .venv, .git, credential stores and caches.
+**/.*
+**/.*/**
+**/venv/**
+**/env/**
+**/__pycache__/**
+**/node_modules/**
+**/tests/**
+**/test-results/**
+**/playwright-report/**
+**/playwright-browsers/**
+**/htmlcov/**
+**/dist/**
+**/build/**
+**/*.egg-info/**
+**/docs/**

@@ -6,7 +6,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev
 
-COPY . .
+# Copy runtime paths explicitly; never overlay the image's .venv from the host.
+COPY main.py ./
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY migrations/ ./migrations/
 
 EXPOSE 8000
 CMD ["sh", "-c", "exec uv run --no-sync uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -244,6 +244,63 @@ verification checks from that production-only environment. This validates the
 checked-in startup commands; confirming the commands selected by live Railway
 services remains part of deployment configuration review.
 
+## Docker build contexts
+
+Build either image from the repository root with **`apps/api` as the context**:
+
+```bash
+docker build --tag schedule-builder-api:local --file apps/api/Dockerfile apps/api
+docker build --tag schedule-builder-scraper:local --file apps/api/Dockerfile.scraper apps/api
+```
+
+`apps/api/.dockerignore` is shared by both images. Its allowlist admits only
+`main.py`, `pyproject.toml`, `uv.lock`, Python modules under `src` and `scripts`,
+numbered migration SQL, and the migration manifest. Final exclusions block
+hidden files and directories, virtual environments, caches, tests, build outputs,
+browser downloads, and other local tooling even when nested inside source trees.
+Environment files, credential files, database dumps, PDFs, frontend dependencies,
+and local documentation stay outside the context. Both Dockerfiles also copy
+runtime paths explicitly; the image builds its own `.venv` and scraper browsers.
+Configure deployed secrets through the service's runtime environment.
+
+The root `.dockerignore` applies the same policy when a tool selects the entire
+repository as its context. This additional filter does not change the Dockerfiles'
+relative source paths: the supported build commands above still use `apps/api`.
+Confirming the context and configuration selected by live Railway services remains
+part of deployment configuration review.
+
+Keep both allowlists aligned when adding a runtime asset type, and extend the
+Docker test fixture's expected inputs. Docker uses the ignore file at the context
+root; a `Dockerfile.dockerignore` or `Dockerfile.scraper.dockerignore` would override
+that shared policy. See [Docker's context documentation](https://docs.docker.com/build/building/context/#dockerignore-files).
+
+Run the lightweight context checks from `apps/api`, with Docker running:
+
+```bash
+RUN_DOCKER_TESTS=1 uv run --no-sync pytest tests/deployment/test_docker_contexts.py -m "not docker_image" -q
+```
+
+These four checks use Docker itself to export each Dockerfile's filtered context
+at both directory roots. Fixtures copy Git-visible runtime source files and plant
+synthetic credentials, a fake host Python environment, caches, and unrelated files
+at multiple depths. The exported file list must exactly match the required inputs.
+They need no base-image or dependency downloads and no database.
+
+To also build and inspect both complete Linux/amd64 images:
+
+```bash
+RUN_DOCKER_TESTS=1 uv run --no-sync pytest tests/deployment/test_docker_contexts.py -q
+```
+
+The two additional checks may download base images, locked packages, and Chromium.
+Allow at least 8 GB of free host/Docker storage for a cold build and its cache.
+They verify the final files, the image's Linux Python environment, production-only
+imports, browser-driver integrity, and scraper browser rendering using synthetic
+HTML. Inspection runs without network access and with a
+read-only root filesystem. Each check removes its unique test image and container;
+Docker retains reusable build cache. These six checks are explicitly opt-in and
+skip during ordinary backend runs unless `RUN_DOCKER_TESTS=1` is set.
+
 ## Running frontend browser regressions
 
 Run from the repository root (Node.js 20.9+ and pnpm 9.15):

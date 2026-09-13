@@ -1,0 +1,28 @@
+# Protect a repository-root context as well as apps/api/.dockerignore protects
+# the API context. Current Dockerfiles require apps/api as context (see README).
+# Keep this allowlist aligned with apps/api/.dockerignore.
+**
+!apps/api/pyproject.toml
+!apps/api/uv.lock
+!apps/api/main.py
+!apps/api/src/**/*.py
+!apps/api/scripts/**/*.py
+!apps/api/migrations/[0-9][0-9][0-9]_*.sql
+!apps/api/migrations/manifest.json
+
+# Final exclusions also apply inside the allowed source directories.
+**/.*
+**/.*/**
+**/venv/**
+**/env/**
+**/__pycache__/**
+**/node_modules/**
+**/tests/**
+**/test-results/**
+**/playwright-report/**
+**/playwright-browsers/**
+**/htmlcov/**
+**/dist/**
+**/build/**
+**/*.egg-info/**
+**/docs/**

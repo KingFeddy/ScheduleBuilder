@@ -22,6 +22,8 @@ package = false
 [tool.pytest.ini_options]
 markers = [
     "database: requires the explicitly configured disposable PostgreSQL test database",
+    "docker: opt-in Docker context/image checks (set RUN_DOCKER_TESTS=1)",
+    "docker_image: builds and inspects full production images (requires Docker and downloads)",
 ]
 
 [dependency-groups]

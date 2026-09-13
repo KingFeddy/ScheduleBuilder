@@ -16,15 +16,23 @@ from src.schemas.schedule import MeetingResponse, SectionResponse
 from src.services.courses import load_sections_with_meetings
 from src.services.course_metadata import course_response
 from src.services.catalog import load_catalog_coverage
+from src.schemas.terms import TermsResponse
+from src.services.terms import discover_terms
+from src.terms import TERM_CODE_PATTERN
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["courses"])
 
 
+@router.get("/api/terms", response_model=TermsResponse)
+async def available_terms(db: AsyncSession = Depends(get_db)) -> TermsResponse:
+    return await discover_terms(db)
+
+
 @router.get("/api/catalog/coverage", response_model=CatalogCoverageResponse)
 async def catalog_coverage(
-    term: str = Query(..., pattern=r"^\d{4}(10|50|90)$"),
+    term: str = Query(..., pattern=TERM_CODE_PATTERN),
     db: AsyncSession = Depends(get_db),
 ) -> CatalogCoverageResponse:
     return await load_catalog_coverage(db, term)
@@ -91,7 +99,7 @@ async def search_courses(
 @router.get("/api/courses/{code}/sections", response_model=list[SectionResponse])
 async def get_course_sections(
     code: str,
-    term: str = Query(..., pattern=r"^\d{4}(10|50|90)$"),
+    term: str = Query(..., pattern=TERM_CODE_PATTERN),
     db: AsyncSession = Depends(get_db),
 ) -> list[SectionResponse]:
     code = code.upper()
@@ -102,6 +110,7 @@ async def get_course_sections(
 @router.get("/api/courses/{code}", response_model=CourseDetailResponse)
 async def get_course(
     code: str,
+    term: str | None = Query(None, pattern=TERM_CODE_PATTERN),
     db: AsyncSession = Depends(get_db),
 ) -> CourseDetailResponse:
     code = code.upper()
@@ -118,7 +127,7 @@ async def get_course(
         raise HTTPException(status_code=404, detail=f"Course {code} not found.")
 
     sections_by_course = await load_sections_with_meetings(
-        db, [code], settings.CURRENT_TERM
+        db, [code], term or settings.CURRENT_TERM
     )
     sections = [_slot_to_response(s) for s in sections_by_course.get(code, [])]
 

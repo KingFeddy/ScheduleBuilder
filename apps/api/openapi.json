@@ -1158,6 +1158,7 @@
             "type": "object"
           },
           "term": {
+            "pattern": "^[0-9]{4}(10|50|90)$",
             "title": "Term",
             "type": "string"
           }
@@ -1324,6 +1325,52 @@
         "title": "SubjectCoverage",
         "type": "object"
       },
+      "TermOption": {
+        "properties": {
+          "code": {
+            "pattern": "^[0-9]{4}(10|50|90)$",
+            "title": "Code",
+            "type": "string"
+          },
+          "has_data": {
+            "title": "Has Data",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "has_data"
+        ],
+        "title": "TermOption",
+        "type": "object"
+      },
+      "TermsResponse": {
+        "properties": {
+          "default_term": {
+            "pattern": "^[0-9]{4}(10|50|90)$",
+            "title": "Default Term",
+            "type": "string"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/TermOption"
+            },
+            "title": "Terms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "default_term",
+          "terms"
+        ],
+        "title": "TermsResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1404,7 +1451,7 @@
             "name": "term",
             "required": true,
             "schema": {
-              "pattern": "^\\d{4}(10|50|90)$",
+              "pattern": "^[0-9]{4}(10|50|90)$",
               "title": "Term",
               "type": "string"
             }
@@ -1542,6 +1589,23 @@
               "title": "Code",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "term",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{4}(10|50|90)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Term"
+            }
           }
         ],
         "responses": {
@@ -1590,7 +1654,7 @@
             "name": "term",
             "required": true,
             "schema": {
-              "pattern": "^\\d{4}(10|50|90)$",
+              "pattern": "^[0-9]{4}(10|50|90)$",
               "title": "Term",
               "type": "string"
             }
@@ -1833,6 +1897,27 @@
           }
         },
         "summary": "Scraper Status"
+      }
+    },
+    "/api/terms": {
+      "get": {
+        "operationId": "available_terms_api_terms_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TermsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Available Terms",
+        "tags": [
+          "courses"
+        ]
       }
     },
     "/api/version": {

@@ -6,6 +6,7 @@ from typing import ClassVar
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from src.catalog import DEFAULT_CATALOG_SUBJECTS, DEFAULT_GER_SUBJECTS
+from src.terms import TermCode
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class Settings(BaseSettings):
     DATABASE_URL:       str
     SUPABASE_URL:       str
     SUPABASE_ANON_KEY:  str
-    CURRENT_TERM:       str = "202690"
+    CURRENT_TERM:       TermCode = "202690"
     CATALOG_SUBJECTS:    str = DEFAULT_CATALOG_SUBJECTS
     GER_SUBJECTS:        str = DEFAULT_GER_SUBJECTS
     APP_ENV:            str = "development"

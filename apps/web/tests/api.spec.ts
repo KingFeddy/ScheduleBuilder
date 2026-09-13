@@ -133,6 +133,7 @@ test('only a professor HTTP 404 means not found', async ({ transport }) => {
 })
 
 const callers: [string, (options: api.ApiRequestOptions) => Promise<unknown>][] = [
+  ['terms', (options) => api.getTerms(options)],
   ['catalog coverage', (options) => api.getCatalogCoverage('202690', options)],
   ['courses', (options) => api.getCourses({ q: 'CS 280' }, options)],
   ['sections', (options) => api.getCoursesSections('CS280', '202690', options)],

@@ -1,11 +1,18 @@
 import type {
   CatalogCoverageResponse, CourseResponse, GenerateResponse, ParsedDegreeValidated, ParseResponse,
-  ScraperStatusResponse, SectionResponse, SolveSectionResponse, SolveResponse,
+  ScraperStatusResponse, SectionResponse, SolveSectionResponse, SolveResponse, TermsResponse,
 } from '../lib/api'
 
 // Handwritten, fictional data. These fixtures are not a catalog or a DegreeWorks
 // parser acceptance sample; the real API, database, and PDF parser are not used.
 export const presentCatalog = { catalog_status: 'present' as const, catalog_note: '' }
+export const termDiscovery: TermsResponse = {
+  default_term: '202690', terms: [
+    { code: '202690', label: 'Fall 2026', has_data: true },
+    { code: '202710', label: 'Spring 2027', has_data: true },
+    { code: '202750', label: 'Summer 2027', has_data: true },
+  ],
+}
 export const catalogCoverage: CatalogCoverageResponse = {
   term: '202690', configured_subjects: ['CS', 'HUM'], elective_subjects: ['HUM'], warnings: [],
   subjects: [

@@ -1,17 +1,18 @@
 import { createHash } from 'node:crypto'
 import { test as base, expect, type ConsoleMessage, type Request, type Route } from '@playwright/test'
 import {
-  catalogCoverage, courses, parseResponse, planResponse, scraperStatus, sectionList, solveResponse, syntheticPdf,
+  catalogCoverage, courses, parseResponse, planResponse, scraperStatus, sectionList, solveResponse, syntheticPdf, termDiscovery,
 } from './data'
 import type {
   CatalogCoverageResponse, CourseResponse, GenerateResponse, GerCoursesResponse, ParseResponse,
-  ProfessorResponse, ScraperStatusResponse, SectionResponse, SolveResponse,
+  ProfessorResponse, ScraperStatusResponse, SectionResponse, SolveResponse, TermsResponse,
 } from '../lib/api'
 
 type Handler = (route: Route) => Promise<void>
 
 type SuccessResponses = {
   GET: {
+    '/api/terms': TermsResponse
     '/api/catalog/coverage': CatalogCoverageResponse
     '/api/courses': CourseResponse[]
     '/api/scraper/status': ScraperStatusResponse
@@ -31,6 +32,7 @@ class MockApi {
   private readonly overrides = new Map<string, Handler>()
   private readonly received: Request[] = []
   private readonly defaults = new Map<string, Handler>([
+    ['GET /api/terms', async (route) => { await route.fulfill({ json: termDiscovery }) }],
     ['GET /api/catalog/coverage', async (route) => {
       const term = new URL(route.request().url()).searchParams.get('term') || ''
       await route.fulfill({ json: { ...catalogCoverage, term } })

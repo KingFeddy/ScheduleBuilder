@@ -1,5 +1,8 @@
 from __future__ import annotations
-from datetime import date, time
+from datetime import time
+import re
+
+from src.terms import TERM_CODE_PATTERN
 
 # Minute-of-week offsets: each day starts this many minutes after Monday 00:00.
 # Monday 10:00 = 600. Wednesday 10:00 = 3480. Day separation falls out of the math.
@@ -51,27 +54,10 @@ def parse_hhmm(s: str) -> time:
 
 # ── NJIT term utilities ───────────────────────────────────────────────────────
 # Term code format: YYYY + suffix  (e.g. 202690 = Fall 2026)
-# Spring: suffix 10 (Jan–May)
-# Summer: suffix 50 (Jun–Aug)
-# Fall:   suffix 90 (Sep–Dec)
+# Season suffixes describe terms, not date-based registration boundaries.
+# The caller supplies the configured start; never infer it from today's month.
 
 _SUFFIX_TO_SEASON = {"10": "Spring", "50": "Summer", "90": "Fall"}
-
-
-def get_current_njit_term() -> str:
-    """Returns the NJIT term code for the current term based on today's date."""
-    today = date.today()
-    year  = today.year
-    month = today.month
-
-    if 1 <= month <= 5:
-        suffix = "10"
-    elif 6 <= month <= 8:
-        suffix = "50"
-    else:
-        suffix = "90"
-
-    return f"{year}{suffix}"
 
 
 def get_next_njit_term(term: str) -> str:
@@ -81,29 +67,36 @@ def get_next_njit_term(term: str) -> str:
     202710 (Spring 2027) → 202750 (Summer 2027)
     202750 (Summer 2027) → 202790 (Fall 2027)
     """
+    if not re.fullmatch(TERM_CODE_PATTERN, term):
+        raise ValueError("Invalid NJIT term code.")
     year   = int(term[:4])
     suffix = term[4:]
 
     if suffix == "10":    # Spring → Summer
-        return f"{year}50"
+        return f"{year:04d}50"
     elif suffix == "50":  # Summer → Fall
-        return f"{year}90"
+        return f"{year:04d}90"
     else:                 # Fall → Spring next year
-        return f"{year + 1}10"
+        if year == 9999:
+            raise ValueError("The next term exceeds the supported four-digit year.")
+        return f"{year + 1:04d}10"
 
 
-def get_planning_terms(n: int, skip_summer: bool = True) -> list[str]:
+def get_planning_terms(n: int, skip_summer: bool = True, *, start_term: str) -> list[str]:
     """
-    Returns the next N planning terms starting from the current term.
+    Returns the next N planning terms starting from an explicit term.
     Skips Summer terms by default — most students don't plan for summer.
     """
     terms: list[str] = []
-    current = get_current_njit_term()
+    if not re.fullmatch(TERM_CODE_PATTERN, start_term):
+        raise ValueError("Invalid NJIT planning start term.")
+    current = start_term
 
     while len(terms) < n:
         if not (skip_summer and current.endswith("50")):
             terms.append(current)
-        current = get_next_njit_term(current)
+        if len(terms) < n:
+            current = get_next_njit_term(current)
 
     return terms
 

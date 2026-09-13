@@ -184,6 +184,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Available Terms */
+        get: operations["available_terms_api_terms_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/version": {
         parameters: {
             query?: never;
@@ -667,6 +684,22 @@ export interface components {
             /** Subject */
             subject: string;
         };
+        /** TermOption */
+        TermOption: {
+            /** Code */
+            code: string;
+            /** Has Data */
+            has_data: boolean;
+            /** Label */
+            label: string;
+        };
+        /** TermsResponse */
+        TermsResponse: {
+            /** Default Term */
+            default_term: string;
+            /** Terms */
+            terms: components["schemas"]["TermOption"][];
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -765,7 +798,9 @@ export interface operations {
     };
     get_course_api_courses__code__get: {
         parameters: {
-            query?: never;
+            query?: {
+                term?: string | null;
+            };
             header?: never;
             path: {
                 code: string;
@@ -993,6 +1028,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScraperStatusResponse"];
+                };
+            };
+        };
+    };
+    available_terms_api_terms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TermsResponse"];
                 };
             };
         };

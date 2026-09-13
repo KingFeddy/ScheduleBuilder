@@ -11,8 +11,8 @@ import { ProfessorPicker } from './professor-picker'
 import { CatalogCoverage } from './catalog-coverage'
 import { CatalogNote } from '@/components/ui/catalog-note'
 
-export function CourseSelector() {
-  const { selectedCourses, term, addCourse, removeCourse, setProfessorCache, setProfessorsByCourse } =
+export function CourseSelector({ termResolved, hasTermData }: { termResolved: boolean; hasTermData: boolean }) {
+  const { selectedCourses, term, termRevision, addCourse, removeCourse, setProfessorCache, setProfessorsByCourse } =
     useSchedulerStore()
 
   const [query, setQuery] = useState('')
@@ -24,6 +24,15 @@ export function CourseSelector() {
   const inputRef = useRef<HTMLInputElement>(null)
   // Tracks which course+term combos have had a prefetch initiated this session
   const prefetchingRef = useRef(new Set<string>())
+  const termController = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    termController.current = controller
+    // Returning to a previously selected term must fetch its sections again.
+    prefetchingRef.current = new Set()
+    return () => controller.abort()
+  }, [term, termRevision, hasTermData])
 
   // Debounced search — 300ms
   useEffect(() => {
@@ -51,12 +60,17 @@ export function CourseSelector() {
   // Fires on mount (picks up persisted courses) and whenever selectedCourses or term changes.
   // prefetchingRef prevents duplicate in-flight requests.
   useEffect(() => {
+    const controller = termController.current
+    if (!term || !hasTermData || !controller) return
+    const prefetched = prefetchingRef.current
+    const current = () => !controller.signal.aborted && useSchedulerStore.getState().termRevision === termRevision
     for (const code of selectedCourses) {
       const key = `${code}:${term}`
-      if (prefetchingRef.current.has(key)) continue
-      prefetchingRef.current.add(key)
-      getCoursesSections(code, term)
+      if (prefetched.has(key)) continue
+      prefetched.add(key)
+      getCoursesSections(code, term, { signal: controller.signal })
         .then((sections) => {
+          if (!current()) return
           const names = [
             ...new Set(sections.map((s) => s.professor_name).filter(Boolean)),
           ] as string[]
@@ -66,14 +80,14 @@ export function CourseSelector() {
           // Only fulfilled lookups (including true 404s) may populate the cache.
           return Promise.all(
             names.map((n) =>
-              getProfessor(n).then((data) => [n, data] as [string, ProfessorResponse | null]),
+              getProfessor(n, { signal: controller.signal }).then((data) => [n, data] as [string, ProfessorResponse | null]),
             ),
-          ).then((entries) => setProfessorCache(Object.fromEntries(entries)))
+          ).then((entries) => { if (current()) setProfessorCache(Object.fromEntries(entries)) })
         })
-        .catch(() => {})
+        .catch(() => { prefetched.delete(key) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCourses, term])
+  }, [selectedCourses, term, termRevision, hasTermData])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -137,7 +151,7 @@ export function CourseSelector() {
         )}
       </div>
 
-      <CatalogCoverage term={term} query={query} />
+      {termResolved && <CatalogCoverage term={term} query={query} />}
 
       {/* Selected course cards */}
       {selectedCourses.length > 0 && (
@@ -156,7 +170,9 @@ export function CourseSelector() {
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <ProfessorPicker courseCode={code} />
+              {hasTermData ? <ProfessorPicker courseCode={code} /> : (
+                <p className="text-xs text-muted">Section data is unavailable for the selected semester.</p>
+              )}
             </li>
           ))}
         </ul>

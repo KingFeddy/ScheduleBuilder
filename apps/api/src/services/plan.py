@@ -702,7 +702,7 @@ async def generate_plan(
             "Options in those subjects need confirmation with NJIT."
         )
 
-    planning_terms = get_planning_terms(n=10)
+    planning_terms = get_planning_terms(n=10, start_term=settings.CURRENT_TERM)
     current_term   = planning_terms[0]
 
     resolved: list[_ResolvedItem] = []

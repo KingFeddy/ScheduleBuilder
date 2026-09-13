@@ -6,7 +6,7 @@ the corresponding implementation step is complete. This is the expected
 TDD workflow: the failures drive the implementation.
 
 Implementation steps:
-  Step 1 — time_utils: get_planning_terms, term_to_label, get_current_njit_term, get_next_njit_term
+  Step 1 — time_utils: explicit-start get_planning_terms, term_to_label, get_next_njit_term
   Step 2 — plan.py: matches_wildcard, find_matching_requirement
   Step 3 — plan.py: get_course_data
   Step 4 — plan.py: generate_plan (full planner)
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import unittest.mock as mock
-from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -99,19 +98,19 @@ class TestTermUtils:
 
     def test_planning_terms_skips_summer(self):
         from src.scheduler.time_utils import get_planning_terms
-        terms = get_planning_terms(n=6)
+        terms = get_planning_terms(n=6, start_term="202690")
         assert all(not t.endswith("50") for t in terms), \
             "Summer terms must be skipped in planning output by default"
 
     def test_planning_terms_length(self):
         from src.scheduler.time_utils import get_planning_terms
-        terms = get_planning_terms(n=4)
+        terms = get_planning_terms(n=4, start_term="202690")
         assert len(terms) == 4
 
     def test_planning_terms_is_sequential(self):
         """Each term must follow the previous in academic calendar order (summer skipped)."""
         from src.scheduler.time_utils import get_planning_terms
-        terms = get_planning_terms(n=6)
+        terms = get_planning_terms(n=6, start_term="202690")
         for i in range(1, len(terms)):
             year_a, suf_a = int(terms[i - 1][:4]), terms[i - 1][4:]
             year_b, suf_b = int(terms[i][:4]),     terms[i][4:]
@@ -121,12 +120,6 @@ class TestTermUtils:
             elif suf_a == "10":  # Spring → Fall same year (summer skipped)
                 assert suf_b == "90" and year_b == year_a, \
                     f"After Spring {year_a} expected Fall {year_a}, got {terms[i]}"
-
-    def test_get_current_term_returns_valid_format(self):
-        from src.scheduler.time_utils import get_current_njit_term
-        term = get_current_njit_term()
-        assert len(term) == 6
-        assert term[4:] in ("10", "50", "90")
 
     def test_get_next_term_fall_to_spring(self):
         from src.scheduler.time_utils import get_next_njit_term
@@ -139,23 +132,6 @@ class TestTermUtils:
     def test_get_next_term_summer_to_fall(self):
         from src.scheduler.time_utils import get_next_njit_term
         assert get_next_njit_term("202750") == "202790"
-
-    def test_planning_starts_from_current_term_not_hardcoded(self):
-        """
-        Regression test for the hardcoded CURRENT_TERM='202690' bug.
-        In February 2027 the plan must start from Spring 2027, not Fall 2026.
-        """
-        from src.scheduler import time_utils
-
-        with mock.patch.object(time_utils, "date") as mock_date:
-            mock_date.today.return_value = date(2027, 2, 15)
-            mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
-            terms = time_utils.get_planning_terms(n=2)
-
-        assert terms[0] == "202710", (
-            f"In February 2027 plan must start from Spring 2027 (202710), got {terms[0]!r}"
-        )
-
 
 # ── Wildcard matching ─────────────────────────────────────────────────────────
 

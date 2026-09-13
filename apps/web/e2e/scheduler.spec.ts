@@ -14,8 +14,8 @@ test('searches courses, submits filters, and renders timed and async meetings', 
   await page.getByRole('button', { name: 'HUM101 Writing and Communication' }).click()
   await page.getByText('Hide Full Sections', { exact: true }).click()
   // These existing selects do not yet have accessible labels (Goal 57).
-  await page.getByRole('combobox').nth(0).selectOption('08:00')
-  await page.getByRole('combobox').nth(1).selectOption('20:00')
+  await page.getByRole('combobox').nth(1).selectOption('08:00')
+  await page.getByRole('combobox').nth(2).selectOption('20:00')
   await page.getByRole('button', { name: 'Solve', exact: true }).click()
 
   await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
@@ -41,7 +41,7 @@ test('searches courses, submits filters, and renders timed and async meetings', 
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
   await expect(page.getByText('CS280', { exact: true })).toHaveCount(1)
   await expect(page.getByText('HUM101', { exact: true })).toHaveCount(1)
-  await expect(page.getByRole('combobox').nth(0)).toHaveValue('08:00')
+  await expect(page.getByRole('combobox').nth(1)).toHaveValue('08:00')
   await expect(page.getByText('Click Solve to generate schedules')).toBeVisible()
   expect(api.requests('POST', '/api/schedule/solve')).toHaveLength(1)
 })

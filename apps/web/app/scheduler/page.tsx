@@ -1,19 +1,23 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { useSchedulerStore } from '@/store/scheduler'
-import { solveSchedule, getApiErrorMessage, getProfessor, type ProfessorResponse } from '@/lib/api'
+import { solveSchedule, getApiErrorMessage, getProfessor, isAbortError, type ProfessorResponse } from '@/lib/api'
 import { useScraperStatus } from '@/hooks/useScraperStatus'
 import { CourseSelector } from '@/components/scheduler/course-selector'
 import { CommuterToggles } from '@/components/scheduler/commuter-toggles'
 import { ResultNavigator } from '@/components/scheduler/result-navigator'
 import { ScheduleGrid } from '@/components/calendar/schedule-grid'
+import { TermSelector } from '@/components/scheduler/term-selector'
+import { useSchedulerTerms } from '@/hooks/useSchedulerTerms'
 
 export default function SchedulerPage() {
   const {
     selectedCourses,
     term,
+    preferredTerm,
+    termRevision,
     commuterOptions,
     professorPreferences,
     results,
@@ -25,9 +29,24 @@ export default function SchedulerPage() {
     setError,
     setProfessorCache,
   } = useSchedulerStore()
+  const terms = useSchedulerTerms()
+  const selectedTerm = terms.catalog?.terms.find((option) => option.code === term)
+  const hasTermData = selectedTerm?.has_data === true
+  const solveRequest = useRef<AbortController | null>(null)
+
+  useEffect(() => () => {
+    solveRequest.current?.abort()
+    // An unmounted page still owns the shared loading flag for this revision.
+    // A semester change already resets it and may start a newer request.
+    if (useSchedulerStore.getState().termRevision === termRevision) setLoading(false)
+  }, [termRevision, setLoading])
 
   async function handleSolve() {
-    if (isLoading || selectedCourses.length === 0) return
+    if (isLoading || selectedCourses.length === 0 || !hasTermData) return
+    const controller = new AbortController()
+    solveRequest.current = controller
+    const revision = termRevision
+    const stillCurrent = () => !controller.signal.aborted && useSchedulerStore.getState().termRevision === revision
     setLoading(true)
     setError(null)
     try {
@@ -44,7 +63,8 @@ export default function SchedulerPage() {
         professor_preferences: Object.fromEntries(
           Object.entries(professorPreferences).filter(([, v]) => v.length > 0),
         ),
-      })
+      }, { signal: controller.signal })
+      if (!stillCurrent()) return
       setResults(res.results, res.warnings)
 
       // Prefetch RMP data for every professor in the results so the modal
@@ -59,21 +79,21 @@ export default function SchedulerPage() {
       if (names.length > 0) {
         Promise.all(
           names.map((n) =>
-            getProfessor(n).then((data) => [n, data] as [string, ProfessorResponse | null]),
+            getProfessor(n, { signal: controller.signal }).then((data) => [n, data] as [string, ProfessorResponse | null]),
           ),
         )
-          .then((entries) => setProfessorCache(Object.fromEntries(entries)))
+          .then((entries) => { if (stillCurrent()) setProfessorCache(Object.fromEntries(entries)) })
           .catch(() => {})
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to solve schedule. Please try again.'))
+      if (stillCurrent() && !isAbortError(err)) setError(getApiErrorMessage(err, 'Failed to solve schedule. Please try again.'))
     } finally {
-      setLoading(false)
+      if (stillCurrent()) setLoading(false)
     }
   }
 
   const { lastScrape, isStale } = useScraperStatus()
-  const activeResult = results[activeResultIndex] ?? null
+  const activeResult = hasTermData ? results[activeResultIndex] ?? null : null
 
   const staleBannerText = useMemo(() => {
     if (!lastScrape) return 'Seat availability data age is unknown — verify open seats in Banner before registering.'
@@ -86,11 +106,16 @@ export default function SchedulerPage() {
     <div className="flex h-screen overflow-hidden">
       {/* Left panel */}
       <div className="w-72 flex-shrink-0 border-r border-border flex flex-col gap-6 p-5 overflow-y-auto">
+        <TermSelector catalog={terms.catalog} term={term} preference={preferredTerm} error={terms.error}
+          notice={terms.notice} onRetry={terms.retry} onChange={(preference) => {
+            if ((preference || terms.catalog?.default_term) !== term) solveRequest.current?.abort()
+            terms.selectTerm(preference)
+          }} />
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-muted mb-3">
             Add Courses
           </p>
-          <CourseSelector />
+          <CourseSelector termResolved={!!selectedTerm} hasTermData={hasTermData} />
         </div>
 
         <div className="border-t border-border pt-5">
@@ -100,7 +125,7 @@ export default function SchedulerPage() {
         <div className="border-t border-border pt-5 mt-auto flex flex-col gap-3">
           <button
             onClick={handleSolve}
-            disabled={isLoading || selectedCourses.length === 0}
+            disabled={isLoading || selectedCourses.length === 0 || !hasTermData}
             className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-njit-red text-white hover:opacity-90 disabled:opacity-40 transition-opacity duration-150"
           >
             {isLoading ? (
@@ -113,7 +138,7 @@ export default function SchedulerPage() {
             )}
           </button>
 
-          {solveWarnings.length > 0 && (
+          {hasTermData && solveWarnings.length > 0 && (
             <ul className="flex flex-col gap-1.5">
               {solveWarnings.map((w, i) => (
                 <li
@@ -136,7 +161,7 @@ export default function SchedulerPage() {
             <span>{staleBannerText}</span>
           </div>
         )}
-        {results.length > 0 && <ResultNavigator />}
+        {hasTermData && results.length > 0 && <ResultNavigator />}
         <ScheduleGrid result={activeResult} />
       </div>
     </div>

@@ -252,7 +252,39 @@ regenerate a saved plan to check it again. Versioned storage validation and gene
 warning persistence remain Goals 37 and 40. No database migration is required for
 coverage; newly configured subjects acquire data on subsequent successful scrapes.
 
-### 8. Design system built on CSS tokens
+### 8. Shared semester discovery and selection
+
+`CURRENT_TERM` is the shared runtime default for the API, planner, and scraper.
+Set the same value on API and scraper services; use six ASCII digits ending in
+`10` (Spring), `50` (Summer), or `90` (Fall). Invalid configuration fails at startup.
+Updating this setting changes the default without a frontend code change.
+
+`GET /api/terms` returns `default_term` and a sorted `terms` array containing
+`code`, `label`, and `has_data`. It discovers distinct valid terms from retained
+section rows and always includes the configured default, even when it has no
+sections. `has_data` means at least one stored section; it does not certify
+completeness, freshness, or NJIT registration availability. This is the local
+catalog's term list, not an upstream academic calendar.
+
+The scheduler fetches this list before semester-specific requests. Its Semester
+selector follows the server default on each visit, or remembers an explicit
+choice. Older saved automatic defaults are rechecked; a removed saved choice
+falls back to the current default with a notice. A semester with no collected
+sections stays visible with an explanation and a disabled Solve button. Discovery
+failures offer a retry and do not reuse an unverified cached semester.
+
+Changing semesters preserves course choices and commuter filters, clears old
+results and professor choices, and cancels obsolete section/solve requests.
+Section lookups, coverage counts, and solves use the selected term. Course detail
+also accepts `?term=...`; omitting it uses the configured default. New graduation
+plans start from that same default, still skipping Summer as before. Calendar
+rollover advances Fall to the following Spring without guessing a default from
+the computer's date. Future course-offering validation remains Goal 30.
+
+No database migration is required. Deploy the term-discovery API before the
+updated frontend, and keep the API and scraper default settings aligned.
+
+### 9. Design system built on CSS tokens
 
 The UI targets a specific aesthetic: Linear's layout and density, Vercel's data-heavy tables, Raycast's command-palette interaction. The design is enforced through a Tailwind token layer — no raw color classes anywhere in the codebase.
 
@@ -344,7 +376,7 @@ pnpm dev               # proxies /api/* to localhost:8000 via next.config.ts
 | `DATABASE_URL` | API | asyncpg connection string to Supabase |
 | `SUPABASE_URL` | API | Supabase project URL |
 | `SUPABASE_ANON_KEY` | API | Supabase anon key (read-only queries) |
-| `CURRENT_TERM` | API | 6-digit NJIT term code, e.g. `202690` |
+| `CURRENT_TERM` | API + scraper | Shared default, e.g. `202690`; six ASCII digits ending in 10/50/90. Use identical values on both services; the frontend discovers it through `/api/terms`. |
 | `CATALOG_SUBJECTS` | API + scraper | Optional comma-separated override of the 28-subject collection default; use identical values on both services |
 | `GER_SUBJECTS` | API | Optional comma-separated elective browser subject scope; membership does not establish eligibility |
 | `CORS_ORIGINS` | API | Comma-separated allowed origins |

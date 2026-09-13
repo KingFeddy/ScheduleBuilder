@@ -28,6 +28,7 @@ interface SchedulerState {
   // persisted
   selectedCourses: string[]
   term: string
+  preferredTerm: string | null // null follows the API default on each visit
   commuterOptions: CommuterOptions
   professorPreferences: Record<string, string[]>
   activeResultIndex: number
@@ -39,11 +40,12 @@ interface SchedulerState {
   solveWarnings: string[]
   professorCache: Record<string, ProfessorResponse | null>
   professorsByCourse: Record<string, string[]>
+  termRevision: number
 
   // actions
   addCourse: (code: string) => void
   removeCourse: (code: string) => void
-  setTerm: (term: string) => void
+  setTerm: (term: string, preference?: string | null) => void
   setCommuterOptions: (opts: Partial<CommuterOptions>) => void
   setProfessorPreferences: (code: string, profs: string[]) => void
   setActiveResultIndex: (i: number) => void
@@ -71,7 +73,8 @@ export const useSchedulerStore = create<SchedulerState>()(
     (set) => ({
       // persisted defaults
       selectedCourses: [],
-      term: '202690',
+      term: '', // Resolved by term discovery; a persisted value is rechecked first.
+      preferredTerm: null,
       commuterOptions: defaultCommuterOptions,
       professorPreferences: {},
       activeResultIndex: 0,
@@ -83,6 +86,7 @@ export const useSchedulerStore = create<SchedulerState>()(
       solveWarnings: [],
       professorCache: {},
       professorsByCourse: {},
+      termRevision: 0,
 
       // actions
       addCourse: (code) =>
@@ -100,7 +104,13 @@ export const useSchedulerStore = create<SchedulerState>()(
           ),
         })),
 
-      setTerm: (term) => set({ term }),
+      setTerm: (term, preference = term) => set((s) => s.term === term
+        ? { preferredTerm: preference }
+        : {
+            term, preferredTerm: preference, termRevision: s.termRevision + 1,
+            results: [], activeResultIndex: 0, solveWarnings: [], error: null, isLoading: false,
+            professorPreferences: {}, professorsByCourse: {},
+          }),
 
       setCommuterOptions: (opts) =>
         set((s) => ({ commuterOptions: { ...s.commuterOptions, ...opts } })),
@@ -132,10 +142,11 @@ export const useSchedulerStore = create<SchedulerState>()(
     {
       name: 'njit-scheduler',
       storage: createJSONStorage(() => safeStorage),
-      version: 7,
+      version: 8,
       partialize: (s) => ({
         selectedCourses: s.selectedCourses,
         term: s.term,
+        preferredTerm: s.preferredTerm,
         commuterOptions: s.commuterOptions,
         professorPreferences: s.professorPreferences,
         activeResultIndex: s.activeResultIndex,
@@ -153,6 +164,12 @@ export const useSchedulerStore = create<SchedulerState>()(
             ...s,
             commuterOptions: { ...s.commuterOptions, minimize_gaps: false },
           }
+        }
+        if (version < 8) {
+          // Earlier versions had no semester chooser: their saved term was an
+          // automatic default. Keep it only to identify term-bound preferences;
+          // discovery will resolve the new default before any section requests.
+          state = { ...(state as Partial<SchedulerState>), preferredTerm: null }
         }
         return state as SchedulerState
       },

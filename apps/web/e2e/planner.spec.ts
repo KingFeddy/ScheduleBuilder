@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { test, expect } from './fixtures'
-import { parsedDegree, planResponse, syntheticPdf } from './data'
+import { parsedDegree, parseResponse, planResponse, syntheticPdf } from './data'
 
 test('uploads a synthetic audit, generates a plan, and restores it on reload', async ({ page, api }) => {
   await page.goto('/scheduler')
@@ -74,4 +74,37 @@ test('shows a generation error and allows a successful retry', async ({ page, ap
   await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
   await expect(page.getByText('Failed to generate plan. Please try again.', { exact: true })).toHaveCount(0)
   expect(api.requests('POST', '/api/plan/generate')).toHaveLength(2)
+})
+
+test('shows missing degree metadata as unknown without inventing credit totals', async ({ page, api }) => {
+  api.respond('POST', '/api/plan/parse', {
+    ...parseResponse,
+    parsed: {
+      ...parsedDegree, student_name: null, catalog_year: null,
+      credits_completed: null, credits_required: null, credits_remaining: null,
+    },
+  })
+  await page.goto('/planner')
+  await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
+  await expect(page.getByText('Student name unavailable', { exact: true })).toBeVisible()
+  await expect(page.getByText('Unknown', { exact: true })).toHaveCount(3)
+  await expect(page.getByText(/~.*semesters? remaining/)).toHaveCount(0)
+  await expect(page.getByText('NaN', { exact: false })).toHaveCount(0)
+})
+
+test('searches GER courses when catalog titles are missing', async ({ page, api }) => {
+  api.respond('GET', '/api/plan/ger-courses', {
+    groups: [{ prefix: 'HUM', courses: [{ code: 'HUM101', title: null }] }],
+  })
+  await page.goto('/planner')
+  await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
+  await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
+  await page.getByRole('button', { name: 'swap →', exact: true }).click()
+  await expect(page.getByText('Title unavailable', { exact: true })).toBeVisible()
+  const search = page.getByPlaceholder('Search courses…', { exact: true })
+  // A nonmatching code forces evaluation of the nullable title search branch.
+  await search.fill('writing')
+  await expect(page.getByText('No courses match your search.')).toBeVisible()
+  await search.fill('hum101')
+  await expect(page.getByRole('button', { name: 'HUM101 Title unavailable' })).toBeVisible()
 })

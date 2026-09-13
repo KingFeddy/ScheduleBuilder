@@ -52,7 +52,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
       ...g,
       courses: q
         ? g.courses.filter(
-            (c) => c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q),
+            (c) => c.code.toLowerCase().includes(q) || (c.title || '').toLowerCase().includes(q),
           )
         : g.courses,
     }))
@@ -162,7 +162,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap }: GerModalProps)
                           <span className="font-mono text-xs text-text w-20 flex-shrink-0">
                             {course.code}
                           </span>
-                          <span className="text-sm text-muted">{course.title}</span>
+                          <span className="text-sm text-muted">{course.title || 'Title unavailable'}</span>
                         </button>
                       ))}
                     </div>

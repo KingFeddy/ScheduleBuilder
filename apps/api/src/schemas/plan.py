@@ -10,7 +10,7 @@ WILDCARD_PATTERN = re.compile(r"[Xx@*]")
 
 
 class StillNeededItem(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True)
 
     requirement: str
     options: list[str] = Field(default_factory=list)
@@ -53,7 +53,23 @@ class ParsedDegree(BaseModel):
 class ParsedDegreeValidated(ParsedDegree):
     """Produced only by validate_parsed_degree(). Never instantiate directly.
     Nothing downstream should accept a raw ParsedDegree."""
-    pass
+    # Responses always serialize defaults, including explicit null metadata.
+    # Input validation still accepts omitted optional fields.
+    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True)
+
+
+class GerCourse(BaseModel):
+    code: str
+    title: str | None
+
+
+class GerGroup(BaseModel):
+    prefix: str
+    courses: list[GerCourse]
+
+
+class GerCoursesResponse(BaseModel):
+    groups: list[GerGroup]
 
 
 class ParseValidationError(Exception):

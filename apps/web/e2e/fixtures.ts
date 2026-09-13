@@ -1,8 +1,30 @@
 import { createHash } from 'node:crypto'
 import { test as base, expect, type ConsoleMessage, type Request, type Route } from '@playwright/test'
-import { courses, parsedDegree, planResponse, sections, solveResponse, syntheticPdf } from './data'
+import {
+  courses, parseResponse, planResponse, scraperStatus, sectionList, solveResponse, syntheticPdf,
+} from './data'
+import type {
+  CourseResponse, GenerateResponse, GerCoursesResponse, ParseResponse,
+  ProfessorResponse, ScraperStatusResponse, SectionResponse, SolveResponse,
+} from '../lib/api'
 
 type Handler = (route: Route) => Promise<void>
+
+type SuccessResponses = {
+  GET: {
+    '/api/courses': CourseResponse[]
+    '/api/scraper/status': ScraperStatusResponse
+    '/api/plan/ger-courses': GerCoursesResponse
+    [path: `/api/courses/${string}/sections`]: SectionResponse[]
+    [path: `/api/professors/${string}`]: ProfessorResponse
+  }
+  POST: {
+    '/api/schedule/solve': SolveResponse
+    '/api/plan/parse': ParseResponse
+    '/api/plan/generate': GenerateResponse
+  }
+}
+type ErrorStatus = 400 | 401 | 403 | 404 | 408 | 413 | 422 | 429 | 500 | 502 | 503 | 504
 
 class MockApi {
   private readonly overrides = new Map<string, Handler>()
@@ -13,26 +35,22 @@ class MockApi {
       const normalized = query.toUpperCase().replace(/\s+/g, '')
       await route.fulfill({ json: courses.filter((c) => c.course_code.includes(normalized)) })
     }],
-    ...sections.map((section): [string, Handler] => [
+    ...sectionList.map((section): [string, Handler] => [
       `GET /api/courses/${section.course_code}/sections`,
       async (route) => { await route.fulfill({ json: [section] }) },
     ]),
-    ...sections.map((section): [string, Handler] => [
+    ...sectionList.map((section): [string, Handler] => [
       `GET /api/professors/${section.professor_name}`,
-      async (route) => { await route.fulfill({ json: null }) },
+      async (route) => { await route.fulfill({ status: 404, json: { detail: 'Professor not found in RMP cache.' } }) },
     ]),
     ['GET /api/scraper/status', async (route) => {
-      await route.fulfill({ json: {
-        last_scrape: '2026-09-12T14:55:00Z', status: 'success',
-        sections_upserted: 2, error_message: null,
-      } })
+      await route.fulfill({ json: scraperStatus })
     }],
     ['POST /api/schedule/solve', async (route) => { await route.fulfill({ json: solveResponse }) }],
     ['POST /api/plan/parse', async (route) => {
       await route.fulfill({ json: {
-        parsed: parsedDegree,
+        ...parseResponse,
         server_hash: createHash('sha256').update(syntheticPdf.buffer).digest('hex'),
-        warnings: [],
       } })
     }],
     ['POST /api/plan/generate', async (route) => { await route.fulfill({ json: planResponse }) }],
@@ -43,6 +61,10 @@ class MockApi {
     this.overrides.set(`${method} ${pathname}`, handler)
   }
 
+  respond<M extends keyof SuccessResponses, P extends keyof SuccessResponses[M] & string>(
+    method: M, pathname: P, json: SuccessResponses[M][P], status?: 200,
+  ): void
+  respond(method: string, pathname: string, json: { detail: unknown }, status: ErrorStatus): void
   respond(method: string, pathname: string, json: unknown, status = 200) {
     this.handle(method, pathname, async (route) => { await route.fulfill({ status, json }) })
   }

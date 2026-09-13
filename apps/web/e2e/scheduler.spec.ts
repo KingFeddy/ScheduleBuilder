@@ -48,7 +48,7 @@ test('searches courses, submits filters, and renders timed and async meetings', 
 
 test('shows a no-results warning and can solve again', async ({ page, api }) => {
   api.respond('POST', '/api/schedule/solve', {
-    results: [], warnings: ['No compatible schedules for these test filters.'],
+    results: [], warnings: ['No compatible schedules for these test filters.'], truncated: false,
   })
   await page.goto('/scheduler')
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeDisabled()
@@ -66,4 +66,13 @@ test('shows a no-results warning and can solve again', async ({ page, api }) => 
   await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
   await expect(page.getByText('No compatible schedules for these test filters.')).toHaveCount(0)
   expect(api.requests('POST', '/api/schedule/solve')).toHaveLength(2)
+})
+
+test('lets students select a course with an unknown catalog title', async ({ page, api }) => {
+  api.respond('GET', '/api/courses', [{ course_code: 'CS280', title: null, credits: 3 }])
+  await page.goto('/scheduler')
+  await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
+  await page.getByRole('button', { name: 'CS280 Title unavailable' }).click()
+  await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
+  await expect(page.getByText('CS280', { exact: true })).toBeVisible()
 })

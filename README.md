@@ -301,6 +301,57 @@ read-only root filesystem. Each check removes its unique test image and containe
 Docker retains reusable build cache. These six checks are explicitly opt-in and
 skip during ordinary backend runs unless `RUN_DOCKER_TESTS=1` is set.
 
+## Keeping API contracts aligned
+
+FastAPI response models are the source of truth for JSON shapes. The checked-in
+`apps/api/openapi.json` snapshot generates `apps/web/lib/api.generated.ts` using
+the pinned `openapi-typescript` development dependency. `lib/api.ts` derives its
+public types from each endpoint's response or request schema. Do not edit the
+generated TypeScript by hand.
+
+After changing a request or response model, regenerate both files from the
+repository root:
+
+```bash
+(cd apps/api && uv run --no-sync python -m scripts.export_openapi)
+pnpm --filter web api:generate
+pnpm --filter web typecheck
+```
+
+The exporter overrides application settings with synthetic values, disables
+dotenv and telemetry, and imports the app without starting its lifespan. It
+needs installed Python dependencies, but no running API, database, or credentials.
+Type generation reads only the local snapshot. Commit both generated files
+alongside their model and consumer changes.
+
+Check the contracts without rewriting files:
+
+```bash
+(cd apps/api && uv run --no-sync python -m scripts.export_openapi --check)
+(cd apps/api && uv run --no-sync pytest tests/deployment/test_api_contracts.py -q)
+pnpm --filter web typecheck
+```
+
+The existing backend CI suite checks that the snapshot matches the app and
+exercises real route serialization with synthetic inputs. Frontend `typecheck`
+checks generated-file freshness before compiling consumers, browser fixtures,
+and compile-time contract regressions. These checks do not require a live API.
+
+Contract details that previously differed between the two sides:
+
+- `truncated` belongs on `SolveResponse`, including searches with no results.
+- Section lists use `SectionResponse`; solved sections additionally carry `term`
+  and `section_number` through `SolveSectionResponse`.
+- Unknown titles, professor metadata, and degree credit totals remain nullable.
+  The UI labels missing titles/totals and avoids calculations with unknown totals.
+- Scraper status always returns `last_scrape`, `status`, `sections_upserted`, and
+  `error_message`. This corrects the old `sections_updated` / `error` keys. With
+  no recorded run, status is `never_run` and the other three values are null.
+
+These checks establish response-shape consistency; they do not validate arbitrary
+JSON at runtime in the browser. Planner generation inputs remain broad dictionaries
+in the backend schema pending the separate input-validation work.
+
 ## Running frontend browser regressions
 
 Run from the repository root (Node.js 20.9+ and pnpm 9.15):
@@ -322,10 +373,11 @@ build directories under `apps/web/.next/e2e-*`, leaving the normal `.next` build
 available. Next's Geist font compilation still needs access to Google Fonts on a
 cold build; browser installation also requires network access.
 
-The six baseline tests cover course search, solve request filters, timed and async
+The nine browser tests cover course search, solve request filters, timed and async
 meeting rendering, scheduler selection persistence, empty results and retry, a
 synthetic PDF upload, generated semesters and saved-plan restoration, and upload /
-generation errors with retry. All API responses are mocked. The upload bytes and
+generation errors with retry. They also cover missing course titles, missing degree
+metadata, and GER search with a missing title. All API responses are mocked. The upload bytes and
 student profile in `apps/web/e2e/data.ts` are fictional; they do not validate the
 real DegreeWorks parser or academic planning rules.
 
@@ -341,9 +393,11 @@ No backend, database, real PDF, or personal browser profile is needed.
 
 Use `api.respond(method, pathname, json, status)` to override a response,
 `api.reset(method, pathname)` to restore the default, or `api.handle(...)` for a
-delayed response. Assert submitted payloads using `api.requests(...)` alongside
+delayed response. Successful `respond` payloads and default fixtures use the
+generated API types; error overrides supply an explicit error status and `detail`.
+Assert submitted payloads using `api.requests(...)` alongside
 visible outcomes. Add focused regressions as later goals fix the remaining UI
-issues; this baseline does not establish full frontend or API-contract coverage.
+issues; these tests do not establish full frontend or academic-rule coverage.
 
 ```bash
 pnpm --filter web test:e2e e2e/scheduler.spec.ts

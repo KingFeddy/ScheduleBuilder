@@ -1,3 +1,5 @@
+import type { paths } from './api.generated'
+
 const BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -11,97 +13,27 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface CourseResponse {
-  course_code: string
-  title: string
-  credits: number
-}
-
-export interface Meeting {
-  days: string | null
-  start_time: string | null
-  end_time: string | null
-  location: string | null
-}
-
-export interface SectionSlot {
-  crn: string
-  term: string
-  course_code: string
-  professor_name: string | null
-  total_seats: number
-  open_seats: number
-  scraped_at: string | null
-  meetings: Meeting[]
-  section_number: string | null
-}
-
-export interface ScheduleResult {
-  sections: SectionSlot[]
-  campus_days: number
-  has_async_sections: boolean
-  truncated: boolean
-}
-
-export interface SolveRequest {
-  course_codes: string[]
-  term: string
-  options: {
-    earliest_start: string
-    latest_end: string
-    minimize_gaps: boolean
-    hide_full_sections: boolean
-  }
-  compact_week: boolean
-  professor_preferences: Record<string, string[]>
-}
-
-export interface SolveResponse {
-  results: ScheduleResult[]
-  warnings: string[]
-}
-
-export interface ProfessorResponse {
-  rmp_score: number | null
-  rmp_difficulty: number | null
-  rmp_would_take_again: number | null
-  rmp_num_ratings: number | null
-  rmp_tags: string[]
-  department: string
-}
-
-export interface ParsedDegreeValidated {
-  student_name: string
-  majors: string[]
-  minors: string[]
-  catalog_year: number
-  credits_completed: number
-  credits_required: number
-  credits_remaining: number
-  completed_courses: string[]
-  in_progress_courses: string[]
-  still_needed: { requirement: string; options: string[] }[]
-}
-
-export interface PlannedCourse {
-  course_code: string
-  title: string | null
-  credits: number
-  badge: 'Required' | 'Elective' | 'TBD'
-  reason: string
-}
-
-export interface SemesterPlan {
-  term: string
-  term_label: string
-  courses: PlannedCourse[]
-  total_credits: number
-}
-
-export interface GerGroup {
-  prefix: string
-  courses: { code: string; title: string }[]
-}
+// Derive aliases from each endpoint so a response-model change cannot leave a
+// wrapper quietly pointing at an unrelated schema that still exists.
+type CoursesResponse = paths['/api/courses']['get']['responses'][200]['content']['application/json']
+type CourseSectionsResponse = paths['/api/courses/{code}/sections']['get']['responses'][200]['content']['application/json']
+export type CourseResponse = CoursesResponse[number]
+export type CourseDetailResponse = paths['/api/courses/{code}']['get']['responses'][200]['content']['application/json']
+export type SectionResponse = CourseSectionsResponse[number]
+export type SolveRequest = paths['/api/schedule/solve']['post']['requestBody']['content']['application/json']
+export type SolveResponse = paths['/api/schedule/solve']['post']['responses'][200]['content']['application/json']
+export type ScheduleResult = SolveResponse['results'][number]
+export type SolveSectionResponse = ScheduleResult['sections'][number]
+export type Meeting = SolveSectionResponse['meetings'][number]
+export type ProfessorResponse = paths['/api/professors/{name}']['get']['responses'][200]['content']['application/json']
+export type ParseResponse = paths['/api/plan/parse']['post']['responses'][200]['content']['application/json']
+export type ParsedDegreeValidated = ParseResponse['parsed']
+export type GenerateResponse = paths['/api/plan/generate']['post']['responses'][200]['content']['application/json']
+export type SemesterPlan = GenerateResponse['semesters'][number]
+export type PlannedCourse = SemesterPlan['courses'][number]
+export type GerCoursesResponse = paths['/api/plan/ger-courses']['get']['responses'][200]['content']['application/json']
+export type GerGroup = GerCoursesResponse['groups'][number]
+export type ScraperStatusResponse = paths['/api/scraper/status']['get']['responses'][200]['content']['application/json']
 
 // ─── Endpoints ────────────────────────────────────────────────────────────────
 
@@ -110,7 +42,7 @@ export function getCourses(params: {
   subject?: string
   page?: number
   limit?: number
-}): Promise<CourseResponse[]> {
+}): Promise<CoursesResponse> {
   const qs = new URLSearchParams()
   if (params.q) qs.set('q', params.q)
   if (params.subject) qs.set('subject', params.subject)
@@ -122,7 +54,7 @@ export function getCourses(params: {
 export function getCoursesSections(
   code: string,
   term: string,
-): Promise<SectionSlot[]> {
+): Promise<CourseSectionsResponse> {
   return apiFetch(`/api/courses/${encodeURIComponent(code)}/sections?term=${term}`)
 }
 
@@ -143,7 +75,7 @@ export function solveSchedule(req: SolveRequest): Promise<SolveResponse> {
 export function parsePlan(
   pdfBase64: string,
   clientPdfHash: string,
-): Promise<{ parsed: ParsedDegreeValidated; server_hash: string; warnings: string[] }> {
+): Promise<ParseResponse> {
   return apiFetch('/api/plan/parse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -154,7 +86,7 @@ export function parsePlan(
 export function generatePlan(
   parsedDegree: ParsedDegreeValidated,
   preferences: { courses: string[]; credits_per_semester: number },
-): Promise<{ semesters: SemesterPlan[]; projected_graduation: string; warnings: string[] }> {
+): Promise<GenerateResponse> {
   return apiFetch('/api/plan/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -162,15 +94,10 @@ export function generatePlan(
   })
 }
 
-export function getGerCourses(): Promise<{ groups: GerGroup[] }> {
+export function getGerCourses(): Promise<GerCoursesResponse> {
   return apiFetch('/api/plan/ger-courses')
 }
 
-export function getScraperStatus(): Promise<{
-  last_scrape: string | null
-  status: string | null
-  sections_upserted: number
-  error_message: string | null
-}> {
+export function getScraperStatus(): Promise<ScraperStatusResponse> {
   return apiFetch('/api/scraper/status')
 }

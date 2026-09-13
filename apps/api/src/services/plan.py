@@ -4,6 +4,9 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
+from typing import Literal
+
+from pydantic import ConfigDict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -222,12 +225,15 @@ class PlannedCourse:
     course_code: str
     title:       str | None
     credits:     int
-    badge:       str        # "Required" | "Elective" | "TBD"
+    badge:       Literal["Required", "Elective", "TBD"]
     reason:      str
 
 
 @dataclass
 class SemesterCard:
+    # asdict() always emits defaults; the output schema must reflect that.
+    __pydantic_config__ = ConfigDict(json_schema_serialization_defaults_required=True)
+
     term:          str      # e.g. "202710"
     term_label:    str      # e.g. "Spring 2027"
     courses:       list[PlannedCourse] = field(default_factory=list)

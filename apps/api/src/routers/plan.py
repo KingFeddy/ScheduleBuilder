@@ -12,9 +12,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dependencies import get_db
-from src.schemas.plan import ParseValidationError, ParsedDegreeValidated
+from src.schemas.plan import GerCoursesResponse, ParseValidationError, ParsedDegreeValidated
 from src.services.dw_parser import parse_degree_works_regex
-from src.services.plan import generate_plan, validate_parsed_degree
+from src.services.plan import GeneratedPlan, generate_plan, validate_parsed_degree
 
 # Single shared limiter defined once in main.py — never instantiate a second one here
 from main import limiter
@@ -36,9 +36,9 @@ class ParseRequest(BaseModel):
 
 
 class ParseResponse(BaseModel):
-    parsed: dict               # ParsedDegreeValidated as dict
+    parsed: ParsedDegreeValidated
     server_hash: str           # authoritative hash, computed server-side from raw bytes
-    warnings: list[str] = []
+    warnings: list[str]
 
 
 @router.post("/api/plan/parse", response_model=ParseResponse)
@@ -141,7 +141,7 @@ class GenerateRequest(BaseModel):
     preferences: dict       # {courses: list[str], credits_per_semester: int}
 
 
-@router.post("/api/plan/generate")
+@router.post("/api/plan/generate", response_model=GeneratedPlan)
 @limiter.limit("10/minute")
 async def generate_degree_plan(
     request: Request,
@@ -166,7 +166,7 @@ async def generate_degree_plan(
     return asdict(plan)
 
 
-@router.get("/api/plan/ger-courses")
+@router.get("/api/plan/ger-courses", response_model=GerCoursesResponse)
 async def ger_courses(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         text("""

@@ -1,4 +1,7 @@
-import type { CourseResponse, ParsedDegreeValidated, SectionSlot, SolveResponse } from '../lib/api'
+import type {
+  CourseResponse, GenerateResponse, ParsedDegreeValidated, ParseResponse,
+  ScraperStatusResponse, SectionResponse, SolveSectionResponse, SolveResponse,
+} from '../lib/api'
 
 // Handwritten, fictional data. These fixtures are not a catalog or a DegreeWorks
 // parser acceptance sample; the real API, database, and PDF parser are not used.
@@ -7,7 +10,7 @@ export const courses: CourseResponse[] = [
   { course_code: 'HUM101', title: 'Writing and Communication', credits: 3 },
 ]
 
-export const sections: SectionSlot[] = [
+export const sections: SolveSectionResponse[] = [
   {
     crn: '99001', term: '202690', course_code: 'CS280', section_number: '001',
     professor_name: 'Test Lecturer, Taylor', total_seats: 30, open_seats: 12,
@@ -26,8 +29,21 @@ export const sections: SectionSlot[] = [
 ]
 
 export const solveResponse: SolveResponse = {
-  results: [{ sections, campus_days: 2, has_async_sections: true, truncated: false }],
+  results: [{ sections, campus_days: 2, has_async_sections: true }],
   warnings: ['Synthetic schedule warning: verify registration availability.'],
+  truncated: false,
+}
+
+// The section-list endpoint deliberately omits solve-only identifiers.
+export const sectionList: SectionResponse[] = sections.map((section) => ({
+  crn: section.crn, course_code: section.course_code, professor_name: section.professor_name,
+  total_seats: section.total_seats, open_seats: section.open_seats,
+  scraped_at: section.scraped_at, meetings: section.meetings,
+}))
+
+export const scraperStatus: ScraperStatusResponse = {
+  last_scrape: '2026-09-12T14:55:00Z', status: 'completed',
+  sections_upserted: 2, error_message: null,
 }
 
 export const parsedDegree: ParsedDegreeValidated = {
@@ -40,7 +56,7 @@ export const parsedDegree: ParsedDegreeValidated = {
   ],
 }
 
-export const planResponse = {
+export const planResponse: GenerateResponse = {
   semesters: [
     {
       term: '202690', term_label: 'Fall 2026', total_credits: 3,
@@ -54,6 +70,8 @@ export const planResponse = {
   projected_graduation: 'Spring 2027',
   warnings: ['Synthetic plan warning: confirm this advisory plan with an advisor.'],
 }
+
+export const parseResponse: ParseResponse = { parsed: parsedDegree, server_hash: '', warnings: [] }
 
 // Upload-shaped bytes above the UI's 5 KiB minimum. The mocked parse endpoint
 // never reads a real PDF; this deliberately contains no actual student data.

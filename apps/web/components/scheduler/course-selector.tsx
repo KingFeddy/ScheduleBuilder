@@ -117,7 +117,7 @@ export function CourseSelector() {
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-2 transition-colors duration-150"
                 >
                   <CourseCodePill code={course.course_code} />
-                  <span className="text-sm text-text truncate">{course.title}</span>
+                  <span className="text-sm text-text truncate">{course.title || 'Title unavailable'}</span>
                 </button>
               </li>
             ))}

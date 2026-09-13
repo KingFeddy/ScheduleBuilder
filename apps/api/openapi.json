@@ -1,0 +1,1487 @@
+{
+  "components": {
+    "schemas": {
+      "CommuterOptions": {
+        "properties": {
+          "blocked_days": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Days",
+            "type": "array"
+          },
+          "earliest_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Start"
+          },
+          "hide_full_sections": {
+            "default": false,
+            "title": "Hide Full Sections",
+            "type": "boolean"
+          },
+          "latest_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest End"
+          },
+          "minimize_gaps": {
+            "default": false,
+            "title": "Minimize Gaps",
+            "type": "boolean"
+          }
+        },
+        "title": "CommuterOptions",
+        "type": "object"
+      },
+      "CourseDetailResponse": {
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "prerequisites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SectionResponse"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "course_code",
+          "title",
+          "credits",
+          "prerequisites",
+          "sections"
+        ],
+        "title": "CourseDetailResponse",
+        "type": "object"
+      },
+      "CourseResponse": {
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "course_code",
+          "title",
+          "credits"
+        ],
+        "title": "CourseResponse",
+        "type": "object"
+      },
+      "DegradedHealthResponse": {
+        "properties": {
+          "error": {
+            "const": "db_unreachable",
+            "title": "Error",
+            "type": "string"
+          },
+          "status": {
+            "const": "degraded",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ],
+        "title": "DegradedHealthResponse",
+        "type": "object"
+      },
+      "GenerateRequest": {
+        "properties": {
+          "parsed_degree": {
+            "additionalProperties": true,
+            "title": "Parsed Degree",
+            "type": "object"
+          },
+          "preferences": {
+            "additionalProperties": true,
+            "title": "Preferences",
+            "type": "object"
+          }
+        },
+        "required": [
+          "parsed_degree",
+          "preferences"
+        ],
+        "title": "GenerateRequest",
+        "type": "object"
+      },
+      "GeneratedPlan": {
+        "properties": {
+          "projected_graduation": {
+            "title": "Projected Graduation",
+            "type": "string"
+          },
+          "semesters": {
+            "items": {
+              "$ref": "#/components/schemas/SemesterCard"
+            },
+            "title": "Semesters",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "semesters",
+          "projected_graduation",
+          "warnings"
+        ],
+        "title": "GeneratedPlan",
+        "type": "object"
+      },
+      "GerCourse": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "code",
+          "title"
+        ],
+        "title": "GerCourse",
+        "type": "object"
+      },
+      "GerCoursesResponse": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GerGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "title": "GerCoursesResponse",
+        "type": "object"
+      },
+      "GerGroup": {
+        "properties": {
+          "courses": {
+            "items": {
+              "$ref": "#/components/schemas/GerCourse"
+            },
+            "title": "Courses",
+            "type": "array"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix",
+          "courses"
+        ],
+        "title": "GerGroup",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "db": {
+            "const": "connected",
+            "title": "Db",
+            "type": "string"
+          },
+          "env": {
+            "title": "Env",
+            "type": "string"
+          },
+          "sections": {
+            "title": "Sections",
+            "type": "integer"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "db",
+          "sections",
+          "env"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "MeetingResponse": {
+        "properties": {
+          "days": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          }
+        },
+        "required": [
+          "days",
+          "start_time",
+          "end_time",
+          "location"
+        ],
+        "title": "MeetingResponse",
+        "type": "object"
+      },
+      "ParseRequest": {
+        "properties": {
+          "client_pdf_hash": {
+            "title": "Client Pdf Hash",
+            "type": "string"
+          },
+          "pdf_base64": {
+            "title": "Pdf Base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pdf_base64",
+          "client_pdf_hash"
+        ],
+        "title": "ParseRequest",
+        "type": "object"
+      },
+      "ParseResponse": {
+        "properties": {
+          "parsed": {
+            "$ref": "#/components/schemas/ParsedDegreeValidated"
+          },
+          "server_hash": {
+            "title": "Server Hash",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "parsed",
+          "server_hash",
+          "warnings"
+        ],
+        "title": "ParseResponse",
+        "type": "object"
+      },
+      "ParsedDegreeValidated": {
+        "description": "Produced only by validate_parsed_degree(). Never instantiate directly.\nNothing downstream should accept a raw ParsedDegree.",
+        "properties": {
+          "catalog_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Year"
+          },
+          "completed_courses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Completed Courses",
+            "type": "array"
+          },
+          "credits_completed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Completed"
+          },
+          "credits_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Remaining"
+          },
+          "credits_required": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Required"
+          },
+          "in_progress_courses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "In Progress Courses",
+            "type": "array"
+          },
+          "majors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Majors",
+            "type": "array"
+          },
+          "minors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Minors",
+            "type": "array"
+          },
+          "still_needed": {
+            "items": {
+              "$ref": "#/components/schemas/StillNeededItem"
+            },
+            "title": "Still Needed",
+            "type": "array"
+          },
+          "student_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Name"
+          }
+        },
+        "required": [
+          "student_name",
+          "majors",
+          "minors",
+          "catalog_year",
+          "credits_completed",
+          "credits_required",
+          "credits_remaining",
+          "completed_courses",
+          "in_progress_courses",
+          "still_needed"
+        ],
+        "title": "ParsedDegreeValidated",
+        "type": "object"
+      },
+      "PlannedCourse": {
+        "properties": {
+          "badge": {
+            "enum": [
+              "Required",
+              "Elective",
+              "TBD"
+            ],
+            "title": "Badge",
+            "type": "string"
+          },
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "course_code",
+          "title",
+          "credits",
+          "badge",
+          "reason"
+        ],
+        "title": "PlannedCourse",
+        "type": "object"
+      },
+      "ProfessorResponse": {
+        "properties": {
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "rmp_difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rmp Difficulty"
+          },
+          "rmp_num_ratings": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rmp Num Ratings"
+          },
+          "rmp_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rmp Score"
+          },
+          "rmp_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rmp Tags",
+            "type": "array"
+          },
+          "rmp_would_take_again": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rmp Would Take Again"
+          }
+        },
+        "required": [
+          "rmp_score",
+          "rmp_difficulty",
+          "rmp_would_take_again",
+          "rmp_num_ratings",
+          "rmp_tags",
+          "department"
+        ],
+        "title": "ProfessorResponse",
+        "type": "object"
+      },
+      "ScheduleResult": {
+        "properties": {
+          "campus_days": {
+            "title": "Campus Days",
+            "type": "integer"
+          },
+          "has_async_sections": {
+            "title": "Has Async Sections",
+            "type": "boolean"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SolveSectionResponse"
+            },
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sections",
+          "campus_days",
+          "has_async_sections"
+        ],
+        "title": "ScheduleResult",
+        "type": "object"
+      },
+      "ScraperStatusResponse": {
+        "properties": {
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "last_scrape": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scrape"
+          },
+          "sections_upserted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections Upserted"
+          },
+          "status": {
+            "enum": [
+              "never_run",
+              "running",
+              "completed",
+              "failed",
+              "blocked",
+              "schema_change",
+              "skipped_overlap"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "last_scrape",
+          "status",
+          "sections_upserted",
+          "error_message"
+        ],
+        "title": "ScraperStatusResponse",
+        "type": "object"
+      },
+      "SectionResponse": {
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "crn": {
+            "title": "Crn",
+            "type": "string"
+          },
+          "meetings": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingResponse"
+            },
+            "title": "Meetings",
+            "type": "array"
+          },
+          "open_seats": {
+            "title": "Open Seats",
+            "type": "integer"
+          },
+          "professor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Professor Name"
+          },
+          "scraped_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scraped At"
+          },
+          "total_seats": {
+            "title": "Total Seats",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "crn",
+          "course_code",
+          "professor_name",
+          "total_seats",
+          "open_seats",
+          "scraped_at",
+          "meetings"
+        ],
+        "title": "SectionResponse",
+        "type": "object"
+      },
+      "SemesterCard": {
+        "properties": {
+          "courses": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedCourse"
+            },
+            "title": "Courses",
+            "type": "array"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "term_label": {
+            "title": "Term Label",
+            "type": "string"
+          },
+          "total_credits": {
+            "default": 0,
+            "title": "Total Credits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "term",
+          "term_label",
+          "courses",
+          "total_credits"
+        ],
+        "title": "SemesterCard",
+        "type": "object"
+      },
+      "SolveRequest": {
+        "properties": {
+          "compact_week": {
+            "default": false,
+            "title": "Compact Week",
+            "type": "boolean"
+          },
+          "course_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Course Codes",
+            "type": "array"
+          },
+          "options": {
+            "$ref": "#/components/schemas/CommuterOptions"
+          },
+          "professor_preferences": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Professor Preferences",
+            "type": "object"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_codes",
+          "term"
+        ],
+        "title": "SolveRequest",
+        "type": "object"
+      },
+      "SolveResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results",
+          "warnings",
+          "truncated"
+        ],
+        "title": "SolveResponse",
+        "type": "object"
+      },
+      "SolveSectionResponse": {
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "crn": {
+            "title": "Crn",
+            "type": "string"
+          },
+          "meetings": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingResponse"
+            },
+            "title": "Meetings",
+            "type": "array"
+          },
+          "open_seats": {
+            "title": "Open Seats",
+            "type": "integer"
+          },
+          "professor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Professor Name"
+          },
+          "scraped_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scraped At"
+          },
+          "section_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Number"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "total_seats": {
+            "title": "Total Seats",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "crn",
+          "term",
+          "course_code",
+          "professor_name",
+          "total_seats",
+          "open_seats",
+          "scraped_at",
+          "meetings",
+          "section_number"
+        ],
+        "title": "SolveSectionResponse",
+        "type": "object"
+      },
+      "StillNeededItem": {
+        "properties": {
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "requirement": {
+            "title": "Requirement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement",
+          "options"
+        ],
+        "title": "StillNeededItem",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VersionResponse": {
+        "properties": {
+          "env": {
+            "title": "Env",
+            "type": "string"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "env",
+          "term"
+        ],
+        "title": "VersionResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "NJIT Schedule Builder API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/courses": {
+      "get": {
+        "operationId": "search_courses_api_courses_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CourseResponse"
+                  },
+                  "title": "Response Search Courses Api Courses Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Courses",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/courses/{code}": {
+      "get": {
+        "operationId": "get_course_api_courses__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/courses/{code}/sections": {
+      "get": {
+        "operationId": "get_course_sections_api_courses__code__sections_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "term",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{4}(10|50|90)$",
+              "title": "Term",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SectionResponse"
+                  },
+                  "title": "Response Get Course Sections Api Courses  Code  Sections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Course Sections",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/plan/generate": {
+      "post": {
+        "description": "Stateless plan generation. Accepts a ParsedDegreeValidated (from /api/plan/parse)\nand student preferences, returns a semester-by-semester plan.\nNothing is stored server-side \u2014 the client persists the result to localStorage.",
+        "operationId": "generate_degree_plan_api_plan_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Degree Plan",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/plan/ger-courses": {
+      "get": {
+        "operationId": "ger_courses_api_plan_ger_courses_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GerCoursesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ger Courses",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/plan/parse": {
+      "post": {
+        "description": "Stateless PDF parsing endpoint. Receives a base64-encoded DegreeWorks PDF,\nextracts structured degree data, and returns it as JSON. Nothing is stored\nserver-side \u2014 the client persists the result to localStorage.",
+        "operationId": "parse_degree_works_api_plan_parse_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parse Degree Works",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/professors/{name}": {
+      "get": {
+        "operationId": "get_professor_api_professors__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfessorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Professor",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/schedule/solve": {
+      "post": {
+        "operationId": "solve_schedule_api_schedule_solve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Solve Schedule",
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/api/scraper/status": {
+      "get": {
+        "description": "Returns the last Banner scrape timestamp and status.\nUsed by the frontend to show a staleness warning when seat data is old.",
+        "operationId": "scraper_status_api_scraper_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScraperStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Scraper Status"
+      }
+    },
+    "/api/version": {
+      "get": {
+        "operationId": "version_api_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Version"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DegradedHealthResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}

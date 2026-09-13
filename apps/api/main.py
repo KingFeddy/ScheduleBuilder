@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src.config import settings
 from src.dependencies import get_db
+from src.schemas.status import DegradedHealthResponse, HealthResponse, ScraperStatusResponse, VersionResponse
 from src.services.meeting_integrity import IncompleteMeetingData
 
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -88,7 +89,7 @@ async def incomplete_meeting_data(request: Request, error: IncompleteMeetingData
     return JSONResponse(status_code=503, content={"detail": str(error)})
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse, responses={503: {"model": DegradedHealthResponse}})
 async def health(request: Request):
     try:
         engine = request.app.state.engine
@@ -105,7 +106,7 @@ async def health(request: Request):
         )
 
 
-@app.get("/api/scraper/status")
+@app.get("/api/scraper/status", response_model=ScraperStatusResponse)
 async def scraper_status(db: AsyncSession = Depends(get_db)):
     """
     Returns the last Banner scrape timestamp and status.
@@ -123,17 +124,17 @@ async def scraper_status(db: AsyncSession = Depends(get_db)):
     row = result.mappings().first()
 
     if not row:
-        return {"last_scrape": None, "status": "never_run"}
+        return {"last_scrape": None, "status": "never_run", "sections_upserted": None, "error_message": None}
 
     return {
         "last_scrape":       row["finished_at"].isoformat() if row["finished_at"] else None,
         "status":            row["status"],
-        "sections_updated":  row["sections_upserted"],
-        "error":             row["error_message"],
+        "sections_upserted": row["sections_upserted"],
+        "error_message":     row["error_message"],
     }
 
 
-@app.get("/api/version")
+@app.get("/api/version", response_model=VersionResponse)
 async def version():
     return {
         "version": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:8],

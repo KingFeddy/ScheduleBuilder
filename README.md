@@ -108,6 +108,8 @@ The lock connection closes and rolls back when the guard exits, including on fai
 
 Banner search results must be HTTP 200 JSON with `success: true`, a section array, and a non-negative integer `totalCount`. Only `data: []` with `totalCount: 0` proves an empty catalog. Each page is checked before any of its rows are written: required section structure, matching subject/term, unique CRNs, expected page length, stable total counts, and pagination echoes when supplied. Failed or ambiguous responses stop subject cleanup and preserve existing sections and meetings.
 
+Cleanup also requires every section update to succeed. One failed upsert skips all stale-section deletion for that subject; successfully refreshed sections remain saved, and a later fully successful run can resume cleanup. Each section and its meetings share one transaction. Incomplete or reversed meeting times reject the replacement instead of silently dropping a meeting, so a failed update keeps the previous schedule intact. Valid asynchronous and TBA sections remain supported. Real PostgreSQL tests in `apps/api/tests/scrapers/test_banner_write_safety.py` cover errors during writes and commits, cancellation, recovery, and what a separate reader can see during an update.
+
 The scraper distinguishes three error classes:
 
 - **`BannerBlockedError`** (401/403 or non-JSON content): log and continue to the next subject without retrying the blocked request.

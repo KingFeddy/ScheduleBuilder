@@ -300,6 +300,8 @@ async def _upsert_section_with_meetings(
     Takes a raw Banner section dict and extracts all fields internally.
     DELETE + INSERT within one transaction so the solver never sees a section
     with zero meetings mid-update.
+    Invalid or failed meeting writes reject the entire replacement, retaining
+    the previous section and every previous meeting through rollback.
     open_seats is clamped to 0 — Banner returns negative values for waitlisted sections.
     """
     crn            = raw_section["courseReferenceNumber"]
@@ -379,12 +381,13 @@ async def _upsert_section_with_meetings(
             seen.add(dedup_key)
 
             if (start_time is None) != (end_time is None):
-                logger.warning("CRN %s: partial time in pattern, skipping", crn)
-                continue
+                raise ValueError(f"CRN {crn}: incomplete meeting time; section update rejected")
 
             if start_time is not None and end_time is not None and start_time >= end_time:
-                logger.warning("CRN %s: start %s >= end %s, skipping", crn, start_time, end_time)
-                continue
+                raise ValueError(
+                    f"CRN {crn}: meeting start {start_time} must precede end {end_time}; "
+                    "section update rejected"
+                )
 
             await session.execute(
                 text("""
@@ -414,7 +417,8 @@ async def _delete_stale_sections(
     completed scrape — cancelled/removed CRNs that upserts alone would
     otherwise leave sitting in the DB forever, since upserts only ever
     add or update, never remove. Meetings cascade-delete via their FK to
-    sections. Only call this after a subject's scrape has fully completed;
+    sections. Only call this after a subject's scrape has fully completed and
+    every section update has succeeded;
     "not seen" only means "removed" when the whole subject was checked.
 
     course_code is matched as "{subject}" followed by a digit, not a plain
@@ -455,9 +459,9 @@ async def scrape_subject(
     Timeouts and transient errors are retried per RETRY_DELAYS.
 
     Stale-section cleanup only runs when every page for this subject was
-    successfully fetched and validated (the `complete` flag) — a block or exhausted
-    retries mid-scrape must never be treated as "Banner removed these",
-    since we simply never got far enough to know.
+    successfully fetched and validated (the `complete` flag), and every section
+    upsert has succeeded. A failed write must never turn a returned CRN into
+    an apparently removed section, or authorize any subject-wide deletion.
     """
     upserted          = 0
     failed            = 0
@@ -620,13 +624,18 @@ async def scrape_subject(
                 await asyncio.sleep(2)
 
             deleted = 0
-            if complete:
+            if complete and failed == 0:
                 deleted = await _delete_stale_sections(session, subject, term, seen_crns)
                 if deleted:
                     logger.info(
                         "Banner/%s: removed %d stale section(s) no longer returned by Banner",
                         subject, deleted,
                     )
+            elif complete:
+                logger.warning(
+                    "Banner/%s: skipping stale-section cleanup after %d failed section update(s)",
+                    subject, failed,
+                )
 
         finally:
             await browser.close()

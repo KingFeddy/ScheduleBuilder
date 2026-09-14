@@ -8,10 +8,8 @@ import { getCourses, getCoursesSections, getProfessor, type CourseResponse, type
 import { useSchedulerStore } from '@/store/scheduler'
 import { CourseCodePill } from '@/components/ui/course-code-pill'
 import { ProfessorPicker } from './professor-picker'
-import { CatalogCoverage } from './catalog-coverage'
-import { CatalogNote } from '@/components/ui/catalog-note'
 
-export function CourseSelector({ termResolved, hasTermData }: { termResolved: boolean; hasTermData: boolean }) {
+export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
   const { selectedCourses, term, termRevision, addCourse, removeCourse, setProfessorCache, setProfessorsByCourse } =
     useSchedulerStore()
 
@@ -139,10 +137,7 @@ export function CourseSelector({ termResolved, hasTermData }: { termResolved: bo
                   <CourseCodePill code={course.course_code} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-text truncate">{course.title || 'Title unavailable'}</span>
-                    {course.title && course.title_status !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
                     <span className="block text-xs text-muted font-mono">{catalogCredits(course)}</span>
-                    <CatalogNote status={course.catalog_status} note={course.catalog_note} />
-                    {course.metadata_warnings?.map((warning) => <span key={warning} className="block text-xs text-muted">{warning}</span>)}
                   </span>
                 </button>
               </li>
@@ -150,8 +145,6 @@ export function CourseSelector({ termResolved, hasTermData }: { termResolved: bo
           </ul>
         )}
       </div>
-
-      {termResolved && <CatalogCoverage term={term} query={query} />}
 
       {/* Selected course cards */}
       {selectedCourses.length > 0 && (

@@ -87,11 +87,11 @@ export const planResponse: GenerateResponse = {
   semesters: [
     {
       term: '202690', term_label: 'Fall 2026', total_credits: 3,
-      courses: [{ ...presentCatalog, slot_id: 'slot-programming', requirement: parsedDegree.still_needed[0], course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '', credits_estimated: false, credits_note: '', title_status: 'verified' }],
+      courses: [{ ...presentCatalog, slot_id: 'slot-programming', requirement: parsedDegree.still_needed[0], allocation: null, course_code: 'CS280', title: courses[0].title, credits: 3, badge: 'Required', reason: '', credits_estimated: false, credits_note: '', title_status: 'verified' }],
     },
     {
       term: '202710', term_label: 'Spring 2027', total_credits: 3,
-      courses: [{ ...presentCatalog, slot_id: 'slot-writing', requirement: parsedDegree.still_needed[1], course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective', credits_estimated: false, credits_note: '', title_status: 'verified' }],
+      courses: [{ ...presentCatalog, slot_id: 'slot-writing', requirement: parsedDegree.still_needed[1], allocation: null, course_code: 'HUM101', title: courses[1].title, credits: 3, badge: 'Elective', reason: 'Synthetic writing elective', credits_estimated: false, credits_note: '', title_status: 'verified' }],
     },
   ],
   projected_graduation: 'Spring 2027',

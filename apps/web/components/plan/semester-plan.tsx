@@ -25,10 +25,11 @@ interface CourseRowProps {
   badge: 'Required' | 'Elective' | 'TBD'
   reason: string
   requirement: SemesterPlanType['courses'][number]['requirement'] | undefined
+  allocation: SemesterPlanType['courses'][number]['allocation'] | undefined
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, requirement, onSwap }: CourseRowProps) {
+function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, requirement, allocation, onSwap }: CourseRowProps) {
   const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
   const knownQuantity = requirement?.quantity_status === 'known'
@@ -53,6 +54,27 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
               : (requirement!.remaining_quantity === 1 ? 'credit' : 'credits')}.
           </span>
         ) : <span className="block text-xs text-yellow">Audit requirement quantity is unknown.</span>)}
+        {allocation && (allocation.status === 'unknown' ? (
+          <span className="block text-xs text-yellow">Allocation is unverified. Regenerate after confirming the requirement.</span>
+        ) : (
+          <>
+            <span className="block text-xs text-muted">
+              Allocated: <span className="font-mono">{allocation.allocated_quantity}</span> of{' '}
+              <span className="font-mono">{allocation.required_quantity}</span>{' '}
+              {allocation.quantity_unit === 'classes'
+                ? (allocation.required_quantity === 1 ? 'class' : 'classes')
+                : (allocation.required_quantity === 1 ? 'credit' : 'credits')}.
+            </span>
+            {allocation.status === 'partial' && (
+              <span className="block text-xs text-yellow">
+                Unresolved: <span className="font-mono">{allocation.unresolved_quantity}</span>{' '}
+                {allocation.quantity_unit === 'classes'
+                  ? (allocation.unresolved_quantity === 1 ? 'class' : 'classes')
+                  : (allocation.unresolved_quantity === 1 ? 'credit' : 'credits')}.
+              </span>
+            )}
+          </>
+        ))}
         <CatalogNote status={catalogStatus} note={catalogNote} />
         {showReason && (
           <span className="block text-xs text-faint break-words">{reason}</span>
@@ -202,6 +224,7 @@ export function SemesterPlan({
                     badge={course.badge}
                     reason={course.reason}
                     requirement={course.requirement}
+                    allocation={course.allocation}
                     onSwap={
                       onSwapCourse
                         ? () => onSwapCourse(semester.term, course.course_code)

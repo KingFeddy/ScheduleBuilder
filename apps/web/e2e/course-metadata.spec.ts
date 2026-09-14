@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 import { gerCoverage, parsedDegree, planResponse, presentCatalog, syntheticPdf } from './data'
 
-test('labels fixed, variable, missing, and unverified catalog metadata', async ({ page, api }, testInfo) => {
+test('shows credit metadata without title warnings in course search', async ({ page, api }, testInfo) => {
   const metadata = { ...presentCatalog, title_status: 'verified' as const, credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }
   api.respond('GET', '/api/courses', [
     { ...metadata, course_code: 'ZZZ101', title: 'One credit', credits: 1, credits_status: 'fixed', credits_min: 1, credits_max: 1 },
@@ -18,7 +18,7 @@ test('labels fixed, variable, missing, and unverified catalog metadata', async (
   await expect(page.getByText('Credits unknown', { exact: true })).toBeVisible()
   await expect(page.getByText('1–4 cr (variable)', { exact: true })).toBeVisible()
   await expect(page.getByText('3 cr (unverified)', { exact: true })).toBeVisible()
-  await expect(page.getByText('Title unverified', { exact: true })).toBeVisible()
+  await expect(page.getByText('Title unverified', { exact: true })).toHaveCount(0)
   await expect(page.getByText('1 or 4 cr (variable)', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('catalog-metadata.png'), fullPage: true })
 })
@@ -27,9 +27,9 @@ test('shows estimates on required course rows and totals after generation and re
   api.respond('POST', '/api/plan/generate', {
     ...planResponse,
     semesters: [{ term: '202690', term_label: 'Fall 2026', total_credits: 8, courses: [
-      { ...presentCatalog, slot_id: 'slot-metadata-1', requirement: null, course_code: 'ZZZ101', title: 'Verified lab', title_status: 'verified', credits: 1, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
-      { ...presentCatalog, slot_id: 'slot-metadata-2', requirement: null, course_code: 'ZZZ104', title: 'Verified class', title_status: 'verified', credits: 4, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
-      { ...presentCatalog, slot_id: 'slot-metadata-3', requirement: null, course_code: 'ZZZ199', title: 'Requirement label', title_status: 'unverified', credits: 3, credits_estimated: true, credits_note: 'Credits unknown; using 3 credits as an estimate.', badge: 'Required', reason: '' },
+      { ...presentCatalog, slot_id: 'slot-metadata-1', requirement: null, allocation: null, course_code: 'ZZZ101', title: 'Verified lab', title_status: 'verified', credits: 1, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
+      { ...presentCatalog, slot_id: 'slot-metadata-2', requirement: null, allocation: null, course_code: 'ZZZ104', title: 'Verified class', title_status: 'verified', credits: 4, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
+      { ...presentCatalog, slot_id: 'slot-metadata-3', requirement: null, allocation: null, course_code: 'ZZZ199', title: 'Requirement label', title_status: 'unverified', credits: 3, credits_estimated: true, credits_note: 'Credits unknown; using 3 credits as an estimate.', badge: 'Required', reason: '' },
     ] }],
   })
   await page.goto('/planner')

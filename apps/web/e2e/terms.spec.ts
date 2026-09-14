@@ -3,7 +3,7 @@ import { sectionList, solveResponse, termDiscovery } from './data'
 
 const springDefault = { ...termDiscovery, default_term: '202710' }
 
-test('uses the API default across section lookup, coverage, and solve during year rollover', async ({ page, api }, testInfo) => {
+test('uses the API default across section lookup and solve during year rollover', async ({ page, api }, testInfo) => {
   api.respond('GET', '/api/terms', springDefault)
   api.respond('POST', '/api/schedule/solve', {
     ...solveResponse,
@@ -18,7 +18,7 @@ test('uses the API default across section lookup, coverage, and solve during yea
   await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
   await page.getByRole('button', { name: 'Solve', exact: true }).click()
   expect(api.requests('POST', '/api/schedule/solve')[0].postDataJSON().term).toBe('202710')
-  for (const path of ['/api/catalog/coverage', '/api/courses/CS280/sections']) {
+  for (const path of ['/api/courses/CS280/sections']) {
     await expect.poll(() => api.requests('GET', path).length).toBeGreaterThan(0)
     expect(api.requests('GET', path).every((r) => new URL(r.url()).searchParams.get('term') === '202710')).toBe(true)
   }

@@ -119,8 +119,9 @@ Planner rows show the audit amount or an unknown label and use slot IDs as React
 keys. Nested metadata survives save/reload and regeneration. Older saved rows
 remain readable with a temporary rendering key; they are not rewritten with
 invented identities. **A known quantity does not mean it has been fulfilled.**
-Quantity-aware allocation remains Goal 24, option parsing Goal 23, reconciliation
-Goal 26, and validated swaps Goal 46. Goal 20 requires no database migration;
+Goal 24 now allocates known quantities and reports unresolved remainders (see
+below). Goal 25 now prevents duplicate allocation; reconciliation remains Goal 26 and
+validated swaps Goal 46. Goal 20 requires no database migration;
 release the updated API before its frontend consumer.
 
 Plan generation validates browser-supplied data again. `GenerateRequest` contains
@@ -255,8 +256,9 @@ labeled three-credit estimate, and legacy values stay labeled unverified estimat
 Course rows, semester totals, and the overall total identify estimated amounts.
 These labels survive reloads; older saved plans without verification fields are
 treated as estimates. Selecting a replacement course also marks inherited credits
-as estimates until proper recalculation is implemented in Goal 46. Quantity-aware
-allocation and full credit reconciliation remain Goals 24 and 26.
+as estimates until proper recalculation is implemented in Goal 46. Goal 24 counts
+only verified fixed credits toward credit requirements; full credit reconciliation
+remains Goal 26.
 
 Tests cover extraction, actual PostgreSQL writes/rollback/cancellation, migration
 upgrades, API contracts, planner use, and browser rendering. Fixtures are synthetic;
@@ -662,9 +664,65 @@ The requirement keeps its identity, label, amount/unit, and original source text
 generation retains a TBD slot and explains that the options need review. This
 does not implement a general DegreeWorks expression language or verify PDF
 layout completeness. Re-upload old audits to apply the corrected parser.
-Universal/level choices now use the existing elective matcher, but allocating
-multiple classes/credits remains Goal 24; six credits are not yet six credits
-of automatically allocated coursework merely because the wildcard was parsed.
+Universal/level choices use the existing elective matcher. Goal 24 expands each
+known requirement into multiple course selections or explicit unresolved slots.
+
+### Requirement quantity allocation
+
+A two-class requirement selects two distinct concrete options when available.
+A six-credit requirement uses verified fixed course credits: 4 + 2 allocates six;
+4 + 3 allocates seven because whole courses are selected. If only four verified
+credits can be selected, the requirement explicitly reports two credits unresolved.
+Missing classes become individual TBDs; missing credits become estimated TBD
+amounts split by the semester target. These placeholders do not count as allocated
+coursework. Variable, unknown, and unverified credit estimates also do not count
+toward credit requirements. Explicit selections with uncertain credits stay visible
+with an unresolved remainder; automatic selections prefer verified alternatives.
+
+Known zero quantities generate no requirement rows. Unknown quantities retain an
+advisory suggestion without invented allocation totals. Completed/in-progress
+courses remain excluded. Matching requested electives can fill additional slots;
+unmatched extras and optional load fillers remain separate. Expansion is bounded
+by a 200-slot allocation budget (existing input rows are retained), with any
+unexpanded remainder reported explicitly.
+
+Each requirement-linked row includes nullable `allocation` metadata with
+`required_quantity`, `quantity_unit`, `allocated_quantity`, `unresolved_quantity`,
+and status `allocated`, `partial`, or `unknown`. This is a shared requirement
+summary repeated on its rows, **not amounts to add together across rows**. Each
+row has a stable occurrence-based slot ID. Progress survives save/reload and
+regeneration. A local swap marks progress unknown on every row of the affected
+requirement until regeneration; older saved rows need regeneration for progress.
+
+Allocation describes planned selections, not completed degree requirements or
+verified eligibility. Goal 25 prevents duplicate allocation and flags unverified sharing; overall
+credit reconciliation and filler policy remain Goal 26; prerequisite rules remain
+Goal 27 and validated swaps Goal 46. Real-PDF acceptance remains Goal 63. No new
+migration is required; release the updated API before its frontend consumer.
+
+### Course ownership and ambiguous overlap
+
+Goal 25 assigns each concrete course to one requirement and schedules it once.
+Its credits therefore contribute once to the selected-course totals. Known
+requirements take priority over unknown quantities; requirements with only explicit
+options precede wildcard choices, with fewer available options first. Equal
+constraints retain audit order. A flexible requirement tries unused alternatives
+instead of duplicating a course claimed elsewhere. Matching requested electives
+are reused as selections, not appended again as extra copies.
+
+If an overlap cannot be resolved, the other requirement retains its identity,
+quantity, and unresolved allocation. Its row explanation and generation warning
+name the claimed course and requirement and state that sharing is unverified.
+This explanation survives saved-plan reloads; general warning persistence is
+still Goal 40. No current audit field or verified server rule authorizes sharing,
+so repeated labels/options, major/minor membership, and client-added flags do not
+permit double counting. Legitimate sharing requires verified policy support.
+
+This deterministic allocation order is not a global optimization or degree-policy
+engine. TBD credits remain clearly labeled estimates for unresolved work, separate
+from the selected course counted once. Total reconciliation/filler policy remains
+Goal 26. Regenerate old saved plans to apply the fix; full validation of local
+course replacements remains Goal 46. No schema or migration changes are needed.
 
 ## Frontend API errors and cancellation
 
@@ -866,6 +924,54 @@ unknown history versions, and gaps in applied active migrations cause a refusal.
 Databases with existing relations but no migration history also require reviewed
 schema reconciliation before adoption; the runner will not adopt them automatically.
 Application startup and production deployment do not automatically apply migrations.
+
+### Targeted repair for the inspected September 2026 legacy database
+
+The legacy database inspected on 2026-09-13 predates migration history and has
+`professors(id, name, department, ...)`, including duplicate names. Do not replay
+baseline migrations or disable the schema verifier. The targeted repair command
+below defaults to a **read-only preflight**, using the explicitly loaded `.env`:
+
+```bash
+cd apps/api
+uv run --env-file .env --no-sync python -m scripts.repair_legacy_catalog
+```
+
+Review the report and take a database backup before applying. This is a maintenance
+operation: it briefly takes exclusive locks on the six runtime tables (five-second
+lock timeout). It preserves the entire old professor table, UUIDs, ratings, and
+duplicate names as `professors_legacy_20260913`; the new runtime professor table
+contains distinct names and only an unambiguous department, otherwise null. The
+archive is not the current professor-rating source; ratings use `rmp_cache`.
+Existing dependent objects continue to reference the archived original table.
+Current application code uses the new runtime contract; coordinate older external
+consumers of the legacy professor table before applying.
+
+The repair reconciles seat defaults/nullability, prerequisite nullability, the
+course foreign key and indexes, then executes existing migrations 014–017. It
+preserves courses, sections, meetings, caches, and historical run data. No legacy
+meeting columns are dropped. Unknown seat/prerequisite values, invalid credits,
+missing names, a pre-existing archive, or a different partially upgraded layout
+are refused. Final runtime verification must pass before the transaction commits.
+
+```bash
+uv run --env-file .env --no-sync python -m scripts.repair_legacy_catalog --apply &&
+uv run --env-file .env --no-sync python -m scripts.verify_migrations
+```
+
+Only after structural reconciliation passes does the repair explicitly adopt
+000/007/009/012/013 and record execution of 014/015/016/017 in the migration ledger.
+The table comment records this distinction; future normal migration commands can
+then use the ledger. Deferred 008 remains deferred. Repeating the repair on a
+compatible database makes no changes. A lost connection can make completion
+uncertain: run the read-only preflight again before retrying. The preserved table
+is useful for recovery but is not a substitute for an independent database backup.
+
+After successful verification, refresh the desired term and configured subjects:
+
+```bash
+uv run --env-file .env --no-sync python -m src.scrapers.cron
+```
 
 ### Verify the runtime schema before deployment
 

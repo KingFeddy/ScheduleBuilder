@@ -165,7 +165,7 @@ def test_generated_plan_serializes_defaults_and_nullable_titles(api, monkeypatch
             {"term": "202710", "term_label": "Spring 2027", "total_credits": 3, "courses": [{
                 "course_code": "TBD", "title": None, "credits": 3, "badge": "TBD",
                 "reason": "Synthetic unresolved requirement",
-                "slot_id": "slot-synthetic", "requirement": None,
+                "slot_id": "slot-synthetic", "requirement": None, "allocation": None,
                 "credits_estimated": True, "credits_note": "Credit estimate for an unresolved course.", "title_status": "unverified",
                 "catalog_status": "unknown", "catalog_note": "Catalog coverage has not been checked. Regenerate the plan to check it.",
             }]},

@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useSchedulerStore } from '@/store/scheduler'
 import { solveSchedule, getApiErrorMessage, getProfessor, isAbortError, type ProfessorResponse } from '@/lib/api'
-import { ScraperFreshness } from '@/components/scheduler/scraper-freshness'
 import { CourseSelector } from '@/components/scheduler/course-selector'
 import { CommuterToggles } from '@/components/scheduler/commuter-toggles'
 import { ResultNavigator } from '@/components/scheduler/result-navigator'
@@ -107,7 +106,7 @@ export default function SchedulerPage() {
           <p className="text-xs font-medium uppercase tracking-wider text-muted mb-3">
             Add Courses
           </p>
-          <CourseSelector termResolved={!!selectedTerm} hasTermData={hasTermData} />
+          <CourseSelector hasTermData={hasTermData} />
         </div>
 
         <div className="border-t border-border pt-5">
@@ -147,7 +146,6 @@ export default function SchedulerPage() {
 
       {/* Right panel */}
       <div className="flex-1 flex flex-col p-5 gap-4 min-w-0">
-        {selectedTerm && <ScraperFreshness key={termRevision} term={term} />}
         {hasTermData && results.length > 0 && <ResultNavigator />}
         <ScheduleGrid result={activeResult} />
       </div>

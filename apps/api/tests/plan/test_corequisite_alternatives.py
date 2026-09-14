@@ -110,9 +110,9 @@ async def test_unrelated_fixed_conflict_does_not_prevent_other_alternative_selec
 
 
 @pytest.mark.asyncio
-async def test_selected_alternative_crosses_capstone_boundary_intact():
+async def test_selected_alternative_stays_intact_despite_senior_label():
     _, terms, _ = await generate(['CS100', 'CS200', 'CS300'], [choice('CS100', 'CS200', 'CS400')], senior={'CS200'}, target=6)
-    assert terms['CS300'] < terms['CS100'] == terms['CS200']
+    assert terms['CS100'] == terms['CS200'] < terms['CS300']
 
 
 @pytest.mark.asyncio

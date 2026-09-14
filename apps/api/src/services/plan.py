@@ -365,22 +365,6 @@ def _credit_reconciliation_warnings(
     return warnings
 
 
-# ── Last-semester requirement detection ───────────────────────────────────
-
-_LAST_SEMESTER_KEYWORDS = ("senior", "capstone")
-
-
-def _is_last_semester_requirement(requirement: str) -> bool:
-    """
-    True if the requirement's own label (DegreeWorks' text, not the course
-    code) signals a senior-standing/capstone requirement — e.g. "Senior
-    Project", "Senior Seminar", "Capstone Design". Generalizes across any
-    major without a hardcoded course-code list.
-    """
-    lowered = requirement.lower()
-    return any(keyword in lowered for keyword in _LAST_SEMESTER_KEYWORDS)
-
-
 # ── Internal resolved-item type ───────────────────────────────────────────────
 
 @dataclass
@@ -391,7 +375,6 @@ class _ResolvedItem:
     title:       str | None = None
     badge:       str = "Required"   # "Required" | "Elective" | "TBD"
     reason:      str = ""
-    must_be_last: bool = False
     credits_estimated: bool = True
     credits_note: str = "Credit estimate for an unresolved course."
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
@@ -561,41 +544,17 @@ def _pack_semesters(
     credit_target: int,
     planning_terms: list[str],
     placed_at: dict[int, int],
-    start_term_idx: int = 0,
-    initial_card: SemesterCard | None = None,
     concurrent_groups: dict[int, frozenset[int]] | None = None,
     same_or_before: list[set[int]] | None = None,
 ) -> list[SemesterCard]:
-    """
-    Packs items_pool into semester cards term-by-term, starting at
-    start_term_idx, respecting depends_on and the ACTUAL (not
-    precomputed) placement of every dependency via placed_at — see ADR-27
-    for why this must be dynamic. Mutates placed_at in place with every
-    item this call places, so a second call packing a different item pool
-    (e.g. senior/capstone courses, packed after everything else — see
-    ADR-28) sees accurate prior placements from this call. Mutates
-    planning_terms in place too (appending further-out terms) if the plan
-    runs past the initially pre-computed window.
+    """Pack every course using its actual prerequisite placements and credits.
 
-    Members of concurrent_groups are placed atomically and wait for every
-    member's prior dependencies. The caller keeps groups within one phase
-    and rejects groups that conflict with strict prior ordering.
-    same_or_before permits an external predecessor in the current semester;
-    newly eligible courses are retried before advancing to the next semester.
-
-    If initial_card is given, the very first term processed
-    (start_term_idx) tops it up in place — adding courses/credits to that
-    existing card rather than creating a new one — instead of starting a
-    fresh semester. initial_card is never included in this function's
-    return value; the caller already holds a reference to it. The
-    force-add fallback (an oversized course or group gets its own semester
-    rather than blocking all progress) is skipped specifically on a
-    topping-up pass: initial_card is guaranteed already non-empty (the
-    caller only ever passes the last semester from a prior packing call,
-    and a prior call's `if placed:` guard means every card it produced
-    has at least one course), so placing nothing new there this term
-    isn't a stuck state — leftover items simply proceed to the next,
-    fresh term, where force-add resumes normally.
+    Concurrent groups are atomic. Strict dependencies require an earlier term;
+    same_or_before permits the current term. Retry newly eligible courses before
+    advancing. The caller rejects contradictory groups and supplies a DAG after
+    contraction, so dependency waiting always permits eventual progress.
+    Mutate placed_at and extend planning_terms as needed. An oversized eligible
+    course/group gets its own semester, preserving existing target notices.
     """
     concurrent_groups = concurrent_groups or {}
     same_or_before = same_or_before or [set() for _ in depends_on]
@@ -604,7 +563,7 @@ def _pack_semesters(
         index = index_by_item[id(item)]
         members = concurrent_groups.get(index, frozenset({index}))
         if not members <= pool_by_index.keys():
-            raise ValueError("Corequisite group spans packing phases or was partially placed")
+            raise ValueError("Concurrent group is missing an unplaced member")
         return [pool_by_index[i] for i in sorted(members)]
 
     def planned(item):
@@ -617,7 +576,7 @@ def _pack_semesters(
         )
 
     semesters: list[SemesterCard] = []
-    term_idx = start_term_idx
+    term_idx = 0
 
     while items_pool:
         if term_idx >= len(planning_terms):
@@ -628,8 +587,7 @@ def _pack_semesters(
                     planning_terms.append(last)
 
         term = planning_terms[term_idx]
-        topping_up = term_idx == start_term_idx and initial_card is not None
-        credits_used = initial_card.total_credits if topping_up else 0
+        credits_used = 0
         remaining: list[_ResolvedItem] = []
         blocked:   list[_ResolvedItem] = []
         placed:    list[PlannedCourse] = []
@@ -669,8 +627,8 @@ def _pack_semesters(
 
         # An oversized eligible group gets its own semester, with an explicit
         # target-conflict notice supplied by group construction. Never split it,
-        # take blocked members, or partially top up an existing semester.
-        if not placed and remaining and not topping_up:
+        # take blocked members, or partially fill a semester with a group.
+        if not placed and remaining:
             group = group_for(remaining[0], pool_by_index)
             indices = {index_by_item[id(member)] for member in group}
             placed.extend(planned(member) for member in group)
@@ -682,78 +640,15 @@ def _pack_semesters(
         # placed) must not appear as an empty card — skip it and let the
         # blocked items retry at the next term.
         if placed:
-            if topping_up:
-                initial_card.courses.extend(placed)
-                initial_card.total_credits = credits_used
-            else:
-                card = SemesterCard(term=term, term_label=term_to_label(term))
-                card.courses = placed
-                card.total_credits = credits_used
-                semesters.append(card)
+            card = SemesterCard(term=term, term_label=term_to_label(term))
+            card.courses = placed
+            card.total_credits = credits_used
+            semesters.append(card)
 
         items_pool = remaining + blocked
         term_idx  += 1
 
     return semesters
-
-
-def _synchronized_capstone_start(
-    capstone_items: list[_ResolvedItem],
-    depends_on: list[set[int]],
-    index_by_item: dict[int, int],
-    placed_at: dict[int, int],
-) -> int:
-    """
-    Earliest term_idx at which EVERY senior/capstone item could possibly be
-    scheduled, ignoring credit-budget constraints — the natural floor
-    imposed by prerequisite depth alone. Used only to pick Phase 2's
-    starting term_idx; the actual packing that follows still uses
-    _pack_semesters' fully dynamic, placed_at-based eligibility check (see
-    ADR-27/ADR-28) — this function never gates an individual item's
-    placement, only where the whole second phase begins.
-
-    Without this, a capstone item with no prerequisite of its own (e.g. a
-    Senior Seminar) becomes individually eligible immediately and jumps
-    into whatever room Phase 1 left behind, while a sibling capstone item
-    genuinely delayed by a real prerequisite chain (e.g. a Senior Project
-    depending on an earlier course) keeps waiting — scattering "must be
-    last" courses across multiple non-adjacent trailing semesters instead
-    of clustering them at the true end of the plan. Confirmed live: a real
-    user's plan placed a prerequisite-free Senior Seminar in the semester
-    right after normal packing ended, while their Senior Project (delayed
-    by a real prerequisite) landed two semesters later — exactly this bug.
-
-    Safe to compute from Phase 1's `placed_at` values for normal-item
-    dependencies because Phase 1 is fully complete and its placements are
-    fixed by the time this runs — unlike the earlier, rejected "precompute
-    an earliest bound" design for ADR-27, which failed specifically because
-    it tried to predict placements that were STILL being decided.
-    """
-    if not capstone_items:
-        return 0
-
-    capstone_indices = {index_by_item[id(item)] for item in capstone_items}
-    natural_term: dict[int, int] = {}
-    visiting: set[int] = set()
-
-    def resolve(idx: int) -> int:
-        if idx in natural_term:
-            return natural_term[idx]
-        if idx in visiting:
-            return 0  # cycle guard — real cycles are already broken upstream
-        visiting.add(idx)
-        max_dep = -1
-        for dep_idx in depends_on[idx]:
-            if dep_idx in capstone_indices:
-                max_dep = max(max_dep, resolve(dep_idx) + 1)
-            elif dep_idx in placed_at:
-                max_dep = max(max_dep, placed_at[dep_idx] + 1)
-        visiting.discard(idx)
-        result = max(0, max_dep)
-        natural_term[idx] = result
-        return result
-
-    return max(resolve(idx) for idx in capstone_indices)
 
 
 def _apply_course_data(item, course_data, warnings, prerequisites_by_code):
@@ -891,7 +786,6 @@ async def _allocate_requirement_quantities(
                     remaining_slots -= 1
                 candidate = replace(extra, requirement=requirement.requirement,
                                     source_requirement=requirement.model_copy(deep=True),
-                                    must_be_last=base.must_be_last,
                                     reason=f"Your elective {extra.course_code} is allocated toward '{requirement.requirement}'")
             else:
                 if rows and remaining_slots == 0:
@@ -909,7 +803,7 @@ async def _allocate_requirement_quantities(
                     break
                 candidate = _ResolvedItem(
                     requirement=requirement.requirement, course_code=code,
-                    source_requirement=requirement.model_copy(deep=True), must_be_last=base.must_be_last,
+                    source_requirement=requirement.model_copy(deep=True),
                     badge="Elective" if count > 1 else "Required",
                     reason=f"Additional course allocated toward '{requirement.requirement}'",
                 )
@@ -1044,7 +938,6 @@ async def generate_plan(
             warnings.append(unreadable_options_note)
         if item.quantity_status == "unresolved":
             warnings.append(f"Remaining quantity for '{item.requirement}' is unknown. Confirm the required amount with your advisor.")
-        must_be_last = _is_last_semester_requirement(item.requirement)
         if i in satisfied_indices:
             code = next(e for e, idx in elective_to_req.items() if idx == i)
             resolved.append(_ResolvedItem(
@@ -1053,7 +946,6 @@ async def generate_plan(
                 course_code=code,
                 badge="Elective",
                 reason=f"Your elective {code} is allocated toward '{item.requirement}'",
-                must_be_last=must_be_last,
             ))
         else:
             best, num_available = await select_best_option(
@@ -1079,7 +971,6 @@ async def generate_plan(
                     else unreadable_options_note if not item.options
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
-                must_be_last=must_be_last,
                 catalog_note=catalog_note,
             ))
 
@@ -1161,105 +1052,16 @@ async def generate_plan(
     )
     warnings.extend(flexible_warnings)
 
-    # A normal item's prerequisite may resolve to a senior/capstone-flagged
-    # item (ADR-28). Phase 1 packing never places capstone items, so
-    # placed_at would never gain an entry for that index and the normal
-    # item would stay permanently blocked — an infinite loop in
-    # _pack_semesters' `while items_pool:` with no `await` inside it,
-    # hanging the whole event loop, not just one request. Treat this the
-    # same way ADR-27 already treats an unverifiable prerequisite for legacy
-    # rules. Supported structured chains move into the later phase instead.
-    capstone_indices = {i for i, r in enumerate(resolved) if r.must_be_last}
-    # Keep supported prior-course edges across the phase boundary. Move their
-    # dependents (and downstream legacy dependents) into the later packing phase;
-    # this is scheduling membership, not a new academic capstone classification.
-    promoted = set()
-    while True:
-        additions = {i for i, deps in enumerate(depends_on) if i not in capstone_indices
-                     and (deps & promoted or (resolved[i].course_code in verified_history
-                                              and deps & capstone_indices))}
-        additions.update(index for index, group in concurrent_groups.items()
-                         if index not in capstone_indices and group & capstone_indices)
-        additions.update(index for index, deps in enumerate(same_or_before)
-                         if index not in capstone_indices and deps & capstone_indices)
-        if not additions:
-            break
-        capstone_indices.update(additions)
-        promoted.update(additions)
-    cross_phase_flagged: set[str] = set()
-    for i, deps in enumerate(depends_on):
-        if i in capstone_indices:
-            continue
-        conflicting = deps & capstone_indices
-        if conflicting:
-            depends_on[i] = deps - capstone_indices
-            if resolved[i].course_code:
-                cross_phase_flagged.add(resolved[i].course_code)
-
-    if cross_phase_flagged:
-        codes = ", ".join(sorted(cross_phase_flagged))
-        warnings.append(
-            f"Prerequisites for {codes} depend on a senior/capstone course that's "
-            f"scheduled in your final semester — this ordering could not be fully "
-            f"honored. Confirm you meet the actual prerequisite before registering."
-        )
-
-    index_by_item: dict[int, int] = {id(item): i for i, item in enumerate(resolved)}
-
-    normal_items   = [r for i, r in enumerate(resolved) if i not in capstone_indices]
-    capstone_items = [r for i, r in enumerate(resolved) if i in capstone_indices]
-
-    def _sorted_pool(items: list[_ResolvedItem]) -> list[_ResolvedItem]:
-        concrete = [r for r in items if r.course_code is not None]
-        tbd      = [r for r in items if r.course_code is None]
-        concrete.sort(key=lambda r: -r.credits)
-        return concrete + tbd
-
-    # ── 7. Assign to semesters — normal courses first, then senior/capstone ──
-    #
-    # Senior Seminar/Senior Project-type requirements (ADR-28) must land in
-    # the student's actual final semester, independent of whatever their own
-    # prerequisite chain would otherwise allow. Packed in a second phase,
-    # continuing from wherever normal packing left off — topping up the last
-    # normal semester if there's room, or starting a fresh trailing semester
-    # otherwise — never mixed into earlier, non-final semesters.
-    #
-    # resolved-index -> the term_idx it was ACTUALLY scheduled in, shared
-    # across both phases. Eligibility is checked against this, never a
-    # precomputed "earliest possible" bound — see ADR-27 for why.
-    placed_at: dict[int, int] = {}
-
+    # ── 7. Pack one course pool using recorded dependencies ────────────────
+    # Requirement labels remain descriptive. They do not establish a final-term
+    # restriction or justify dropping an edge into a separate packing phase.
+    index_by_item = {id(item): index for index, item in enumerate(resolved)}
+    concrete = sorted((item for item in resolved if item.course_code is not None), key=lambda item: -item.credits)
+    unresolved = [item for item in resolved if item.course_code is None]
     semesters = _pack_semesters(
-        _sorted_pool(normal_items), depends_on, index_by_item,
-        credit_target, planning_terms, placed_at, concurrent_groups=concurrent_groups,
-        same_or_before=same_or_before,
+        concrete + unresolved, depends_on, index_by_item, credit_target, planning_terms, {},
+        concurrent_groups=concurrent_groups, same_or_before=same_or_before,
     )
-
-    if capstone_items:
-        # Structured chains use actual placement checks in the packer. Applying
-        # the legacy deepest-capstone floor would unnecessarily postpone roots
-        # before scheduling the entire chain again from that later starting point.
-        natural_start = (0 if any(resolved[i].course_code in verified_history for i in capstone_indices)
-                         else _synchronized_capstone_start(
-                             capstone_items, depends_on, index_by_item, placed_at,
-                         ))
-        start_term_idx = max(len(semesters) - 1, natural_start)
-        # Only top up the last normal semester's card when the synchronized
-        # floor lands exactly there — if a real prerequisite chain pushes
-        # capstone packing later, merging into a semester that's
-        # chronologically "in the past" relative to that floor would be wrong.
-        initial_card = (
-            semesters[-1]
-            if semesters and start_term_idx == len(semesters) - 1
-            else None
-        )
-        capstone_semesters = _pack_semesters(
-            _sorted_pool(capstone_items), depends_on, index_by_item,
-            credit_target, planning_terms, placed_at,
-            start_term_idx=start_term_idx, initial_card=initial_card, concurrent_groups=concurrent_groups,
-            same_or_before=same_or_before,
-        )
-        semesters.extend(capstone_semesters)
 
     # Credit targets guide packing; a lighter final semester needs no filler.
     # Additional courses must come from the student's explicit elective choices.

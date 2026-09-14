@@ -262,11 +262,11 @@ its grade/timing conditions before the plan's start. Repeated conditions on the
 same course must all pass. Planned prerequisite courses stay strictly earlier
 than their dependents, checked against actual placements under the credit target.
 
-When a supported chain crosses the capstone grouping boundary, its dependent and
-subsequent dependents move into the later packing phase instead of losing the
-edge. Structured chains in that phase start when dependencies allow; they do not
-wait for the old deepest-capstone starting floor. The academic requirement labels
-remain unchanged. Missing prerequisite selections, insufficient history and cyclic
+All courses now share one packing pool. Requirement labels containing "senior"
+or "capstone" do not establish a final-semester restriction. Chains follow actual
+dependencies without the old late-phase starting delay or cross-phase edge
+removal. Labels and requirement allocations remain unchanged. Missing prerequisite
+selections, insufficient history and cyclic
 rules keep a proposed result with a specific Partial plan notice and final rule
 diagnostics; courses or successful grades are never invented to complete a chain.
 
@@ -286,7 +286,7 @@ feasible schedule or a guarantee of the shortest graduation timeline.
 
 Complete AND/OR trees of explicit concurrent corequisites now keep courses on a
 chosen path together, including transitive groups. Every member's prior prerequisites must
-come first. Groups move intact across the capstone phase boundary and cannot
+come first. Groups stay intact in the shared course pool and cannot
 partially fill a semester's remaining capacity. A group above the credit target
 gets its own semester with a Partial plan target-conflict notice. Missing selected
 corequisites are reported without inventing additional courses. If grouping
@@ -314,8 +314,8 @@ earlier when credits require it. Mutual same-or-before dependencies form atomic
 groups, including connections through existing corequisite groups. If a strict
 prior edge makes such a cycle impossible, the fallback preserves strict ordering
 and reports the conflicting flexible requirements. Oversized mandatory groups
-receive target notices. These dependencies and groups cross capstone phases
-without being silently dropped. Rule traversal is bounded to 512 nodes.
+receive target notices. These dependencies and groups apply equally to courses
+with senior/capstone labels. Rule traversal is bounded to 512 nodes.
 
 Mandatory same-semester prerequisite groups seed corequisite alternative search
 and its fallback. Alternative choices account for those groups' combined credits
@@ -339,7 +339,8 @@ Limits and unavoidable timing conflicts retain explicit partial proposals.
 Chosen paths exist only in temporary ordering copies; final diagnostics use the
 complete original rules from the same database snapshot.
 
-Broader capstone heuristics remain unfinished.
+Academic-standing restrictions, term-specific offerings and any explicit final-term
+policy still require verified evidence; the requirement label is not that evidence.
 Unsupported/unverified sources retain existing ordering fallback and final checks.
 Unsupported rules and search limits can still leave an incomplete proposal;
 the search does not certify eligibility or optimize the graduation date.

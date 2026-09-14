@@ -79,7 +79,7 @@ async def test_corequisite_or_is_not_interpreted_as_all_required():
     row=stored('CS100',prereq=AllConditions(items=[]),coreq=AnyConditions(items=[
         condition('CS200',timing='concurrent'),condition('CS300',timing='concurrent')]))
     plan,terms,_=await generate(['CS100','CS200','CS300'],[row],target=3)
-    assert len(set(terms.values())) == 3
+    assert terms['CS100'] == terms['CS200'] != terms['CS300']
     assert any('corequisite' in w and ('review' in w or 'conflict' in w) for w in plan.warnings)
 
 

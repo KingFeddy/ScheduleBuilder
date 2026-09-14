@@ -284,8 +284,8 @@ exhaustion is reported separately from an unavoidable choice cycle. A bounded
 fallback proposal remains reviewable with diagnostics; it is not a verified
 feasible schedule or a guarantee of the shortest graduation timeline.
 
-Complete AND trees of explicit concurrent corequisites now keep selected courses
-together, including transitive groups. Every member's prior prerequisites must
+Complete AND/OR trees of explicit concurrent corequisites now keep courses on a
+chosen path together, including transitive groups. Every member's prior prerequisites must
 come first. Groups move intact across the capstone phase boundary and cannot
 partially fill a semester's remaining capacity. A group above the credit target
 gets its own semester with a Partial plan target-conflict notice. Missing selected
@@ -294,8 +294,18 @@ conflicts with strict prior ordering, those courses remain separate proposals
 with an explicit notice and final diagnostics. Grouping does not establish grades,
 academic-level eligibility or required section matches.
 
-Corequisite OR choices, concurrent conditions in prerequisite trees,
-prior-or-concurrent scheduling and broader capstone heuristics remain unfinished.
+Corequisite alternative selection preserves AND siblings and prefers paths backed
+by already selected courses. Bounded backtracking retries earlier choices when a
+later group conflicts with prior ordering or exceeds the credit target. It first
+searches for groups within the target, then allows oversized groups with notices
+if necessary. A missing-course escape cannot hide an available combination.
+Expansion permits 512 rule nodes and 64 paths per course; both search passes share
+a 2,048-candidate budget. Search limits and unresolved prior conflicts produce
+explicit partial proposals with deterministic fallback choices. The search does
+not change which courses satisfy degree requirements or certify future grades.
+
+Concurrent conditions in prerequisite trees, prior-or-concurrent scheduling and
+broader capstone heuristics remain unfinished.
 Unsupported/unverified sources retain existing ordering fallback and final checks.
 Prior-course alternative search does not yet retry choices to accommodate
 corequisite groups. Other-term rules are a provisional planning basis, with their

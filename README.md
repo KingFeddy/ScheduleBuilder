@@ -925,6 +925,54 @@ Databases with existing relations but no migration history also require reviewed
 schema reconciliation before adoption; the runner will not adopt them automatically.
 Application startup and production deployment do not automatically apply migrations.
 
+### Targeted repair for the inspected September 2026 legacy database
+
+The legacy database inspected on 2026-09-13 predates migration history and has
+`professors(id, name, department, ...)`, including duplicate names. Do not replay
+baseline migrations or disable the schema verifier. The targeted repair command
+below defaults to a **read-only preflight**, using the explicitly loaded `.env`:
+
+```bash
+cd apps/api
+uv run --env-file .env --no-sync python -m scripts.repair_legacy_catalog
+```
+
+Review the report and take a database backup before applying. This is a maintenance
+operation: it briefly takes exclusive locks on the six runtime tables (five-second
+lock timeout). It preserves the entire old professor table, UUIDs, ratings, and
+duplicate names as `professors_legacy_20260913`; the new runtime professor table
+contains distinct names and only an unambiguous department, otherwise null. The
+archive is not the current professor-rating source; ratings use `rmp_cache`.
+Existing dependent objects continue to reference the archived original table.
+Current application code uses the new runtime contract; coordinate older external
+consumers of the legacy professor table before applying.
+
+The repair reconciles seat defaults/nullability, prerequisite nullability, the
+course foreign key and indexes, then executes existing migrations 014–017. It
+preserves courses, sections, meetings, caches, and historical run data. No legacy
+meeting columns are dropped. Unknown seat/prerequisite values, invalid credits,
+missing names, a pre-existing archive, or a different partially upgraded layout
+are refused. Final runtime verification must pass before the transaction commits.
+
+```bash
+uv run --env-file .env --no-sync python -m scripts.repair_legacy_catalog --apply &&
+uv run --env-file .env --no-sync python -m scripts.verify_migrations
+```
+
+Only after structural reconciliation passes does the repair explicitly adopt
+000/007/009/012/013 and record execution of 014/015/016/017 in the migration ledger.
+The table comment records this distinction; future normal migration commands can
+then use the ledger. Deferred 008 remains deferred. Repeating the repair on a
+compatible database makes no changes. A lost connection can make completion
+uncertain: run the read-only preflight again before retrying. The preserved table
+is useful for recovery but is not a substitute for an independent database backup.
+
+After successful verification, refresh the desired term and configured subjects:
+
+```bash
+uv run --env-file .env --no-sync python -m src.scrapers.cron
+```
+
 ### Verify the runtime schema before deployment
 
 From `apps/api`, select the database explicitly and run the read-only deployment gate:

@@ -23,42 +23,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Every subject with at least one course in the `courses` catalog — kept in
-# sync with `SELECT DISTINCT SUBSTRING(course_code FROM '^[A-Z]+') FROM courses`.
-# The original list only covered 12 of these; the other 6 (ACCT, FIN, FRSC,
-# IT, SDET, YWCC) were searchable via /api/courses but their sections were
-# never scraped, so seat counts/meeting times for them went stale forever
-# and the new stale-section cleanup in banner.py never got a chance to run
-# for them either, since that only fires for subjects actually scraped.
-SUBJECTS = [
-    "CS", "MATH", "PHYS", "ECE", "CHEM",
-    "COM", "HIST", "LIT", "PHIL", "PSY", "STS", "THTR",
-    "ACCT", "FIN", "FRSC", "IT", "SDET", "YWCC",
-]
-
-
 async def main() -> None:
+    # A scraper reserves one connection for its run lock and another for data.
     engine = create_async_engine(settings.DATABASE_URL, pool_size=3)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        Session = async_sessionmaker(engine, expire_on_commit=False)
+        logger.info("Scraper cron starting — term %s; subjects %s", settings.CURRENT_TERM, settings.CATALOG_SUBJECTS)
 
-    logger.info("Scraper cron starting — term %s", settings.CURRENT_TERM)
+        async with Session() as session:
+            await run_banner_scrape(
+                session=session,
+                subjects=settings.catalog_subjects,
+                term=settings.CURRENT_TERM,
+            )
 
-    async with Session() as session:
-        await run_banner_scrape(
-            session=session,
-            subjects=SUBJECTS,
-            term=settings.CURRENT_TERM,
-        )
-
-    # RMP runs in a separate session after Banner completes so it sees the
-    # full, fresh professor list from the sections table.
-    async with Session() as session:
-        await run_rmp_scrape(
-            session=session,
-            term=settings.CURRENT_TERM,
-        )
-
-    await engine.dispose()
+        # RMP runs in a separate session after Banner completes so it sees the
+        # full, fresh professor list from the sections table.
+        async with Session() as session:
+            await run_rmp_scrape(
+                session=session,
+                term=settings.CURRENT_TERM,
+            )
+    finally:
+        await engine.dispose()
     logger.info("Scraper cron complete")
 
 

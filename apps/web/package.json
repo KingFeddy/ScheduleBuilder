@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm api:check && tsc --noEmit",
+    "api:generate": "node scripts/api-types.mjs --write",
+    "api:check": "node scripts/api-types.mjs --check",
+    "test:unit": "playwright test --config playwright.unit.config.ts",
+    "test:e2e": "E2E_TEST_MODE=development playwright test",
+    "test:e2e:prod": "E2E_TEST_MODE=production playwright test"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.56.0",
@@ -24,12 +29,14 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "openapi-typescript": "7.13.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -13,7 +13,6 @@ services:
       - /var/lib/postgresql/data
     volumes:
       - ./apps/api/tests/init_test_database.sql:/docker-entrypoint-initdb.d/10-test-database.sql:ro
-      - ./apps/api/tests/create_test_schema.sql:/docker-entrypoint-initdb.d/20-test-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U njit_test -d njit_test"]
       interval: 2s

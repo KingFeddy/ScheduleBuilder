@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..scheduler.models import MeetingSlot, SectionSlot
+from .meeting_integrity import IncompleteMeetingData, meeting_kind
 
 
 async def load_sections_with_meetings(
@@ -46,6 +47,8 @@ async def load_sections_with_meetings(
 
     meetings_by_crn: dict[str, list[MeetingSlot]] = {}
     for row in meetings_rows:
+        if meeting_kind(row["days"], row["start_time"], row["end_time"]) == "invalid":
+            raise IncompleteMeetingData()
         meetings_by_crn.setdefault(row["crn"], []).append(
             MeetingSlot(
                 crn=row["crn"],
@@ -59,6 +62,9 @@ async def load_sections_with_meetings(
 
     result: dict[str, list[SectionSlot]] = {code: [] for code in course_codes}
     for row in sections_rows:
+        if not meetings_by_crn.get(row["crn"]):
+            # Absence may mean an unfinished migration/scrape, not an online class.
+            raise IncompleteMeetingData()
         result[row["course_code"]].append(
             SectionSlot(
                 crn=row["crn"],

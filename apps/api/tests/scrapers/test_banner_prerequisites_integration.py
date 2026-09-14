@@ -56,13 +56,23 @@ async def test_prerequisites_written_to_courses_table(db_session):
         [{"code": _FAKE_SUBJECT, "description": "Fake Test Subject"}]
     )
     prereq_html = """
-        <table class="basePreqTable"><tbody>
+        <table class="basePreqTable">
+            <thead><tr><th>And/Or</th><th></th><th>Test</th><th>Score</th>
+                <th>Subject</th><th>Course Number</th><th>Level</th><th>Grade</th><th></th></tr></thead>
+            <tbody>
             <tr><td></td><td></td><td></td><td></td>
                 <td>Fake Test Subject</td><td>996</td><td>Undergraduate</td><td>C</td><td></td></tr>
         </tbody></table>
     """
 
     async def fake_post(url, **kwargs):
+        if "getCorequisites" in url:
+            from tests.scrapers.test_prerequisite_verification import EMPTY_COREQUISITES
+            resp = AsyncMock()
+            resp.status = 200
+            resp.headers = {"content-type": "text/html"}
+            resp.text = AsyncMock(return_value=EMPTY_COREQUISITES)
+            return resp
         if "term/search" in url:
             resp = AsyncMock()
             resp.status = 200
@@ -71,6 +81,7 @@ async def test_prerequisites_written_to_courses_table(db_session):
         if "getSectionPrerequisites" in url:
             resp = AsyncMock()
             resp.status = 200
+            resp.headers = {"content-type": "text/html"}
             resp.text = AsyncMock(return_value=prereq_html)
             return resp
         raise AssertionError(f"Unexpected POST to {url}")
@@ -78,6 +89,8 @@ async def test_prerequisites_written_to_courses_table(db_session):
     async def fake_get(url, **kwargs):
         if "get_subject" in url:
             resp = AsyncMock()
+            resp.status = 200
+            resp.headers = {"content-type": "application/json"}
             resp.text = AsyncMock(return_value=subject_lookup_json)
             return resp
         raise AssertionError(f"Unexpected GET to {url}")
@@ -86,7 +99,7 @@ async def test_prerequisites_written_to_courses_table(db_session):
     mock_page.request.get = AsyncMock(side_effect=fake_get)
 
     async def fake_fetch_page(page, url, params, timeout_ms=30_000):
-        return {"data": [raw_section], "totalCount": 1}
+        return {"success": True, "data": [raw_section], "totalCount": 1}
 
     with patch("src.scrapers.banner.async_playwright", return_value=mock_pw_cm):
         with patch("src.scrapers.banner._fetch_page", side_effect=fake_fetch_page):

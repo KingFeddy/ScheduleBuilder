@@ -1,5 +1,5 @@
 -- Bootstrap only the empty disposable PostgreSQL instance used by Compose/CI.
--- Run as its local postgres administrator, before create_test_schema.sql.
+-- Run as its local postgres administrator, before the real migration runner.
 \set ON_ERROR_STOP on
 
 DO $$

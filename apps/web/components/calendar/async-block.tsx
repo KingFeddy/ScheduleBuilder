@@ -1,8 +1,8 @@
-import type { SectionSlot } from '@/lib/api'
+import type { SolveSectionResponse } from '@/lib/api'
 import { courseColor } from '@/lib/course-colors'
 import { seatColorClass } from '@/components/ui/seat-status'
 
-export function isAsyncSection(s: SectionSlot): boolean {
+export function isAsyncSection(s: SolveSectionResponse): boolean {
   return s.meetings.every((m) => !m.days || !m.start_time || !m.end_time)
 }
 
@@ -15,7 +15,7 @@ function fullName(raw: string | null): string {
   return `${first} ${last}`.trim()
 }
 
-export function AsyncBlock({ slot }: { slot: SectionSlot }) {
+export function AsyncBlock({ slot }: { slot: SolveSectionResponse }) {
   const bg = courseColor(slot.course_code)
   const prof = fullName(slot.professor_name)
 

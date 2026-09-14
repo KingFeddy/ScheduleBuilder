@@ -1,18 +1,26 @@
 from __future__ import annotations
-from pydantic import BaseModel
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field
 from .schedule import SectionResponse
+from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 
 
 class CourseResponse(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
     course_code: str
     title: str | None
-    credits: int
+    credits: float | None
+    title_status: Literal["verified", "unverified", "missing"] = "unverified"
+    credits_status: Literal["fixed", "variable", "unverified", "missing"] = "unverified"
+    credits_min: float | None = None
+    credits_max: float | None = None
+    credits_options: list[float] = Field(default_factory=list)
+    metadata_warnings: list[str] = Field(default_factory=list)
+    catalog_status: CatalogStatus = "unknown"
+    catalog_note: str = UNCHECKED_CATALOG_NOTE
 
 
-class CourseDetailResponse(BaseModel):
-    course_code: str
-    title: str | None
-    credits: int
+class CourseDetailResponse(CourseResponse):
     prerequisites: list[str]
     sections: list[SectionResponse]
 

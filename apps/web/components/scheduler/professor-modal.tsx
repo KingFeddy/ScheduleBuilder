@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { X, Star, Flame, ArrowUpRight } from 'lucide-react'
-import { getProfessor, type ProfessorResponse } from '@/lib/api'
+import { getApiErrorMessage, getProfessor, type ProfessorResponse } from '@/lib/api'
 import { useSchedulerStore } from '@/store/scheduler'
 import { VibeCheckPill } from '@/components/ui/vibe-check-pill'
 
@@ -40,10 +40,17 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
   const [data, setData] = useState<ProfessorResponse | null | 'loading'>(() =>
     professorName in professorCache ? professorCache[professorName] : 'loading',
   )
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (professorName in professorCache) return
-    getProfessor(professorName).then(setData)
+    getProfessor(professorName).then(setData).catch((err) => {
+      const message = getApiErrorMessage(err, 'Failed to load professor ratings. Close and reopen to try again.')
+      if (message) {
+        setError(message)
+        setData(null)
+      }
+    })
   }, [professorName, professorCache])
 
   useEffect(() => {
@@ -86,6 +93,11 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
             )}
             <p className="text-xl font-semibold tracking-tight">{formatName(professorName)}</p>
           </div>
+
+          {error && <p role="alert" className="text-sm text-yellow">{error}</p>}
+          {!loading && !error && data === null && (
+            <p className="text-sm text-muted">No ratings found for this professor.</p>
+          )}
 
           {/* Ratings */}
           <div className="flex gap-8">

@@ -3,6 +3,7 @@ import re
 from pydantic import BaseModel, Field, field_validator
 
 from ..scheduler.config import MAX_COURSES
+from src.terms import TermCode
 
 
 class CommuterOptions(BaseModel):
@@ -38,7 +39,7 @@ class CommuterOptions(BaseModel):
 
 class SolveRequest(BaseModel):
     course_codes:          list[str] = Field(min_length=1, max_length=MAX_COURSES)
-    term:                  str
+    term:                  TermCode
     options:               CommuterOptions = Field(default_factory=CommuterOptions)
     professor_preferences: dict[str, list[str]] = Field(default_factory=dict)
     compact_week:          bool = False
@@ -54,16 +55,6 @@ class SolveRequest(BaseModel):
                 seen.add(code)
                 deduped.append(code)
         return deduped
-
-    @field_validator("term")
-    @classmethod
-    def validate_term(cls, v: str) -> str:
-        if not re.match(r"^\d{4}(10|50|90)$", v):
-            raise ValueError(
-                f"Invalid term format '{v}'. Expected 6-digit NJIT term, e.g. 202690"
-            )
-        return v
-
 
 class MeetingResponse(BaseModel):
     days:       str | None

@@ -4,15 +4,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.schema import CreateSchema, DropSchema
 
-
-SCHEMA_SQL = Path(__file__).with_name("create_test_schema.sql").read_text()
+from scripts.migrate import apply_migrations
 
 
 @dataclass(frozen=True)
@@ -24,18 +21,21 @@ class IsolatedTestDatabase:
 
 
 @asynccontextmanager
-async def isolated_test_database(database_url: str) -> AsyncIterator[IsolatedTestDatabase]:
+async def isolated_test_database(
+    database_url: str, *, initialize: bool = True,
+) -> AsyncIterator[IsolatedTestDatabase]:
     """Use only a URL attested by the root test_database_url fixture.
 
     Schema isolation preserves real commits and independent connections. A
     rollback-only fixture would change the scraper transactions under test.
+    Migration tests may request an empty owned schema with initialize=False.
     """
     identifier = uuid4()
     schema_name = f"test_{identifier.hex}"
     # PostgreSQL advisory locks are database-wide. Reserve a random negative
     # bigint pair for this test; production scraper IDs are positive.
     banner_lock_id = -((identifier.int % (2**62)) * 2 + 1)
-    control_engine = create_async_engine(database_url)
+    control_engine = create_async_engine(database_url, isolation_level="READ COMMITTED")
     test_engine = None
     owns_schema = False
     try:
@@ -43,18 +43,13 @@ async def isolated_test_database(database_url: str) -> AsyncIterator[IsolatedTes
             # No IF NOT EXISTS: a collision must fail without adopting another
             # test's schema. DDL and all schema setup roll back together.
             await connection.execute(CreateSchema(schema_name))
-            await connection.execute(
-                text("SELECT set_config('search_path', :schema, true)"),
-                {"schema": schema_name},
-            )
-            # asyncpg's simple-query protocol accepts the complete SQL script;
-            # SQLAlchemy's prepared execution only accepts one statement.
-            raw_connection = await connection.get_raw_connection()
-            await raw_connection.driver_connection.execute(SCHEMA_SQL)
+            if initialize:
+                await apply_migrations(connection, schema_name=schema_name)
         owns_schema = True
 
         test_engine = create_async_engine(
             database_url,
+            isolation_level="READ COMMITTED",
             connect_args={"server_settings": {"search_path": schema_name}},
         )
         yield IsolatedTestDatabase(

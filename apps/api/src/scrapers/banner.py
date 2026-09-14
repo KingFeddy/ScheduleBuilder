@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import time as time_module
+from dataclasses import dataclass
 from datetime import time
 from typing import Optional
 
@@ -16,8 +17,16 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.schemas.prerequisites import PrerequisiteRefresh, SubjectLookup, legacy_course_codes
+
 from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID
-from .prerequisites import fetch_subject_lookup, fetch_prerequisites, resolve_prerequisite_codes
+from .course_metadata import metadata_observation, parse_title, refresh_course_metadata
+from .prerequisites import (
+    PrerequisiteDataError,
+    PrerequisiteRequestError,
+    fetch_subject_lookup,
+    fetch_prerequisites,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +55,18 @@ class BannerBlockedError(Exception):
 
 
 class BannerSchemaError(Exception):
-    """Banner JSON is missing expected keys — likely an Ellucian upgrade."""
+    """Banner JSON has an unexpected structure — possibly an Ellucian upgrade."""
+
+
+class BannerResponseError(Exception):
+    """Banner failed the search or returned an unverifiable result set."""
+
+
+@dataclass
+class ScrapeProgress:
+    """Committed section writes, retained even when a subject cannot return totals."""
+
+    sections_upserted: int = 0
 
 
 # ─── Parsing helpers ──────────────────────────────────────────────────────────
@@ -136,11 +156,12 @@ def _extract_professor_name(raw_section: dict) -> Optional[str]:
 
 # ─── Schema validation ────────────────────────────────────────────────────────
 
-def _validate_section_schema(section: dict) -> None:
+def _validate_section_schema(section: object) -> None:
     """
-    Raise BannerSchemaError if the section dict is missing any required Banner key.
-    Called before processing each section — catches Ellucian upgrades early.
+    Validate the required section structure before writing any row on its page.
     """
+    if not isinstance(section, dict):
+        raise BannerSchemaError("Banner section must be a JSON object")
     missing = REQUIRED_SECTION_KEYS - set(section.keys())
     if missing:
         raise BannerSchemaError(
@@ -148,12 +169,77 @@ def _validate_section_schema(section: dict) -> None:
             f"Banner may have been upgraded. Keys present: {list(section.keys())[:10]}"
         )
 
-    for meeting in section.get("meetingsFaculty", []):
-        if "meetingTime" not in meeting:
+    for key in ("courseReferenceNumber", "subject", "courseNumber"):
+        value = section[key]
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            raise BannerSchemaError(f"Banner section '{key}' must be a non-empty string without surrounding whitespace")
+
+    meetings = section["meetingsFaculty"]
+    if not isinstance(meetings, list):
+        raise BannerSchemaError("Banner section 'meetingsFaculty' must be an array")
+    for meeting in meetings:
+        if not isinstance(meeting, dict):
+            raise BannerSchemaError("Banner meeting entry must be a JSON object")
+        if not isinstance(meeting.get("meetingTime"), dict):
             raise BannerSchemaError(
-                f"Banner meeting entry missing 'meetingTime'. "
+                f"Banner meeting entry missing or invalid 'meetingTime' object. "
                 f"Meeting keys present: {list(meeting.keys())}"
             )
+
+
+def _validate_results_page(
+    payload: object, *, subject: str, term: str, offset: int, page_size: int,
+    expected_total: int | None, received_crns: set[str],
+) -> tuple[list[dict], int]:
+    """Require a complete, consistent page before it can contribute to cleanup.
+
+    Only success=true, data=[], totalCount=0 at offset zero proves an empty
+    result set. The total must remain stable, each page must fill its expected
+    range, and every CRN must appear once in the requested subject and term.
+    Received IDs are independent of successful database writes.
+    """
+    if not isinstance(payload, dict):
+        raise BannerSchemaError("Banner search response must be a JSON object")
+    if payload.get("success") is False:
+        raise BannerResponseError(f"Banner search reported success=false at offset {offset}")
+    if payload.get("success") is not True:
+        raise BannerSchemaError("Banner search response must include boolean success=true")
+
+    sections = payload.get("data")
+    total = payload.get("totalCount")
+    if not isinstance(sections, list):
+        raise BannerSchemaError("Banner search 'data' must be an array; missing/null data is not an empty catalog")
+    # bool is a subclass of int in Python, but is not a valid result count.
+    if type(total) is not int or total < 0:
+        raise BannerSchemaError("Banner search 'totalCount' must be a non-negative integer")
+    if expected_total is not None and total != expected_total:
+        raise BannerResponseError(
+            f"Banner totalCount changed from {expected_total} to {total} at offset {offset}"
+        )
+
+    # Validate pagination echoes when supplied. Omitted echoes do not replace
+    # the count/identity checks.
+    for key, expected in (("pageOffset", offset), ("pageMaxSize", page_size)):
+        if key in payload and (type(payload[key]) is not int or payload[key] != expected):
+            raise BannerResponseError(f"Banner '{key}' does not match requested value {expected}")
+
+    expected_rows = min(page_size, total - offset)
+    if offset > total or len(sections) != expected_rows:
+        raise BannerResponseError(
+            f"Banner incomplete page at offset {offset}: received {len(sections)} rows, "
+            f"expected {expected_rows} for totalCount {total}"
+        )
+
+    page_crns: set[str] = set()
+    for section in sections:
+        _validate_section_schema(section)
+        if section["subject"] != subject or ("term" in section and section["term"] != term):
+            raise BannerResponseError(f"Banner section does not match requested subject {subject} and term {term}")
+        crn = section["courseReferenceNumber"]
+        if crn in received_crns or crn in page_crns:
+            raise BannerResponseError(f"Banner repeated CRN {crn} at offset {offset}")
+        page_crns.add(crn)
+    return sections, total
 
 
 # ─── HTTP layer ───────────────────────────────────────────────────────────────
@@ -165,10 +251,12 @@ async def _fetch_page(
     timeout_ms: int = 30_000,
 ) -> dict:
     """
-    Fetch one Banner results page and return parsed JSON.
+    Fetch an HTTP 200 JSON object. Search/pagination validation is by the caller.
 
     Raises:
-      BannerBlockedError — 403, HTML content-type, or non-JSON body
+      BannerBlockedError — 401/403, non-JSON content-type, or non-JSON body
+      BannerResponseError — absent response or any other non-200 HTTP status
+      BannerSchemaError — JSON root is not an object
       PlaywrightTimeout  — network timeout (retriable by caller)
     """
     query = "&".join(f"{k}={v}" for k, v in params.items())
@@ -178,14 +266,21 @@ async def _fetch_page(
         wait_until="networkidle",
     )
 
-    if response.status == 403:
-        raise BannerBlockedError(f"Banner returned 403 — IP may be blocked.")
+    if response is None:
+        raise BannerResponseError("Banner navigation returned no HTTP response")
+    if response.status in (401, 403):
+        raise BannerBlockedError(f"Banner returned {response.status} — session or IP may be blocked.")
 
-    content_type = response.headers.get("content-type", "")
+    content_type = response.headers.get("content-type", "").lower()
     if "text/html" in content_type:
         raise BannerBlockedError(
             f"Banner returned HTML (status {response.status}) — session may have expired."
         )
+    if response.status != 200:
+        raise BannerResponseError(f"Banner returned HTTP {response.status} for search results")
+    media_type = content_type.split(";", 1)[0].strip()
+    if media_type != "application/json" and not media_type.endswith("+json"):
+        raise BannerBlockedError(f"Banner returned non-JSON content type '{content_type}'")
 
     body = await response.text()
     try:
@@ -193,13 +288,15 @@ async def _fetch_page(
     except json.JSONDecodeError as exc:
         raise BannerBlockedError(f"Banner returned non-JSON body: {exc}") from exc
 
-    # Log the top-level keys and 'data' field type so we can diagnose null responses
-    # and term availability without having to decode the full payload.
+    if not isinstance(data, dict):
+        raise BannerSchemaError("Banner search response must be a JSON object")
+
+    # Log only structural metadata; the caller rejects ambiguous/null data.
     data_field = data.get("data")
     logger.debug(
         "_fetch_page: status=%s keys=%s data_type=%s totalCount=%s success=%s",
         response.status,
-        list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        list(data.keys()),
         type(data_field).__name__,
         data.get("totalCount"),
         data.get("success"),
@@ -219,6 +316,8 @@ async def _upsert_section_with_meetings(
     Takes a raw Banner section dict and extracts all fields internally.
     DELETE + INSERT within one transaction so the solver never sees a section
     with zero meetings mid-update.
+    Invalid or failed meeting writes reject the entire replacement, retaining
+    the previous section and every previous meeting through rollback.
     open_seats is clamped to 0 — Banner returns negative values for waitlisted sections.
     """
     crn            = raw_section["courseReferenceNumber"]
@@ -238,20 +337,17 @@ async def _upsert_section_with_meetings(
             break
 
     async with session.begin():
-        # Banner may reference a course_code not yet in the courses table
-        # (e.g. a newly-added special-topics number). Stub it in first so the
-        # sections FK doesn't reject the section outright. DO NOTHING — never
-        # overwrite a real catalog title with this fallback.
+        # The section FK needs a course stub. Credit/title verification waits
+        # for the complete subject's observations; unknown credits stay null.
         await session.execute(
             text("""
-                INSERT INTO courses (course_code, title, credits)
-                VALUES (:course_code, :title, :credits)
+                INSERT INTO courses (course_code, title)
+                VALUES (:course_code, :title)
                 ON CONFLICT (course_code) DO NOTHING
             """),
             {
                 "course_code": course_code,
-                "title":       _clean_course_title(raw_section.get("courseTitle") or course_code),
-                "credits":     3,
+                "title": parse_title(raw_section.get("courseTitle"), course_code, _clean_course_title)[0],
             },
         )
 
@@ -298,12 +394,13 @@ async def _upsert_section_with_meetings(
             seen.add(dedup_key)
 
             if (start_time is None) != (end_time is None):
-                logger.warning("CRN %s: partial time in pattern, skipping", crn)
-                continue
+                raise ValueError(f"CRN {crn}: incomplete meeting time; section update rejected")
 
             if start_time is not None and end_time is not None and start_time >= end_time:
-                logger.warning("CRN %s: start %s >= end %s, skipping", crn, start_time, end_time)
-                continue
+                raise ValueError(
+                    f"CRN {crn}: meeting start {start_time} must precede end {end_time}; "
+                    "section update rejected"
+                )
 
             await session.execute(
                 text("""
@@ -333,7 +430,8 @@ async def _delete_stale_sections(
     completed scrape — cancelled/removed CRNs that upserts alone would
     otherwise leave sitting in the DB forever, since upserts only ever
     add or update, never remove. Meetings cascade-delete via their FK to
-    sections. Only call this after a subject's scrape has fully completed;
+    sections. Only call this after a subject's scrape has fully completed and
+    every section update has succeeded;
     "not seen" only means "removed" when the whole subject was checked.
 
     course_code is matched as "{subject}" followed by a digit, not a plain
@@ -360,28 +458,90 @@ async def _delete_stale_sections(
 
 # ─── Subject scrape ───────────────────────────────────────────────────────────
 
+async def _refresh_course_prerequisites(
+    session: AsyncSession, page, term: str, crn: str, course_code: str,
+    subject_lookup: SubjectLookup | None,
+    lookup_error: PrerequisiteDataError | PrerequisiteRequestError | None,
+) -> None:
+    """Save a complete replacement atomically, or record uncertainty without erasing data.
+
+    The verified timestamp belongs to the retained rules and source evidence.
+    Failed attempts preserve those together and record their candidate/evidence
+    separately. Cancellation propagates; persistence failures are logged by type.
+    """
+    if lookup_error is not None:
+        refresh = PrerequisiteRefresh(
+            rules=None, sources=[lookup_error.source] if lookup_error.source else [],
+            status="unresolved" if isinstance(lookup_error, PrerequisiteDataError) else "failed",
+            error=str(lookup_error),
+        )
+    else:
+        refresh = await fetch_prerequisites(page, BANNER_BASE, term, crn, subject_lookup)
+    status, error = refresh.status, refresh.error
+    attempt = {
+        "schema_version": 1, "scope": {"term": term, "crn": crn},
+        **refresh.model_dump(mode="json"),
+    }
+    if status in {"verified", "verified_empty"}:
+        try:
+            async with session.begin():
+                await session.execute(text("""
+                    UPDATE courses SET prerequisites = COALESCE(CAST(:prerequisites AS text[]), prerequisites),
+                        prerequisites_rules = CAST(:rules AS jsonb),
+                        prerequisites_source = CAST(:source AS jsonb),
+                        prerequisites_latest_attempt = CAST(:attempt AS jsonb),
+                        prerequisites_status = :status,
+                        prerequisites_attempted_at = now(), prerequisites_verified_at = now(),
+                        prerequisites_error = NULL
+                    WHERE course_code = :course_code
+                """), {
+                    "prerequisites": legacy_course_codes(refresh.rules), "status": status,
+                    "rules": refresh.rules.model_dump_json(),
+                    "source": json.dumps({"schema_version": 1, "sources": attempt["sources"]}),
+                    "attempt": json.dumps(attempt),
+                    "course_code": course_code,
+                })
+            return
+        except Exception:
+            status, error = "failed", "Could not save prerequisite refresh."
+
+    attempt.update(status=status, error=error)
+    async with session.begin():
+        await session.execute(text("""
+            UPDATE courses SET prerequisites_status = :status,
+                prerequisites_attempted_at = now(), prerequisites_error = :error,
+                prerequisites_latest_attempt = CAST(:attempt AS jsonb)
+            WHERE course_code = :course_code
+        """), {"status": status, "error": error, "course_code": course_code, "attempt": json.dumps(attempt)})
+    logger.warning("Banner/%s/%s/%s: prerequisites %s: %s", term, crn, course_code, status, error)
+
+
 async def scrape_subject(
     session: AsyncSession,
     subject: str,
     term: str,
+    *,
+    progress: ScrapeProgress | None = None,
 ) -> tuple[int, int, int]:
     """
     Scrape all sections for one subject+term via Playwright.
     Returns (sections_upserted, sections_failed, sections_deleted).
 
-    Raises BannerBlockedError or BannerSchemaError on unrecoverable failures.
+    Raises BannerBlockedError, BannerSchemaError, or BannerResponseError if the
+    subject's response set cannot be verified as complete.
     Timeouts and transient errors are retried per RETRY_DELAYS.
 
     Stale-section cleanup only runs when every page for this subject was
-    successfully fetched (the `complete` flag) — a block or exhausted
-    retries mid-scrape must never be treated as "Banner removed these",
-    since we simply never got far enough to know.
+    successfully fetched and validated (the `complete` flag), and every section
+    upsert has succeeded. A failed write must never turn a returned CRN into
+    an apparently removed section, or authorize any subject-wide deletion.
     """
     upserted          = 0
     failed            = 0
     offset            = 0
-    schema_error_count = 0
     seen_crns: set[str] = set()
+    received_crns: set[str] = set()
+    expected_total: int | None = None
     complete           = False
 
     async with async_playwright() as pw:
@@ -435,15 +595,21 @@ async def scrape_subject(
                     wait_until="networkidle",
                 )
 
+            lookup_error = None
             try:
                 subject_lookup = await fetch_subject_lookup(page, BANNER_BASE, term)
             except Exception as exc:
-                logger.warning(
-                    "Banner/%s: failed to fetch subject lookup, prerequisites will be skipped this run: %s",
-                    subject, exc,
+                lookup_error = (
+                    exc if isinstance(exc, (PrerequisiteDataError, PrerequisiteRequestError))
+                    else PrerequisiteRequestError("Subject lookup request failed.")
                 )
-                subject_lookup = {}
+                logger.warning(
+                    "Banner/%s: prerequisite refreshes will retain previous data: %s",
+                    subject, lookup_error,
+                )
+                subject_lookup = None
             seen_course_codes: set[str] = set()
+            course_observations: dict[str, list[dict]] = {}
 
             while True:
                 params = {
@@ -485,64 +651,36 @@ async def scrape_subject(
                             raise
                         logger.warning("Banner/%s: %s, retrying", subject, exc)
 
-                if page_data is None:
-                    logger.error("Banner/%s: exhausted retries at offset %d", subject, offset)
-                    break
-
-                # Use `or []` not `get("data", [])` — Banner returns `"data": null`
-                # for terms with no sections, and get(key, default) only uses the
-                # default when the key is absent, not when its value is null.
-                sections = page_data.get("data") or []
-                total    = page_data.get("totalCount") or 0
-
-                if page_data.get("data") is None:
-                    logger.warning(
-                        "Banner/%s: 'data' field is null at offset %d "
-                        "(totalCount=%s, success=%s) — term may have no sections yet",
-                        subject, offset, page_data.get("totalCount"), page_data.get("success"),
-                    )
+                sections, total = _validate_results_page(
+                    page_data, subject=subject, term=term, offset=offset,
+                    page_size=PAGE_SIZE, expected_total=expected_total,
+                    received_crns=received_crns,
+                )
+                expected_total = total
+                received_crns.update(raw["courseReferenceNumber"] for raw in sections)
 
                 for raw in sections:
                     try:
-                        _validate_section_schema(raw)
                         await _upsert_section_with_meetings(session, raw, term)
                         upserted += 1
+                        if progress is not None:
+                            progress.sections_upserted += 1
                         seen_crns.add(raw["courseReferenceNumber"])
 
                         course_code = f"{raw['subject']}{raw['courseNumber']}"
+                        course_observations.setdefault(course_code, []).append(metadata_observation(raw))
                         if course_code not in seen_course_codes:
                             seen_course_codes.add(course_code)
                             try:
-                                pairs = await fetch_prerequisites(
-                                    page, BANNER_BASE, term, raw["courseReferenceNumber"],
+                                await _refresh_course_prerequisites(
+                                    session, page, term, raw["courseReferenceNumber"],
+                                    course_code, subject_lookup, lookup_error,
                                 )
-                                codes = resolve_prerequisite_codes(
-                                    pairs, subject_lookup, course_code,
-                                )
-                                async with session.begin():
-                                    await session.execute(
-                                        text(
-                                            "UPDATE courses SET prerequisites = :prerequisites "
-                                            "WHERE course_code = :course_code"
-                                        ),
-                                        {"prerequisites": codes, "course_code": course_code},
-                                    )
                             except Exception as exc:
                                 logger.warning(
-                                    "Failed to fetch prerequisites for %s: %s",
-                                    course_code, exc,
+                                    "Failed to record prerequisite outcome for %s (%s)",
+                                    course_code, type(exc).__name__,
                                 )
-                    except BannerSchemaError as exc:
-                        schema_error_count += 1
-                        logger.error(
-                            "Schema error on CRN %s: %s",
-                            raw.get("courseReferenceNumber"), exc,
-                        )
-                        failed += 1
-                        if schema_error_count >= 5:
-                            raise BannerSchemaError(
-                                f"5+ schema errors in {subject} — Banner may have been upgraded."
-                            )
                     except Exception as exc:
                         logger.error(
                             "Failed to upsert CRN %s: %s",
@@ -550,21 +688,35 @@ async def scrape_subject(
                         )
                         failed += 1
 
-                offset += PAGE_SIZE
-                if offset >= total:
+                offset += len(sections)
+                if offset == total:
                     complete = True
                     break
 
                 await asyncio.sleep(2)
 
             deleted = 0
-            if complete:
+            if complete and failed == 0:
+                for code, observations in course_observations.items():
+                    try:
+                        await refresh_course_metadata(
+                            session, code, term, observations, _clean_course_title,
+                            source_url=f"{BANNER_BASE}/searchResults/searchResults",
+                        )
+                    except Exception as exc:
+                        # The owned transaction rolled back; preserve old values.
+                        logger.warning("Failed to refresh course metadata for %s (%s)", code, type(exc).__name__)
                 deleted = await _delete_stale_sections(session, subject, term, seen_crns)
                 if deleted:
                     logger.info(
                         "Banner/%s: removed %d stale section(s) no longer returned by Banner",
                         subject, deleted,
                     )
+            elif complete:
+                logger.warning(
+                    "Banner/%s: skipping stale-section cleanup after %d failed section update(s)",
+                    subject, failed,
+                )
 
         finally:
             await browser.close()
@@ -573,6 +725,21 @@ async def scrape_subject(
 
 
 # ─── Full run ─────────────────────────────────────────────────────────────────
+
+async def _finish_banner_run(
+    session: AsyncSession, run_id: int, status: str,
+    counts: tuple[int, int] | None, message: str | None,
+) -> None:
+    async with session.begin():
+        await session.execute(text("""
+            UPDATE scraper_runs SET status = :status, finished_at = NOW(),
+                sections_upserted = :upserted, sections_failed = :failed,
+                error_message = :message
+            WHERE id = :run_id
+        """), dict(run_id=run_id, status=status, message=message,
+                    upserted=counts[0] if counts is not None else None,
+                    failed=counts[1] if counts is not None else None))
+
 
 async def run_banner_scrape(
     session: AsyncSession,
@@ -588,96 +755,86 @@ async def run_banner_scrape(
     """
     async with advisory_lock(session, BANNER_SCRAPER_LOCK_ID, "banner") as acquired:
         if not acquired:
-            await session.execute(
-                text("""
-                    INSERT INTO scraper_runs (scraper, term, status)
-                    VALUES ('banner', :term, 'skipped_overlap')
-                """),
-                {"term": term},
-            )
-            await session.commit()
+            async with session.begin():
+                await session.execute(text("""
+                    INSERT INTO scraper_runs (scraper, term, status, subjects, finished_at)
+                    VALUES ('banner', :term, 'skipped_overlap', :subjects, NOW())
+                """), {"term": term, "subjects": subjects})
             return
 
-        result = await session.execute(
-            text("""
-                INSERT INTO scraper_runs (scraper, term, status)
-                VALUES ('banner', :term, 'running')
-                RETURNING id
-            """),
-            {"term": term},
-        )
-        run_id = result.scalar()
-        await session.commit()
+        async with session.begin():
+            result = await session.execute(text("""
+                INSERT INTO scraper_runs (scraper, term, status, subjects)
+                VALUES ('banner', :term, 'running', :subjects) RETURNING id
+            """), {"term": term, "subjects": subjects})
+            run_id = result.scalar_one()
 
         total_upserted = 0
         total_failed   = 0
         total_deleted  = 0
+        complete_subjects = 0
+        counts_known = True
+        progress = ScrapeProgress()
+        try:
+            for subject in subjects:
+                t0 = time_module.monotonic()
+                try:
+                    upserted, failed, deleted = await scrape_subject(session, subject, term, progress=progress)
+                    total_upserted += upserted
+                    total_failed += failed
+                    total_deleted += deleted
+                    if failed == 0:
+                        complete_subjects += 1  # a verified empty subject also counts
+                    logger.info(
+                        "Banner/%s: %d upserted, %d failed, %d deleted, %.1fs",
+                        subject, upserted, failed, deleted, time_module.monotonic() - t0,
+                    )
+                except Exception as exc:
+                    # A raised subject may already have committed earlier pages.
+                    # Do not publish incomplete counters as exact run totals.
+                    counts_known = False
+                    await session.rollback()
+                    status = ("blocked" if isinstance(exc, BannerBlockedError)
+                              else "schema_change" if isinstance(exc, BannerSchemaError) else "failed")
+                    logger.error("Banner/%s: %s (%s)", subject, status, type(exc).__name__)
+                    async with session.begin():
+                        await session.execute(text("""
+                            INSERT INTO scraper_runs
+                                (scraper, subject, term, status, error_message, finished_at)
+                            VALUES ('banner', :subject, :term, :status, :message, NOW())
+                        """), dict(subject=subject, term=term, status=status, message=type(exc).__name__))
+                    if isinstance(exc, BannerSchemaError):
+                        break  # Schema change affects all subjects; a block may not.
 
-        for subject in subjects:
-            t0 = time_module.monotonic()
+            if subjects and complete_subjects == len(subjects):
+                final_status = "completed"
+                message = None
+            elif complete_subjects > 0 or total_upserted > 0 or progress.sections_upserted > 0:
+                final_status = "partial"
+                message = "Some subjects or sections could not be refreshed."
+            else:
+                final_status = "failed"
+                message = "The section refresh did not complete." if subjects else "No subjects were requested."
+            await _finish_banner_run(
+                session, run_id, final_status,
+                (total_upserted, total_failed) if counts_known else None, message,
+            )
+        except BaseException:
+            # Preserve cancellation/interrupt semantics while closing the health
+            # record when the database is available. A lost connection must never
+            # promote this unfinished run to a successful refresh.
+            await session.rollback()
             try:
-                upserted, failed, deleted = await scrape_subject(session, subject, term)
-                total_upserted += upserted
-                total_failed   += failed
-                total_deleted  += deleted
-                logger.info(
-                    "Banner/%s: %d upserted, %d failed, %d deleted, %.1fs",
-                    subject, upserted, failed, deleted, time_module.monotonic() - t0,
+                interrupted_status = (
+                    "partial" if complete_subjects > 0 or total_upserted > 0 or progress.sections_upserted > 0
+                    else "failed"
                 )
+                await _finish_banner_run(session, run_id, interrupted_status, None, "The section refresh was interrupted.")
+            except Exception:
+                logger.exception("Could not finalize interrupted Banner run")
+            raise
 
-            except BannerBlockedError as exc:
-                logger.error("Banner/%s: BLOCKED — %s", subject, exc)
-                total_failed += 1
-                await session.execute(
-                    text("""
-                        INSERT INTO scraper_runs (scraper, subject, term, status, error_message)
-                        VALUES ('banner', :subject, :term, 'blocked', :msg)
-                    """),
-                    {"subject": subject, "term": term, "msg": str(exc)},
-                )
-                await session.commit()
-                # One block may be subject-specific — continue with others
-
-            except BannerSchemaError as exc:
-                logger.error("Banner/%s: SCHEMA CHANGE — %s", subject, exc)
-                total_failed += 1
-                await session.execute(
-                    text("""
-                        INSERT INTO scraper_runs
-                            (scraper, subject, term, status, error_message)
-                        VALUES ('banner', :subject, :term, 'schema_change', :msg)
-                    """),
-                    {"subject": subject, "term": term, "msg": str(exc)},
-                )
-                await session.commit()
-                break  # Schema change affects all subjects — abort
-
-            except Exception as exc:
-                logger.error("Banner/%s: unexpected — %s", subject, exc, exc_info=True)
-                total_failed += 1
-
-        final_status = (
-            "failed"    if total_upserted == 0 and total_failed > 0
-            else "completed"
-        )
-        await session.execute(
-            text("""
-                UPDATE scraper_runs
-                SET status            = :status,
-                    sections_upserted = :upserted,
-                    sections_failed   = :failed,
-                    finished_at       = NOW()
-                WHERE id = :run_id
-            """),
-            {
-                "status":   final_status,
-                "upserted": total_upserted,
-                "failed":   total_failed,
-                "run_id":   run_id,
-            },
-        )
-        await session.commit()
         logger.info(
-            "Banner scrape complete: %d upserted, %d failed, %d deleted, status=%s",
-            total_upserted, total_failed, total_deleted, final_status,
+            "Banner scrape finished: %d upserted, %d failed, %d deleted in subjects that returned totals; status=%s, counts_known=%s",
+            total_upserted, total_failed, total_deleted, final_status, counts_known,
         )

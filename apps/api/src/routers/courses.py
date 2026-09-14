@@ -11,12 +11,31 @@ from src.config import settings
 from src.dependencies import get_db
 from src.scheduler.models import SectionSlot
 from src.schemas.courses import CourseDetailResponse, CourseResponse, ProfessorResponse
+from src.schemas.catalog import CatalogCoverageResponse
 from src.schemas.schedule import MeetingResponse, SectionResponse
 from src.services.courses import load_sections_with_meetings
+from src.services.course_metadata import course_response
+from src.services.catalog import load_catalog_coverage
+from src.schemas.terms import TermsResponse
+from src.services.terms import discover_terms
+from src.terms import TERM_CODE_PATTERN
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["courses"])
+
+
+@router.get("/api/terms", response_model=TermsResponse)
+async def available_terms(db: AsyncSession = Depends(get_db)) -> TermsResponse:
+    return await discover_terms(db)
+
+
+@router.get("/api/catalog/coverage", response_model=CatalogCoverageResponse)
+async def catalog_coverage(
+    term: str = Query(..., pattern=TERM_CODE_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> CatalogCoverageResponse:
+    return await load_catalog_coverage(db, term)
 
 
 def _slot_to_response(section: SectionSlot) -> SectionResponse:
@@ -65,7 +84,7 @@ async def search_courses(
 
     result = await db.execute(
         text(f"""
-            SELECT course_code, title, credits
+            SELECT course_code, title, credits, title_source, credits_source, metadata_latest_attempt
             FROM courses
             {where}
             ORDER BY course_code
@@ -74,20 +93,13 @@ async def search_courses(
         params,
     )
     rows = result.mappings().all()
-    return [
-        CourseResponse(
-            course_code=row["course_code"],
-            title=row["title"],
-            credits=row["credits"],
-        )
-        for row in rows
-    ]
+    return [course_response(row) for row in rows]
 
 
 @router.get("/api/courses/{code}/sections", response_model=list[SectionResponse])
 async def get_course_sections(
     code: str,
-    term: str = Query(..., pattern=r"^\d{4}(10|50|90)$"),
+    term: str = Query(..., pattern=TERM_CODE_PATTERN),
     db: AsyncSession = Depends(get_db),
 ) -> list[SectionResponse]:
     code = code.upper()
@@ -98,13 +110,14 @@ async def get_course_sections(
 @router.get("/api/courses/{code}", response_model=CourseDetailResponse)
 async def get_course(
     code: str,
+    term: str | None = Query(None, pattern=TERM_CODE_PATTERN),
     db: AsyncSession = Depends(get_db),
 ) -> CourseDetailResponse:
     code = code.upper()
 
     result = await db.execute(
         text(
-            "SELECT course_code, title, credits, prerequisites"
+            "SELECT course_code, title, credits, prerequisites, title_source, credits_source, metadata_latest_attempt"
             " FROM courses WHERE course_code = :code"
         ),
         {"code": code},
@@ -114,14 +127,12 @@ async def get_course(
         raise HTTPException(status_code=404, detail=f"Course {code} not found.")
 
     sections_by_course = await load_sections_with_meetings(
-        db, [code], settings.CURRENT_TERM
+        db, [code], term or settings.CURRENT_TERM
     )
     sections = [_slot_to_response(s) for s in sections_by_course.get(code, [])]
 
     return CourseDetailResponse(
-        course_code=row["course_code"],
-        title=row["title"],
-        credits=row["credits"],
+        **course_response(row).model_dump(),
         prerequisites=row["prerequisites"] or [],
         sections=sections,
     )

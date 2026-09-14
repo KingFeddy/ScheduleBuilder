@@ -5,7 +5,7 @@ dockerfilePath = "apps/api/Dockerfile"
 [[services]]
 name = "api"
 [services.deploy]
-startCommand = "uv run uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2"
+startCommand = "uv run --no-sync uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
@@ -20,4 +20,4 @@ name = "scraper"
 startCommand = "echo 'Scraper service — runs on cron only'"
 [services.cron]
 schedule = "*/30 * * * *"
-command = "uv run python -m src.scrapers.cron"
+command = "uv run --no-sync python -m src.scrapers.cron"

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import make_url, text
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import create_async_engine
+from src.catalog import DEFAULT_CATALOG_SUBJECTS, DEFAULT_GER_SUBJECTS
 
 
 DATABASE_MARKER = "schedule-builder disposable test database v1"
@@ -65,6 +66,8 @@ def configure_test_environment(
         "SUPABASE_ANON_KEY": "test",
         "CORS_ORIGINS": "http://localhost:3000",
         "CURRENT_TERM": "202690",
+        "CATALOG_SUBJECTS": DEFAULT_CATALOG_SUBJECTS,
+        "GER_SUBJECTS": DEFAULT_GER_SUBJECTS,
         "SENTRY_DSN": "",
         "LOG_LEVEL": "INFO",
     })

@@ -1,44 +1,45 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
+import math
 import re
+from decimal import Decimal
 
 import pdfplumber
 
-from src.schemas.plan import ParsedDegree, StillNeededItem
+from src.schemas.plan import CourseAttempt, CourseAttemptSource, ParsedDegree, RequirementSource, StillNeededItem, stable_identity
 
 logger = logging.getLogger(__name__)
 
 # ── Compiled regex patterns ───────────────────────────────────────────────────
 
-# Standard NJIT course code with explicit dept prefix: "CS 280" or "CS280"
-_COURSE_CODE_RE = re.compile(r"\b([A-Z]{2,5})\s{0,2}(\d{3}[A-Z]?)\b")
-
-# Matches either a dept+number pair OR a bare number after "or".
-# Used in _extract_course_codes to handle "COM 303 or 310 or 312" → COM303,
-# COM310, COM312. The spec's _COURSE_CODE_RE alone misses the bare numbers;
-# this version carries the last-seen department forward across an "or" list.
-# Groups: (dept, num_with_dept, bare_num_after_or)
-_CODE_PART_RE = re.compile(
-    r"\b(?:([A-Z]{2,5})\s{0,2}(\d{3}[A-Z]?)|or\s+(\d{3}[A-Z]?))\b"
+# One ordered grammar shares department context across explicit and wildcard
+# entries. Full-token boundaries prevent partial matches of malformed codes.
+_OPTION_TOKEN_RE = re.compile(
+    r"(?:(?P<dept>[A-Z]{2,5}|R510|R512)[ \t]*"
+    r"(?P<number>[0-9]{3}[A-Z]?|[0-9]@|@)"
+    r"|(?P<universal>@(?:[ \t]+@)?)"
+    r"|(?P<inherited>[0-9]{3}[A-Z]?|[0-9]@))(?=$|[\s,])"
 )
+# Horizontal spaces separate subject/number cells, not alternative choices.
+# Otherwise malformed "CS @ @" could become CSXXX plus unrestricted @.
+_OPTION_SEPARATOR_RE = re.compile(r"\s*(?i:or)\b\s*|\s*,\s*|[ \t]*\n\s*")
 
-# Wildcard course: "PHYS 3@" → ("PHYS", "3"), bare "4@" → ("", "4").
-# Dept prefix is optional — DegreeWorks writes "PHYS 3@ or 4@" where the
-# second wildcard inherits PHYS from the first.
-_WILDCARD_CODE_RE = re.compile(r"(?:([A-Z]{2,5})\s{0,2})?(\d)@")
-
-# Rutgers cross-listed codes to exclude. In practice [A-Z]{2,5} already
-# rejects alphanumeric prefixes like R510/R512, but kept for explicitness.
+# Preserve the existing exclusion, but retain its context so subsequent bare
+# numbers cannot accidentally inherit the preceding NJIT department.
 _RUTGERS_DEPTS = {"R510", "R512"}
 
-# "Still needed: N Class(es) in ..." or "Still needed: N Credit(s) in ..."
-# DOTALL so .* captures multi-line option lists (H&H GER has 80+ options).
-# Stops at the next "Still needed:" or end of string.
+# Preserve every non-reference block, including an unreadable amount. A failed
+# amount extraction must not silently remove an unfulfilled requirement.
 _STILL_NEEDED_RE = re.compile(
-    r"Still needed:\s+\d+\s+(?:Class(?:es)?|Credits?)\s+in\s+(.*?)(?=Still needed:|$)",
+    r"Still needed:\s*(?P<body>.*?)(?=Still needed:|$)",
     re.DOTALL,
+)
+_REQUIREMENT_AMOUNT_RE = re.compile(
+    r"^(?:(?P<amount>.*?)\s+)?(?P<unit>Class(?:es)?|Credits?)\s+in\s+(?P<options>.*)$",
+    re.DOTALL | re.IGNORECASE,
 )
 
 # Credits summary
@@ -47,11 +48,6 @@ _CREDITS_APPLIED_RE = re.compile(r"Credits applied:\s*(\d+)")
 
 # Prose fallback: "you still need 21 more credits"
 _CREDITS_PROSE_RE = re.compile(r"you still need\s+(\d+)\s+more credits", re.IGNORECASE)
-
-# In-progress: line contains course code followed by "IP (N)"
-_IP_COURSE_RE = re.compile(
-    r"\b([A-Z]{2,5})\s{0,2}(\d{3}[A-Z]?)\b[^\n]*\bIP\s*\(\d+\)"
-)
 
 # Catalog year: "Catalog year: 2025-2026" → 2025
 _CATALOG_YEAR_RE = re.compile(r"Catalog year:\s*(\d{4})-\d{4}")
@@ -67,68 +63,109 @@ _MINOR_RE = re.compile(
     r"\bMinors?\s+(.+?)(?=\n|Program|College|Academic)", re.DOTALL
 )
 
-# Completed course: code + letter grade + credit count + term
-# Matches: "CS 280  Programming Lang Concepts  B+  3  2025 Fall"
-_COMPLETED_COURSE_RE = re.compile(
-    r"\b([A-Z]{2,5})\s{0,2}(\d{3}[A-Z]?)\b[^\n]*\b"
-    r"([ABCDF][+-]?|[TP]|TR)\s+\d\s+\d{4}\s+(?:Fall|Spring|Summer)\b"
+# Match the full grade token, including unknown grades, rather than a passing
+# suffix inside e.g. WF/ABC. Only standalone course rows are attempt evidence.
+_ATTEMPT_ROW_RE = re.compile(
+    r"^[ \t]*(?P<dept>[A-Z]{2,5})[ \t]*(?P<number>[0-9]{3}[A-Z]?)[ \t]+"
+    r"(?:.*?[ \t]+)?(?P<grade>[^\s()]+)[ \t]+"
+    r"(?P<credits>[0-9]+(?:\.[0-9]+)?|\([0-9]+(?:\.[0-9]+)?\))"
+    r"(?:[ \t]+(?P<term>[0-9]{4}[ \t]+[A-Za-z]+|[A-Za-z]+[ \t]+[0-9]{4}))?[ \t]*$"
 )
+_ATTEMPT_CODE_RE = re.compile(r"\b[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b")
+_ATTEMPT_COLUMN_RE = re.compile(r"[ \t]{2,}(?=[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b)")
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
+def _extract_course_attempts(text: str, *, document_id: str | None = None) -> list[CourseAttempt]:
+    attempts = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        # layout=True separates columns with whitespace. Never let the title
+        # wildcard consume a second course and borrow its grade. Ambiguous
+        # merged rows without a column boundary remain unclassified.
+        for column in _ATTEMPT_COLUMN_RE.split(line):
+            if len(_ATTEMPT_CODE_RE.findall(column)) != 1:
+                continue
+            match = _ATTEMPT_ROW_RE.fullmatch(column)
+            if match is None:
+                continue
+            credits = float(match["credits"].strip("()"))
+            # An unrepresentable amount is unknown, never earned credit.
+            if not math.isfinite(credits) or (credits == 0 and Decimal(match["credits"].strip("()")) != 0):
+                credits = None
+            attempts.append(CourseAttempt(
+                course_code=match["dept"] + match["number"], grade=match["grade"],
+                credits=credits, term=match["term"],
+                source=CourseAttemptSource(document_id=document_id, line=line_number, text=line),
+            ))
+    return attempts
+
+
 def _extract_course_codes(text: str) -> list[str]:
+    """Parse a whole option expression in source order; unknown syntax stays TBD.
+
+    Level @ fills TWO digits (PHYS3XX), subject @ fills three (CSXXX), and
+    universal @ @ becomes @. Never broaden a partially understood expression.
     """
-    Extract all NJIT course codes from a text block.
-
-    Two passes:
-      1. Wildcard codes: "PHYS 3@" → "PHYS3XX", bare "4@" → "PHYS4XX"
-         (@ expands to TWO X's — one per remaining digit of a 3-digit number).
-         PHYS3XX is required by Subsystem 6's matches_wildcard: each X matches
-         exactly one digit, so PHYS3XX → ^PHYS3\\d\\d$ correctly matches PHYS310.
-         A single X would only match 2-digit numbers and silently break matching.
-
-      2. Standard codes with department inheritance: "COM 303 or 310 or 312"
-         → COM303, COM310, COM312. Bare numbers after 'or' inherit the most
-         recently seen department. This is necessary for DegreeWorks option lists
-         which only repeat the dept prefix for the first code in a run.
-
-    Excludes Rutgers cross-listed codes (R510, R512). Deduplicates, order preserved.
-    """
+    text = text.strip()
     seen: set[str] = set()
     result: list[str] = []
-
-    # Pass 1 — wildcard codes
     last_dept: str | None = None
-    for dept, lead_digit in _WILDCARD_CODE_RE.findall(text):
-        if dept:
-            last_dept = dept
-        if not last_dept or last_dept in _RUTGERS_DEPTS:
-            continue
-        code = f"{last_dept}{lead_digit}XX"
-        if code not in seen:
-            seen.add(code)
-            result.append(code)
-
-    # Pass 2 — standard codes with dept inheritance
-    last_dept = None
-    for m in _CODE_PART_RE.finditer(text):
-        dept, num_full, bare_num = m.group(1), m.group(2), m.group(3)
-        if dept:
-            if dept in _RUTGERS_DEPTS:
-                last_dept = None
-                continue
-            last_dept = dept
-            code = f"{dept}{num_full.upper()}"
+    pos = 0
+    while pos < len(text):
+        match = _OPTION_TOKEN_RE.match(text, pos)
+        if match is None:
+            return []
+        code = None
+        if match["universal"]:
+            code = "@"
+            last_dept = None
         else:
-            if not last_dept:
-                continue
-            code = f"{last_dept}{bare_num.upper()}"  # type: ignore[union-attr]
-        if code not in seen:
+            last_dept = match["dept"] or last_dept
+            if last_dept is None:
+                return []
+            number = match["number"] or match["inherited"]
+            if last_dept not in _RUTGERS_DEPTS:
+                suffix = "XXX" if number == "@" else number.replace("@", "XX")
+                code = last_dept + suffix
+        if code is not None and code not in seen:
             seen.add(code)
             result.append(code)
-
+        pos = match.end()
+        if pos == len(text):
+            break
+        separator = _OPTION_SEPARATOR_RE.match(text, pos)
+        if separator is None or separator.end() == len(text):
+            return []
+        pos = separator.end()
     return result
+
+
+def _option_expression(text: str) -> str:
+    """Separate wrapped choices from following headings/history in a source block.
+
+    Source provenance still retains the complete captured block. Unsupported
+    first-line text or a clause after an explicit connector is kept for the
+    strict grammar to reject, rather than silently dropping a qualification.
+    """
+    lines: list[str] = []
+    for raw_line in text.strip().splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # A bare numeric option at the end of "CS490 or 435" can resemble
+        # an unknown-grade row (grade=or, credits=435). Require actual grade
+        # or term evidence before treating a line as transcript history.
+        if any(attempt.status != "unknown" or attempt.term is not None
+               for attempt in _extract_course_attempts(line)):
+            break
+        continuation = lines and re.search(r"(?:\b(?i:or)|,)\s*$", lines[-1])
+        qualifier = re.match(r"(?i:or|and|with|except|excluding|only|including|minimum|grade|at least|from)\b|\(", line)
+        if not lines or continuation or qualifier or _OPTION_TOKEN_RE.match(line):
+            lines.append(line)
+        else:
+            break
+    return "\n".join(lines)
 
 
 def _infer_requirement_name(pos: int, full_text: str, options: list[str]) -> str:
@@ -154,7 +191,7 @@ def _infer_requirement_name(pos: int, full_text: str, options: list[str]) -> str
     return f"{dept_match.group(1)} Requirement" if dept_match else "Requirement"
 
 
-def _extract_still_needed(text: str) -> list[StillNeededItem]:
+def _extract_still_needed(text: str, *, document_id: str | None = None) -> list[StillNeededItem]:
     """
     Extract all unfulfilled requirements from DegreeWorks text.
 
@@ -163,23 +200,42 @@ def _extract_still_needed(text: str) -> list[StillNeededItem]:
       Still needed: 3 Credits in CS 491 or PHYS 490
       Still needed: 3 Credits in PHYS 3@ or 4@
       Still needed: 1 Class in COM 303 or 310 or 312 ...  (long multi-line list)
-      Still needed: See [section name]                    ← never matches _STILL_NEEDED_RE
+      Unknown amounts are retained as unresolved; See-block references are skipped.
     """
     items: list[StillNeededItem] = []
 
-    for match in _STILL_NEEDED_RE.finditer(text):
-        options_text = match.group(1).strip()
+    identity_context = document_id or hashlib.sha256(text.encode()).hexdigest()
+    for block_index, match in enumerate(_STILL_NEEDED_RE.finditer(text), start=1):
+        body = match.group("body").strip()
+        amount_match = _REQUIREMENT_AMOUNT_RE.fullmatch(body)
+        quantity = None
+        unit = "unknown"
+        options_text = body
+        if amount_match:
+            options_text = amount_match.group("options").strip()
+            unit = "classes" if amount_match.group("unit").lower().startswith("class") else "credits"
+            raw_amount = (amount_match.group("amount") or "").strip()
+            if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw_amount):
+                candidate = float(raw_amount)
+                # Preserve the written amount; float rounding must not turn a
+                # fractional class count into an integer or a tiny amount into 0.
+                if (math.isfinite(candidate) and Decimal(str(candidate)) == Decimal(raw_amount)
+                        and (unit == "credits" or candidate.is_integer())):
+                    quantity = candidate
 
         # Safety net for malformed extractions like "Still needed: 1 Class in See ..."
         if re.match(r"^See\s+", options_text, re.IGNORECASE):
             continue
 
-        options = _extract_course_codes(options_text)
-        if not options:
-            continue
-
+        options = _extract_course_codes(_option_expression(options_text))
         requirement = _infer_requirement_name(match.start(), text, options)
-        items.append(StillNeededItem(requirement=requirement, options=options))
+        items.append(StillNeededItem(
+            requirement_id=stable_identity("req", identity_context, block_index),
+            requirement=requirement, options=options,
+            remaining_quantity=quantity, quantity_unit=unit,
+            source=RequirementSource(document_id=document_id, block_index=block_index,
+                                     line=text.count("\n", 0, match.start()) + 1, text=match.group(0).strip()),
+        ))
 
     return items
 
@@ -267,34 +323,19 @@ def parse_degree_works_regex(pdf_bytes: bytes) -> ParsedDegree:
     if minor_match:
         minors = _clean_major_minor(minor_match.group(1))
 
-    # In-progress courses
-    in_progress: list[str] = []
-    seen_ip: set[str] = set()
-    for dept, num in _IP_COURSE_RE.findall(full_text):
-        code = f"{dept}{num}"
-        if code not in seen_ip:
-            seen_ip.add(code)
-            in_progress.append(code)
-
-    # Completed courses — grade lines only; AP/transfer codes filtered later
-    completed: list[str] = []
-    seen_completed: set[str] = set()
-    for dept, num, _grade in _COMPLETED_COURSE_RE.findall(full_text):
-        code = f"{dept}{num}"
-        if code not in seen_completed and code not in seen_ip:
-            seen_completed.add(code)
-            completed.append(code)
+    document_id = hashlib.sha256(pdf_bytes).hexdigest()
+    course_attempts = _extract_course_attempts(full_text, document_id=document_id)
 
     # Still needed requirements
-    still_needed = _extract_still_needed(full_text)
+    still_needed = _extract_still_needed(full_text, document_id=document_id)
 
     logger.info(
         "DegreeWorks parse: majors=%r  credits_remaining=%s  "
-        "still_needed=%d items  in_progress=%d",
+        "still_needed=%d items  course_attempts=%d",
         majors,
         credits_remaining,
         len(still_needed),
-        len(in_progress),
+        len(course_attempts),
     )
 
     return ParsedDegree(
@@ -305,7 +346,6 @@ def parse_degree_works_regex(pdf_bytes: bytes) -> ParsedDegree:
         credits_completed=credits_completed,
         credits_required=credits_required,
         credits_remaining=credits_remaining,
-        completed_courses=completed,
-        in_progress_courses=in_progress,
+        course_attempts=course_attempts,
         still_needed=still_needed,
     )

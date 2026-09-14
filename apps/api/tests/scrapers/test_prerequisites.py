@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.scrapers.prerequisites import (
-    parse_prerequisite_table,
+    parse_prerequisite_rules,
     build_subject_lookup,
-    resolve_prerequisite_codes,
 )
 
 
@@ -35,7 +36,8 @@ class TestParsePrerequisiteTable:
             </table>
         </section>
         """
-        assert parse_prerequisite_table(html) == [("Accounting", "215")]
+        rule = parse_prerequisite_rules(html, {"Accounting": "ACCT"})
+        assert (rule.course_code, rule.minimum_grade) == ("ACCT215", "D")
 
     def test_two_prerequisites_and_connector(self):
         """CS288-shaped: two rows, second row's And/Or cell says 'And'."""
@@ -63,19 +65,19 @@ class TestParsePrerequisiteTable:
             </table>
         </section>
         """
-        assert parse_prerequisite_table(html) == [
-            ("Computer Science", "100"),
-            ("Computer Science", "280"),
-        ]
+        rule = parse_prerequisite_rules(html, {"Computer Science": "CS"})
+        assert rule.kind == "all"
+        assert [item.course_code for item in rule.items] == ["CS100", "CS280"]
+        assert [item.minimum_grade for item in rule.items] == ["C", "C"]
 
     def test_no_prerequisites_returns_empty_list(self):
-        """A course with no prerequisites — no table, no rows to find."""
+        """Only the complete, recognized empty prerequisite section proves absence."""
         html = """
         <section aria-labelledby="preReqs">
             <h3>Catalog Prerequisites</h3>
         </section>
         """
-        assert parse_prerequisite_table(html) == []
+        assert parse_prerequisite_rules(html, {}).model_dump() == {"kind": "all", "items": []}
 
 
 # ── TestBuildSubjectLookup ──────────────────────────────────────────────────
@@ -96,7 +98,7 @@ class TestBuildSubjectLookup:
         """
         Banner's get_subject JSON returns raw, HTML-escaped description text
         (e.g. "Electrical &amp; Computer Engr") since it's plain JSON, never
-        parsed as HTML. But parse_prerequisite_table's BeautifulSoup-based
+        parsed as HTML. But parse_prerequisite_rules' BeautifulSoup-based
         extraction auto-decodes HTML entities when pulling text out of the
         prerequisite table (producing "Electrical & Computer Engr" with a
         literal &). Without unescaping here too, these two data sources
@@ -115,22 +117,23 @@ class TestBuildSubjectLookup:
 class TestResolvePrerequisiteCodes:
 
     def test_resolves_known_subjects(self):
-        pairs = [("Computer Science", "100"), ("Computer Science", "280")]
+        from tests.scrapers.test_prerequisite_verification import row, table
         lookup = {"Computer Science": "CS"}
-        assert resolve_prerequisite_codes(pairs, lookup, "CS288") == ["CS100", "CS280"]
+        rule = parse_prerequisite_rules(table(row(subject="Computer Science", number="100"), row(subject="Computer Science", number="280", connector="And")), lookup)
+        assert [item.course_code for item in rule.items] == ["CS100", "CS280"]
 
-    def test_unknown_subject_is_skipped_not_fatal(self):
-        """A subject description not in the lookup is skipped, not an error — and processing continues past it to later entries."""
-        pairs = [
-            ("Computer Science", "280"),
-            ("Mystery Subject", "999"),
-            ("Computer Science", "100"),
-        ]
+    def test_unknown_subject_rejects_partial_resolution(self):
+        """One unresolved subject must prevent replacement of the entire course array."""
+        from tests.scrapers.test_prerequisite_verification import row, table
+        from src.schemas.prerequisites import has_unresolved
         lookup = {"Computer Science": "CS"}
-        assert resolve_prerequisite_codes(pairs, lookup, "CS350") == ["CS280", "CS100"]
+        rule = parse_prerequisite_rules(table(row(subject="Computer Science", number="280"), row(subject="Mystery Subject", connector="And")), lookup)
+        assert has_unresolved(rule)
+        assert rule.items[1].reason == "unresolved_subject"
 
     def test_empty_pairs_returns_empty_list(self):
-        assert resolve_prerequisite_codes([], {"Computer Science": "CS"}, "CS101") == []
+        from tests.scrapers.test_prerequisite_verification import EMPTY_HTML
+        assert parse_prerequisite_rules(EMPTY_HTML, {"Computer Science": "CS"}).items == []
 
 
 # ── TestFetchSubjectLookup ───────────────────────────────────────────────────
@@ -142,6 +145,8 @@ class TestFetchSubjectLookup:
 
         async def run():
             mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.headers = {"content-type": "application/json; charset=UTF-8"}
             mock_response.text = AsyncMock(
                 return_value=json.dumps([
                     {"code": "CS", "description": "Computer Science"},
@@ -154,7 +159,8 @@ class TestFetchSubjectLookup:
 
             result = await fetch_subject_lookup(mock_page, "https://example.com/ssb", "202690")
 
-            assert result == {"Computer Science": "CS", "Accounting": "ACCT"}
+            assert result.mapping == {"Computer Science": "CS", "Accounting": "ACCT"}
+            assert result.source.body == await mock_response.text()
             mock_page.request.get.assert_called_once()
             called_url = mock_page.request.get.call_args[0][0]
             assert "get_subject" in called_url
@@ -168,14 +174,18 @@ class TestFetchSubjectLookup:
 class TestFetchPrerequisites:
 
     def test_fetches_and_parses_table(self):
-        from src.scrapers.prerequisites import fetch_prerequisites
+        from src.scrapers.prerequisites import fetch_rule_source
 
         async def run():
             mock_response = MagicMock()
             mock_response.status = 200
+            mock_response.headers = {"content-type": "text/html; charset=UTF-8"}
             mock_response.text = AsyncMock(
                 return_value="""
-                <table class="basePreqTable"><tbody>
+                <table class="basePreqTable">
+                    <thead><tr><th>And/Or</th><th></th><th>Test</th><th>Score</th>
+                        <th>Subject</th><th>Course Number</th><th>Level</th><th>Grade</th><th></th></tr></thead>
+                    <tbody>
                     <tr><td></td><td></td><td></td><td></td>
                         <td>Accounting</td><td>215</td><td>Undergraduate</td><td>D</td><td></td></tr>
                 </tbody></table>
@@ -185,9 +195,10 @@ class TestFetchPrerequisites:
             mock_page.request = MagicMock()
             mock_page.request.post = AsyncMock(return_value=mock_response)
 
-            result = await fetch_prerequisites(mock_page, "https://example.com/ssb", "202690", "90014")
+            result = await fetch_rule_source(mock_page, "https://example.com/ssb", "202690", "90014", "prerequisites")
 
-            assert result == [("Accounting", "215")]
+            rule = parse_prerequisite_rules(result.body, {"Accounting": "ACCT"})
+            assert (rule.course_code, rule.minimum_grade) == ("ACCT215", "D")
             mock_page.request.post.assert_called_once()
             call_kwargs = mock_page.request.post.call_args
             assert "getSectionPrerequisites" in call_kwargs[0][0]
@@ -198,19 +209,20 @@ class TestFetchPrerequisites:
     def test_non_200_status_raises_instead_of_silently_returning_empty(self):
         """A blocked/error response (e.g. 403) must raise, not parse to [] and
         silently overwrite a course's real prerequisites with an empty list."""
-        from src.scrapers.prerequisites import fetch_prerequisites
+        from src.scrapers.prerequisites import fetch_rule_source
 
         async def run():
             import pytest
 
             mock_response = MagicMock()
             mock_response.status = 403
+            mock_response.headers = {"content-type": "text/html"}
             mock_response.text = AsyncMock(return_value="")
             mock_page = MagicMock()
             mock_page.request = MagicMock()
             mock_page.request.post = AsyncMock(return_value=mock_response)
 
             with pytest.raises(RuntimeError):
-                await fetch_prerequisites(mock_page, "https://example.com/ssb", "202690", "90014")
+                await fetch_rule_source(mock_page, "https://example.com/ssb", "202690", "90014", "prerequisites")
 
         __import__("asyncio").run(run())

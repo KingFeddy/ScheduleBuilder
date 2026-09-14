@@ -2,6 +2,8 @@
 
 import { Printer, RefreshCw } from 'lucide-react'
 import type { SemesterPlan as SemesterPlanType } from '@/lib/api'
+import { formatCredits } from '@/lib/course-metadata'
+import { CatalogNote } from '@/components/ui/catalog-note'
 
 // Known GER subject prefixes at NJIT — swap button shown only for these
 const GER_PREFIXES = new Set(['HUM', 'COM', 'HIST', 'STS', 'LIB', 'SSC'])
@@ -15,24 +17,45 @@ interface CourseRowProps {
   code: string
   title: string | null
   credits: number
+  estimated: boolean
+  creditsNote: string
+  titleStatus: string
+  catalogStatus: SemesterPlanType['courses'][number]['catalog_status']
+  catalogNote: string
   badge: 'Required' | 'Elective' | 'TBD'
   reason: string
+  requirement: SemesterPlanType['courses'][number]['requirement'] | undefined
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, badge, reason, onSwap }: CourseRowProps) {
+function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, requirement, onSwap }: CourseRowProps) {
   const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
+  const knownQuantity = requirement?.quantity_status === 'known'
+    && typeof requirement.remaining_quantity === 'number' && Number.isFinite(requirement.remaining_quantity)
+    && requirement.remaining_quantity >= 0
+    && (requirement.quantity_unit === 'classes' || requirement.quantity_unit === 'credits')
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 hover:bg-surface-2 transition-colors duration-150 group">
       <span className="font-mono text-sm text-text w-20 flex-shrink-0">{code}</span>
       <span className="flex-1 min-w-0">
         <span className="block text-sm text-muted group-hover:text-text transition-colors duration-150 truncate">
-          {title ?? code}
+          {title || 'Title unavailable'}
         </span>
+        {title && titleStatus !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
+        {estimated && <span className="block text-xs text-muted">{creditsNote || 'Credits are unverified; this amount is an estimate.'}</span>}
+        {requirement !== null && (knownQuantity ? (
+          <span className="block text-xs text-muted">
+            Audit requirement: <span className="font-mono">{requirement!.remaining_quantity}</span>{' '}
+            {requirement!.quantity_unit === 'classes'
+              ? (requirement!.remaining_quantity === 1 ? 'class' : 'classes')
+              : (requirement!.remaining_quantity === 1 ? 'credit' : 'credits')}.
+          </span>
+        ) : <span className="block text-xs text-yellow">Audit requirement quantity is unknown.</span>)}
+        <CatalogNote status={catalogStatus} note={catalogNote} />
         {showReason && (
-          <span className="block text-xs text-faint truncate">{reason}</span>
+          <span className="block text-xs text-faint break-words">{reason}</span>
         )}
       </span>
       {showSwap && (
@@ -43,8 +66,8 @@ function CourseRow({ code, title, credits, badge, reason, onSwap }: CourseRowPro
           swap →
         </button>
       )}
-      <span className="font-mono tabular-nums text-xs text-faint w-12 text-right flex-shrink-0">
-        {credits} cr
+      <span className="font-mono tabular-nums text-xs text-faint w-32 text-right flex-shrink-0">
+        {formatCredits(credits)} cr{estimated ? ' (estimated)' : ''}
       </span>
       <span
         className={[
@@ -96,6 +119,7 @@ export function SemesterPlan({
   onSwapCourse,
 }: SemesterPlanProps) {
   const totalCredits = semesters.reduce((sum, s) => sum + s.total_credits, 0)
+  const includesEstimates = semesters.some((semester) => semester.courses.some((course) => course.credits_estimated !== false))
 
   return (
     <div className="flex flex-col gap-4">
@@ -160,18 +184,24 @@ export function SemesterPlan({
                   {semester.term_label}
                 </span>
                 <span className="font-mono tabular-nums text-xs text-muted">
-                  {semester.total_credits} credits
+                  {formatCredits(semester.total_credits)} credits{semester.courses.some((course) => course.credits_estimated !== false) ? ' (estimated)' : ''}
                 </span>
               </div>
               <div className="divide-y divide-border">
-                {semester.courses.map((course) => (
+                {semester.courses.map((course, index) => (
                   <CourseRow
-                    key={course.course_code}
+                    key={course.slot_id || `legacy:${semester.term}:${index}`}
                     code={course.course_code}
                     title={course.title}
                     credits={course.credits}
+                    estimated={course.credits_estimated !== false}
+                    creditsNote={course.credits_note}
+                    titleStatus={course.title_status}
+                    catalogStatus={course.catalog_status}
+                    catalogNote={course.catalog_note}
                     badge={course.badge}
                     reason={course.reason}
+                    requirement={course.requirement}
                     onSwap={
                       onSwapCourse
                         ? () => onSwapCourse(semester.term, course.course_code)
@@ -190,7 +220,7 @@ export function SemesterPlan({
                 Total credits planned
               </span>
               <span className="font-mono tabular-nums text-xs text-muted">
-                {totalCredits} credits
+                {formatCredits(totalCredits)} credits{includesEstimates ? ' (estimated)' : ''}
               </span>
             </div>
           </div>

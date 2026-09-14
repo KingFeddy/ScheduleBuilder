@@ -39,6 +39,8 @@ Thumbs.db
 *.pyo
 .coverage
 htmlcov/
+playwright-report/
+test-results/
 
 # Logs
 *.log

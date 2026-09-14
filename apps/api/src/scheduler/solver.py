@@ -79,9 +79,8 @@ def _build_filter_warning(
 
     if not after_seats:
         return (
-            f"{course_code}: all sections are full (0 open seats). "
-            f"Try disabling 'Hide Full Sections' or checking back later — "
-            f"seats open up during registration."
+            f"{course_code}: all sections are full. "
+            "Try disabling 'Hide Full Sections' or checking back later"
         )
 
     return f"{course_code}: no valid sections available."

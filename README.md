@@ -120,7 +120,7 @@ keys. Nested metadata survives save/reload and regeneration. Older saved rows
 remain readable with a temporary rendering key; they are not rewritten with
 invented identities. **A known quantity does not mean it has been fulfilled.**
 Goal 24 now allocates known quantities and reports unresolved remainders (see
-below). Cross-requirement sharing remains Goal 25, reconciliation Goal 26, and
+below). Goal 25 now prevents duplicate allocation; reconciliation remains Goal 26 and
 validated swaps Goal 46. Goal 20 requires no database migration;
 release the updated API before its frontend consumer.
 
@@ -695,10 +695,34 @@ regeneration. A local swap marks progress unknown on every row of the affected
 requirement until regeneration; older saved rows need regeneration for progress.
 
 Allocation describes planned selections, not completed degree requirements or
-verified eligibility. Cross-requirement duplicates/sharing remain Goal 25; overall
+verified eligibility. Goal 25 prevents duplicate allocation and flags unverified sharing; overall
 credit reconciliation and filler policy remain Goal 26; prerequisite rules remain
 Goal 27 and validated swaps Goal 46. Real-PDF acceptance remains Goal 63. No new
 migration is required; release the updated API before its frontend consumer.
+
+### Course ownership and ambiguous overlap
+
+Goal 25 assigns each concrete course to one requirement and schedules it once.
+Its credits therefore contribute once to the selected-course totals. Known
+requirements take priority over unknown quantities; requirements with only explicit
+options precede wildcard choices, with fewer available options first. Equal
+constraints retain audit order. A flexible requirement tries unused alternatives
+instead of duplicating a course claimed elsewhere. Matching requested electives
+are reused as selections, not appended again as extra copies.
+
+If an overlap cannot be resolved, the other requirement retains its identity,
+quantity, and unresolved allocation. Its row explanation and generation warning
+name the claimed course and requirement and state that sharing is unverified.
+This explanation survives saved-plan reloads; general warning persistence is
+still Goal 40. No current audit field or verified server rule authorizes sharing,
+so repeated labels/options, major/minor membership, and client-added flags do not
+permit double counting. Legitimate sharing requires verified policy support.
+
+This deterministic allocation order is not a global optimization or degree-policy
+engine. TBD credits remain clearly labeled estimates for unresolved work, separate
+from the selected course counted once. Total reconciliation/filler policy remains
+Goal 26. Regenerate old saved plans to apply the fix; full validation of local
+course replacements remains Goal 46. No schema or migration changes are needed.
 
 ## Frontend API errors and cancellation
 

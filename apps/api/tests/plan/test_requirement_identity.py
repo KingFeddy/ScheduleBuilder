@@ -134,8 +134,8 @@ def test_explicit_duplicate_ids_are_rejected_instead_of_reassigning_them():
 
 
 def mock_catalog(monkeypatch):
-    async def choose(item, *args):
-        codes = [c for c in item.options if "X" not in c and c != "@"]
+    async def choose(item, completed, in_progress, *args):
+        codes = [c for c in item.options if "X" not in c and c != "@" and c not in completed and c not in in_progress]
         return (codes[0] if codes else None, len(codes))
 
     async def courses(session, codes):
@@ -172,8 +172,8 @@ async def test_slots_keep_identity_and_requirement_details_across_regeneration(m
         allocated = linked[requirement.requirement_id]
         assert all(row.requirement == requirement for row in allocated)
         assert {row.slot_id for row in allocated} == {row.slot_id for row in other[requirement.requirement_id]}
-    assert {row.course_code for row in linked[requirements[0].requirement_id]} == {"CS435", "CS480"}
-    assert {row.course_code for row in other[requirements[0].requirement_id]} == {"CS435", "CS480"}
+    assert {row.course_code for row in linked[requirements[0].requirement_id]} == {"CS480", "TBD"}
+    assert {row.course_code for row in other[requirements[0].requirement_id]} == {"CS480", "TBD"}
     assert any("quantity" in w.lower() and "unknown" in w.lower() for w in first.warnings)
     assert degree.model_dump() == before
 

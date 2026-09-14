@@ -328,6 +328,7 @@ class _ResolvedItem:
     slot_id: str = ""
     source_requirement: StillNeededItem | None = None
     allocation: RequirementAllocation | None = None
+    allocation_note: str = ""
 
 
 # ── Option selection ──────────────────────────────────────────────────────────
@@ -686,21 +687,28 @@ async def _allocate_requirement_quantities(
     resolved, course_data, completed, in_progress, target_term, credit_target,
     session, warnings, prerequisites_by_code, requested_codes,
 ) -> list[_ResolvedItem]:
-    """Expand each requirement locally; cross-requirement sharing is separate.
+    """Allocate each concrete course once, without inferring sharing permission.
 
     Credits are counted only from verified fixed metadata. Uncertain courses
     remain planned suggestions, with their requirement remainder still explicit.
     """
     linked = [row for row in resolved if row.source_requirement is not None]
     extras = [row for row in resolved if row.source_requirement is None]
-    used_extras: set[int] = set()
+    requested_rows = {row.course_code: row for row in resolved if row.course_code in requested_codes}
+    allocated_to: dict[str, StillNeededItem] = {}
     excluded = completed | in_progress
+    # Protect narrow requirements before flexible choices. Equal constraints
+    # retain audit order; unknown quantities never displace known requirements.
+    linked.sort(key=lambda row: (
+        row.source_requirement.quantity_status != "known",
+        any(WILDCARD_PATTERN.search(code) for code in row.source_requirement.options),
+        len({code for code in row.source_requirement.options
+             if code.isascii() and COURSE_CODE_PATTERN.fullmatch(code) and code not in excluded}),
+    ))
     # Preserve the initial batched lookup and fetch any additional candidates
     # together, rather than a separate metadata query for each added course.
     additional_codes = list(dict.fromkeys(
         code for row in linked
-        if row.source_requirement.quantity_status == "known"
-        and Decimal(str(row.source_requirement.remaining_quantity)) > _allocated_amount([row], row.source_requirement.quantity_unit)
         for code in row.source_requirement.options
         if code.isascii() and COURSE_CODE_PATTERN.fullmatch(code) and code not in course_data and code not in excluded
     ))
@@ -712,8 +720,41 @@ async def _allocate_requirement_quantities(
     for base in linked:
         requirement = base.source_requirement
         unit = requirement.quantity_unit
+        unavailable = excluded | allocated_to.keys()
+        if base.course_code is None or base.course_code in unavailable:
+            requested = next((code for code in requested_rows if code not in unavailable
+                              and any(matches_wildcard(code, option) for option in requirement.options)), None)
+            if requested:
+                selected, count = requested, 2
+            else:
+                selected, count = await select_best_option(requirement, unavailable, in_progress, [], target_term, session)
+            base = replace(base, course_code=selected, title=requirement.requirement,
+                           credits=3, credits_estimated=True, title_status="unverified",
+                           credits_note="Estimated credits for an unresolved class.",
+                           catalog_status="unresolved", catalog_note=base.catalog_note if not base.course_code else
+                           "No specific catalog course has been selected for this slot.",
+                           badge="Elective" if selected and count > 1 else "Required" if selected else "TBD",
+                           reason=(f"Alternative allocated toward '{requirement.requirement}'" if selected else
+                                   f"Unresolved requirement '{requirement.requirement}'." if base.course_code else base.reason))
+            _apply_course_data(base, course_data, [], prerequisites_by_code)
+
+        def record_allocation(rows, unresolved):
+            overlaps = [(code, owner) for code, owner in allocated_to.items()
+                        if any(matches_wildcard(code, option) for option in requirement.options)]
+            if unresolved and overlaps:
+                owners = "; ".join(f"{code} is allocated to '{owner.requirement}'" for code, owner in overlaps)
+                note = (f"Requirement overlap: {owners}. Sharing with '{requirement.requirement}' is unverified; "
+                        "the course is scheduled and its credits counted once. Confirm the overlap with your advisor.")
+                warnings.append(note)
+                for row in rows:
+                    row.allocation_note = note
+            for row in rows:
+                if row.course_code:
+                    allocated_to[row.course_code] = requirement
+
         if requirement.quantity_status == "unresolved":
             base.allocation = RequirementAllocation(requirement.remaining_quantity, unit, None, None, "unknown")
+            record_allocation([base], base.course_code is None)
             expanded.append(base)
             continue
 
@@ -722,12 +763,12 @@ async def _allocate_requirement_quantities(
                             and course_data[code][0].credits_status == "fixed"
                             and course_data[code][0].credits is not None
                             and math.isfinite(course_data[code][0].credits) and course_data[code][0].credits > 0
-                            and code not in excluded]
+                            and code not in unavailable]
         # Automatic choices may prefer verified-credit alternatives. Explicit
         # student selections remain intact and visibly unresolved if uncertain.
         if unit == "credits" and base.course_code and base.credits_estimated and base.course_code not in requested_codes and verified_options:
             selected, count = await select_best_option(requirement.model_copy(update={"options": verified_options}),
-                                                       completed, in_progress, [], target_term, session)
+                                                       unavailable, in_progress, [], target_term, session)
             if selected in verified_options:
                 base = replace(base, course_code=selected, badge="Elective" if count > 1 else "Required",
                                reason=f"Course with verified credits allocated toward '{requirement.requirement}'")
@@ -740,11 +781,17 @@ async def _allocate_requirement_quantities(
             # selection and pretend the missing credit amount is known.
             if unit == "credits" and any(row.credits_estimated for row in rows):
                 break
-            extra = next((row for row in extras if id(row) not in used_extras
+            extra = next((row for row in requested_rows.values() if row.course_code not in unavailable
                           and row.course_code not in used_codes
                           and any(matches_wildcard(row.course_code, option) for option in requirement.options)), None)
             if extra is not None:
-                used_extras.add(id(extra))
+                # An unmatched extra already occupies a base slot. Reusing a
+                # choice from another requirement adds a slot to this one.
+                if rows and extra.source_requirement is not None:
+                    if remaining_slots == 0:
+                        limit_reached = True
+                        break
+                    remaining_slots -= 1
                 candidate = replace(extra, requirement=requirement.requirement,
                                     source_requirement=requirement.model_copy(deep=True),
                                     must_be_last=base.must_be_last,
@@ -754,7 +801,7 @@ async def _allocate_requirement_quantities(
                     limit_reached = True
                     break
                 options = [code for code in requirement.options
-                           if code.isascii() and COURSE_CODE_PATTERN.fullmatch(code) and code not in used_codes and code not in excluded]
+                           if code.isascii() and COURSE_CODE_PATTERN.fullmatch(code) and code not in used_codes and code not in unavailable]
                 if unit == "credits":
                     options = [code for code in options if code in verified_options] or options
                 if not options:
@@ -813,8 +860,9 @@ async def _allocate_requirement_quantities(
         if limit_reached:
             warnings.append(f"The allocation limit was reached for '{requirement.requirement}'. "
                             "Its unresolved remainder is preserved; additional slots were not generated.")
+        record_allocation(rows, unresolved > 0)
         expanded.extend(rows)
-    return expanded + [row for row in extras if id(row) not in used_extras]
+    return expanded + [row for row in extras if row.course_code not in allocated_to]
 
 
 # ── Main planner ──────────────────────────────────────────────────────────────
@@ -969,6 +1017,8 @@ async def generate_plan(
     prerequisites_by_code.clear()
     for r in resolved:
         _apply_course_data(r, course_data, warnings, prerequisites_by_code)
+        if r.allocation_note:
+            r.reason = f"{r.reason} {r.allocation_note}"
 
     if any(r.credits_estimated for r in resolved):
         warnings.append("Some planned credits are estimates. Confirm the credits for those courses before registering.")

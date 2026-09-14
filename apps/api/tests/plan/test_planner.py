@@ -1356,7 +1356,7 @@ class TestElectiveDetectionAndTitleFallback:
         course_result.mappings.return_value = course_rows
 
         session = AsyncMock()
-        session.execute = AsyncMock(side_effect=[availability_empty, course_result])
+        session.execute = AsyncMock(side_effect=[availability_empty, course_result, availability_empty])
         return session
 
     def test_multi_option_requirement_gets_elective_badge_and_names_option_count(self):

@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import pdfplumber
 
-from src.schemas.plan import ParsedDegree, RequirementSource, StillNeededItem, stable_identity
+from src.schemas.plan import CourseAttempt, CourseAttemptSource, ParsedDegree, RequirementSource, StillNeededItem, stable_identity
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +54,6 @@ _CREDITS_APPLIED_RE = re.compile(r"Credits applied:\s*(\d+)")
 # Prose fallback: "you still need 21 more credits"
 _CREDITS_PROSE_RE = re.compile(r"you still need\s+(\d+)\s+more credits", re.IGNORECASE)
 
-# In-progress: line contains course code followed by "IP (N)"
-_IP_COURSE_RE = re.compile(
-    r"\b([A-Z]{2,5})\s{0,2}(\d{3}[A-Z]?)\b[^\n]*\bIP\s*\(\d+\)"
-)
-
 # Catalog year: "Catalog year: 2025-2026" → 2025
 _CATALOG_YEAR_RE = re.compile(r"Catalog year:\s*(\d{4})-\d{4}")
 
@@ -73,15 +68,43 @@ _MINOR_RE = re.compile(
     r"\bMinors?\s+(.+?)(?=\n|Program|College|Academic)", re.DOTALL
 )
 
-# Completed course: code + letter grade + credit count + term
-# Matches: "CS 280  Programming Lang Concepts  B+  3  2025 Fall"
-_COMPLETED_COURSE_RE = re.compile(
-    r"\b([A-Z]{2,5})\s{0,2}(\d{3}[A-Z]?)\b[^\n]*\b"
-    r"([ABCDF][+-]?|[TP]|TR)\s+\d\s+\d{4}\s+(?:Fall|Spring|Summer)\b"
+# Match the full grade token, including unknown grades, rather than a passing
+# suffix inside e.g. WF/ABC. Only standalone course rows are attempt evidence.
+_ATTEMPT_ROW_RE = re.compile(
+    r"^[ \t]*(?P<dept>[A-Z]{2,5})[ \t]*(?P<number>[0-9]{3}[A-Z]?)[ \t]+"
+    r"(?:.*?[ \t]+)?(?P<grade>[^\s()]+)[ \t]+"
+    r"(?P<credits>[0-9]+(?:\.[0-9]+)?|\([0-9]+(?:\.[0-9]+)?\))"
+    r"(?:[ \t]+(?P<term>[0-9]{4}[ \t]+[A-Za-z]+|[A-Za-z]+[ \t]+[0-9]{4}))?[ \t]*$"
 )
+_ATTEMPT_CODE_RE = re.compile(r"\b[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b")
+_ATTEMPT_COLUMN_RE = re.compile(r"[ \t]{2,}(?=[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b)")
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────
+
+def _extract_course_attempts(text: str, *, document_id: str | None = None) -> list[CourseAttempt]:
+    attempts = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        # layout=True separates columns with whitespace. Never let the title
+        # wildcard consume a second course and borrow its grade. Ambiguous
+        # merged rows without a column boundary remain unclassified.
+        for column in _ATTEMPT_COLUMN_RE.split(line):
+            if len(_ATTEMPT_CODE_RE.findall(column)) != 1:
+                continue
+            match = _ATTEMPT_ROW_RE.fullmatch(column)
+            if match is None:
+                continue
+            credits = float(match["credits"].strip("()"))
+            # An unrepresentable amount is unknown, never earned credit.
+            if not math.isfinite(credits) or (credits == 0 and Decimal(match["credits"].strip("()")) != 0):
+                credits = None
+            attempts.append(CourseAttempt(
+                course_code=match["dept"] + match["number"], grade=match["grade"],
+                credits=credits, term=match["term"],
+                source=CourseAttemptSource(document_id=document_id, line=line_number, text=line),
+            ))
+    return attempts
+
 
 def _extract_course_codes(text: str) -> list[str]:
     """
@@ -292,34 +315,19 @@ def parse_degree_works_regex(pdf_bytes: bytes) -> ParsedDegree:
     if minor_match:
         minors = _clean_major_minor(minor_match.group(1))
 
-    # In-progress courses
-    in_progress: list[str] = []
-    seen_ip: set[str] = set()
-    for dept, num in _IP_COURSE_RE.findall(full_text):
-        code = f"{dept}{num}"
-        if code not in seen_ip:
-            seen_ip.add(code)
-            in_progress.append(code)
-
-    # Completed courses — grade lines only; AP/transfer codes filtered later
-    completed: list[str] = []
-    seen_completed: set[str] = set()
-    for dept, num, _grade in _COMPLETED_COURSE_RE.findall(full_text):
-        code = f"{dept}{num}"
-        if code not in seen_completed and code not in seen_ip:
-            seen_completed.add(code)
-            completed.append(code)
+    document_id = hashlib.sha256(pdf_bytes).hexdigest()
+    course_attempts = _extract_course_attempts(full_text, document_id=document_id)
 
     # Still needed requirements
-    still_needed = _extract_still_needed(full_text, document_id=hashlib.sha256(pdf_bytes).hexdigest())
+    still_needed = _extract_still_needed(full_text, document_id=document_id)
 
     logger.info(
         "DegreeWorks parse: majors=%r  credits_remaining=%s  "
-        "still_needed=%d items  in_progress=%d",
+        "still_needed=%d items  course_attempts=%d",
         majors,
         credits_remaining,
         len(still_needed),
-        len(in_progress),
+        len(course_attempts),
     )
 
     return ParsedDegree(
@@ -330,7 +338,6 @@ def parse_degree_works_regex(pdf_bytes: bytes) -> ParsedDegree:
         credits_completed=credits_completed,
         credits_required=credits_required,
         credits_remaining=credits_remaining,
-        completed_courses=completed,
-        in_progress_courses=in_progress,
+        course_attempts=course_attempts,
         still_needed=still_needed,
     )

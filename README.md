@@ -613,6 +613,21 @@ Contract details that previously differed between the two sides:
   and `section_number` through `SolveSectionResponse`.
 - Unknown titles, professor metadata, and degree credit totals remain nullable.
   The UI labels missing titles/totals and avoids calculations with unknown totals.
+- Parsed audits carry `course_attempts`: course code, grade, credits, original term
+  text, extracted-line source, and derived `status`/`earns_credit`. Failed,
+  withdrawn, incomplete, audited, in-progress, and zero-credit attempts do not
+  enter `completed_courses`. Unknown grades/credit amounts remain unresolved.
+  Every repeated occurrence is retained; a previous credit-bearing pass can
+  coexist with a current retake. Summary lists are recomputed from attempts when
+  present, including when generation receives client JSON.
+- Letter grades (including imported +/- variants), P/S, and transfer T/TR marks
+  stay distinct evidence. Earning credit does not prove a minimum-grade
+  prerequisite; that evaluation remains Goal 27. The NJIT status classifications
+  follow its [grading legend](https://www.njit.edu/registrar/grading-instructions);
+  T/TR compatibility retains the parser's existing transfer marks.
+  Legacy saved audits have `course_attempts: null`, retain their original summary
+  lists, and receive no invented grades or terms. Re-upload the PDF to extract
+  history with the corrected parser; this does not repair old saved audits.
 - Still-needed requirements carry identity, amount/unit/status, options, and source
   context. Planned slots carry `slot_id` and a nullable full `requirement` object.
   Quantity status describes extraction certainty, not fulfillment.
@@ -624,6 +639,13 @@ These checks establish request/response-shape consistency; they do not validate
 arbitrary JSON at runtime in the browser. Generation uses a typed `ParsedDegree`
 and `PlanPreferences` request plus the shared parser business checks. Python and
 TypeScript model names do not establish trust in previously stored client data.
+
+Course-history extraction accepts standalone rows or whitespace-separated PDF
+columns with complete grade and credit cells. Missing terms stay null. Ambiguous
+merged rows are skipped instead of assigning a neighbor's grade. Extraction is
+not an audit of all PDF layouts, credit reconciliation, or repeat-replacement
+policy; real-PDF acceptance remains Goal 63. No grades or PDFs are stored by the
+stateless API. The browser keeps the parsed history with its existing saved audit.
 
 ## Frontend API errors and cancellation
 

@@ -115,7 +115,8 @@ def test_parse_response_preserves_missing_metadata(api, monkeypatch):
     assert response.json()["parsed"] == {
         "student_name": None, "majors": ["Computer Science"], "minors": [], "catalog_year": None,
         "credits_completed": None, "credits_required": None, "credits_remaining": None,
-        "completed_courses": [], "in_progress_courses": [], "still_needed": [raw.still_needed[0].model_dump()],
+        "completed_courses": [], "in_progress_courses": [], "course_attempts": None,
+        "still_needed": [raw.still_needed[0].model_dump()],
     }
 
 

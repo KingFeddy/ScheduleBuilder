@@ -233,6 +233,7 @@ def validate_parsed_degree(raw: ParsedDegree) -> ParsedDegreeValidated:
         credits_remaining=raw.credits_remaining,
         completed_courses=valid_completed,
         in_progress_courses=valid_in_progress,
+        course_attempts=raw.course_attempts,
         still_needed=raw.still_needed,
     )
 

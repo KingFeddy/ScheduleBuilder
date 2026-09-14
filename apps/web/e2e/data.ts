@@ -74,6 +74,7 @@ export const parsedDegree: ParsedDegreeValidated = {
   student_name: 'Synthetic Test Student', majors: ['Computer Science'], minors: [],
   catalog_year: 2024, credits_completed: 114, credits_required: 120, credits_remaining: 6,
   completed_courses: ['CS100', 'CS113'], in_progress_courses: [],
+  course_attempts: null,
   still_needed: [
     { requirement_id: 'req-programming', requirement: 'Programming languages', options: ['CS280'],
       remaining_quantity: 1, quantity_unit: 'classes', quantity_status: 'known', source: null },

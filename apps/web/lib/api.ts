@@ -58,6 +58,7 @@ export type Meeting = SolveSectionResponse['meetings'][number]
 export type ProfessorResponse = paths['/api/professors/{name}']['get']['responses'][200]['content']['application/json']
 export type ParseResponse = paths['/api/plan/parse']['post']['responses'][200]['content']['application/json']
 export type ParsedDegreeValidated = ParseResponse['parsed']
+export type CourseAttempt = NonNullable<ParsedDegreeValidated['course_attempts']>[number]
 export type StillNeededItem = ParsedDegreeValidated['still_needed'][number]
 export type RequirementSource = NonNullable<StillNeededItem['source']>
 export type GenerateRequest = paths['/api/plan/generate']['post']['requestBody']['content']['application/json']

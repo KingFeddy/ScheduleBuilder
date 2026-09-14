@@ -26,7 +26,7 @@ export const unnamedGer: GerGroup = { prefix: 'HUM', courses: [{ code: 'HUM101',
 export const incompleteDegree: ParsedDegreeValidated = {
   student_name: null, majors: ['Computer Science'], minors: [], catalog_year: null,
   credits_completed: null, credits_required: null, credits_remaining: null,
-  completed_courses: [], in_progress_courses: [], still_needed: [{
+  completed_courses: [], in_progress_courses: [], course_attempts: null, still_needed: [{
     requirement_id: 'req-synthetic', requirement: 'Unresolved elective', options: [],
     remaining_quantity: null, quantity_unit: 'unknown', quantity_status: 'unresolved', source: null,
   }],

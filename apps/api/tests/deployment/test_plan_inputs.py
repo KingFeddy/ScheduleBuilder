@@ -185,3 +185,54 @@ def test_generation_schema_exposes_degree_and_preferences(api):
     assert props["preferences"]["$ref"].endswith("/PlanPreferences")
     assert schemas["PlanPreferences"]["properties"]["credits_per_semester"]["minimum"] == 3
     assert schemas["PlanPreferences"]["properties"]["credits_per_semester"]["maximum"] == 24
+
+
+def test_real_parser_history_survives_parse_response_and_generation(generation, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from src.services import dw_parser
+
+    text = "\n".join([
+        "Student name Synthetic Test Student", "Major Computer Science",
+        "Credits required: 120 Credits applied: 114",
+        "Still needed: 1 Class in CS 435", "Still needed: 1 Class in HUM 101",
+        "CS 100 Synthetic Intro F 3 2024 Fall",
+        "CS 100 Synthetic Intro B+ 3 2025 Spring",
+        "CS 113 Synthetic Transfer T 3 2025 Fall",
+        "CS 114 Synthetic Course W 3 2025 Fall",
+        "CS 115 Synthetic Course I 3 2025 Fall",
+        "CS 116 Synthetic Course IP (3) 2026 Fall",
+        "CS 117 Synthetic Course D 3 2025 Fall",
+        "Synthetic padding for PDF extraction length. " * 8,
+    ])
+    page = SimpleNamespace(extract_text=lambda **_: text)
+    monkeypatch.setattr(dw_parser.pdfplumber, "open", lambda _: nullcontext(SimpleNamespace(pages=[page])))
+    client, planner = generation
+    response = client.post("/api/plan/parse", json={
+        "pdf_base64": base64.b64encode(b"%PDF-" + b"synthetic" * 800).decode(), "client_pdf_hash": "",
+    })
+    assert response.status_code == 200, response.text
+    parsed = response.json()["parsed"]
+    assert parsed["completed_courses"] == ["CS100", "CS113", "CS117"]
+    assert parsed["in_progress_courses"] == ["CS116"]
+    history = parsed["course_attempts"]
+    assert len(history) == 7
+    assert history[1]["grade"] == "B+" and history[1]["term"] == "2025 Spring"
+    assert history[2]["grade"] == "T" and history[2]["status"] == "transfer"
+    assert history[6]["grade"] == "D"  # Do not silently upgrade this to minimum C.
+    assert history[0]["source"]["text"] == "CS 100 Synthetic Intro F 3 2024 Fall"
+    # Summary fields and computed flags in browser JSON cannot overrule grades.
+    parsed["completed_courses"] += ["CS114", "CS115", "CS116"]
+    parsed["course_attempts"][3].update(status="passed", earns_credit=True)
+    assert client.post("/api/plan/generate", json={"parsed_degree": parsed, "preferences": {}}).status_code == 200
+    validated = planner.await_args.args[0]
+    assert validated.completed_courses == ["CS100", "CS113", "CS117"]
+    assert validated.course_attempts[3].earns_credit is False
+    assert validated.course_attempts[1].model_dump() == history[1]
+
+
+@pytest.mark.parametrize("value,field", [("3", "credits"), (True, "credits"), (-1, "credits"), (12, "grade"), (" ", "term")])
+def test_generation_rejects_malformed_attempts(generation, value, field):
+    attempt = {"course_code": "CS100", "grade": "A", "credits": 3, field: value}
+    assert_invalid(generation, {"parsed_degree": degree(course_attempts=[attempt]), "preferences": {}},
+                   ["parsed_degree", "course_attempts", 0, field])

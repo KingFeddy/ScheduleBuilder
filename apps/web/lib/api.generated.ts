@@ -267,6 +267,73 @@ export interface components {
              */
             minimize_gaps?: boolean;
         };
+        /**
+         * CourseAttempt
+         * @description An observed attempt, not a minimum-grade prerequisite decision.
+         */
+        "CourseAttempt-Input": {
+            /** Course Code */
+            course_code: string;
+            /** Credits */
+            credits?: number | null;
+            /** Grade */
+            grade?: string | null;
+            source?: components["schemas"]["CourseAttemptSource-Input"] | null;
+            /**
+             * Term
+             * @description Term text as extracted; null means unavailable.
+             */
+            term?: string | null;
+        };
+        /**
+         * CourseAttempt
+         * @description An observed attempt, not a minimum-grade prerequisite decision.
+         */
+        "CourseAttempt-Output": {
+            /** Course Code */
+            course_code: string;
+            /** Credits */
+            credits: number | null;
+            /** Earns Credit */
+            readonly earns_credit: boolean | null;
+            /** Grade */
+            grade: string | null;
+            source: components["schemas"]["CourseAttemptSource-Output"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            readonly status: "passed" | "transfer" | "failed" | "withdrawn" | "incomplete" | "in_progress" | "audit" | "unknown";
+            /**
+             * Term
+             * @description Term text as extracted; null means unavailable.
+             */
+            term: string | null;
+        };
+        /** CourseAttemptSource */
+        "CourseAttemptSource-Input": {
+            /** Document Id */
+            document_id?: string | null;
+            /**
+             * Line
+             * @description One-based line in extracted text, not a PDF page coordinate.
+             */
+            line: number;
+            /** Text */
+            text: string;
+        };
+        /** CourseAttemptSource */
+        "CourseAttemptSource-Output": {
+            /** Document Id */
+            document_id: string | null;
+            /**
+             * Line
+             * @description One-based line in extracted text, not a PDF page coordinate.
+             */
+            line: number;
+            /** Text */
+            text: string;
+        };
         /** CourseDetailResponse */
         CourseDetailResponse: {
             /**
@@ -461,6 +528,11 @@ export interface components {
             catalog_year?: number | null;
             /** Completed Courses */
             completed_courses?: string[];
+            /**
+             * Course Attempts
+             * @description Observed attempts; null is legacy history without grade evidence. When present, derives the course summary lists.
+             */
+            course_attempts?: components["schemas"]["CourseAttempt-Input"][] | null;
             /** Credits Completed */
             credits_completed?: number | null;
             /** Credits Remaining */
@@ -488,6 +560,11 @@ export interface components {
             catalog_year: number | null;
             /** Completed Courses */
             completed_courses: string[];
+            /**
+             * Course Attempts
+             * @description Observed attempts; null is legacy history without grade evidence. When present, derives the course summary lists.
+             */
+            course_attempts: components["schemas"]["CourseAttempt-Output"][] | null;
             /** Credits Completed */
             credits_completed: number | null;
             /** Credits Remaining */

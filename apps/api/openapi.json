@@ -91,6 +91,226 @@
         "title": "CommuterOptions",
         "type": "object"
       },
+      "CourseAttempt-Input": {
+        "description": "An observed attempt, not a minimum-grade prerequisite decision.",
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "credits": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CourseAttemptSource-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "term": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Term text as extracted; null means unavailable.",
+            "title": "Term"
+          }
+        },
+        "required": [
+          "course_code"
+        ],
+        "title": "CourseAttempt",
+        "type": "object"
+      },
+      "CourseAttempt-Output": {
+        "description": "An observed attempt, not a minimum-grade prerequisite decision.",
+        "properties": {
+          "course_code": {
+            "title": "Course Code",
+            "type": "string"
+          },
+          "credits": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
+          },
+          "earns_credit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true,
+            "title": "Earns Credit"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CourseAttemptSource-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "transfer",
+              "failed",
+              "withdrawn",
+              "incomplete",
+              "in_progress",
+              "audit",
+              "unknown"
+            ],
+            "readOnly": true,
+            "title": "Status",
+            "type": "string"
+          },
+          "term": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Term text as extracted; null means unavailable.",
+            "title": "Term"
+          }
+        },
+        "required": [
+          "course_code",
+          "grade",
+          "credits",
+          "term",
+          "source",
+          "status",
+          "earns_credit"
+        ],
+        "title": "CourseAttempt",
+        "type": "object"
+      },
+      "CourseAttemptSource-Input": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "line": {
+            "description": "One-based line in extracted text, not a PDF page coordinate.",
+            "minimum": 1.0,
+            "title": "Line",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line",
+          "text"
+        ],
+        "title": "CourseAttemptSource",
+        "type": "object"
+      },
+      "CourseAttemptSource-Output": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "line": {
+            "description": "One-based line in extracted text, not a PDF page coordinate.",
+            "minimum": 1.0,
+            "title": "Line",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "line",
+          "text"
+        ],
+        "title": "CourseAttemptSource",
+        "type": "object"
+      },
       "CourseDetailResponse": {
         "properties": {
           "catalog_note": {
@@ -700,6 +920,21 @@
             "title": "Completed Courses",
             "type": "array"
           },
+          "course_attempts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CourseAttempt-Input"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Observed attempts; null is legacy history without grade evidence. When present, derives the course summary lists.",
+            "title": "Course Attempts"
+          },
           "credits_completed": {
             "anyOf": [
               {
@@ -803,6 +1038,21 @@
             "title": "Completed Courses",
             "type": "array"
           },
+          "course_attempts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CourseAttempt-Output"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Observed attempts; null is legacy history without grade evidence. When present, derives the course summary lists.",
+            "title": "Course Attempts"
+          },
           "credits_completed": {
             "anyOf": [
               {
@@ -889,6 +1139,7 @@
           "credits_remaining",
           "completed_courses",
           "in_progress_courses",
+          "course_attempts",
           "still_needed"
         ],
         "title": "ParsedDegreeValidated",

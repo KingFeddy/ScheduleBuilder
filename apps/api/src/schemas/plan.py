@@ -57,6 +57,56 @@ class RequirementSource(BaseModel):
     text: str
 
 
+class CourseAttemptSource(BaseModel):
+    model_config = ConfigDict(extra="ignore", strict=True, json_schema_serialization_defaults_required=True)
+
+    document_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    line: int = Field(ge=1, description="One-based line in extracted text, not a PDF page coordinate.")
+    text: str
+
+
+class CourseAttempt(BaseModel):
+    """An observed attempt, not a minimum-grade prerequisite decision."""
+    model_config = ConfigDict(extra="ignore", strict=True, json_schema_serialization_defaults_required=True)
+
+    course_code: Annotated[str, AfterValidator(normalize_elective)]
+    grade: NonBlankText | None = None
+    credits: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    term: NonBlankText | None = Field(default=None, description="Term text as extracted; null means unavailable.")
+    source: CourseAttemptSource | None = None
+
+    @field_validator("grade")
+    @classmethod
+    def normalize_grade(cls, grade: str | None) -> str | None:
+        return grade.upper() if grade is not None else None
+
+    @field_validator("credits", mode="before")
+    @classmethod
+    def numeric_credits(cls, value):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise ValueError("Attempt credits must be a number or null.")
+        return value
+
+    @computed_field
+    @property
+    def status(self) -> Literal["passed", "transfer", "failed", "withdrawn", "incomplete", "in_progress", "audit", "unknown"]:
+        # Retain +/- letter grades from imported coursework. A passing D or
+        # non-letter credit does not establish a minimum C prerequisite.
+        if self.grade and (re.fullmatch(r"[ABCD][+-]?", self.grade) or self.grade in {"P", "S"}):
+            return "passed"
+        return {"T": "transfer", "TR": "transfer", "F": "failed", "U": "failed",
+                "W": "withdrawn", "I": "incomplete", "IP": "in_progress", "AU": "audit"}.get(self.grade, "unknown")
+
+    @computed_field
+    @property
+    def earns_credit(self) -> bool | None:
+        if self.status in {"failed", "withdrawn", "incomplete", "in_progress", "audit"} or self.credits == 0:
+            return False
+        if self.status == "unknown" or self.credits is None:
+            return None
+        return True
+
+
 class StillNeededItem(BaseModel):
     model_config = ConfigDict(extra="ignore", strict=True, json_schema_serialization_defaults_required=True)
 
@@ -109,9 +159,26 @@ class ParsedDegree(BaseModel):
     credits_remaining: Optional[int] = None
     completed_courses: list[NonBlankText] = Field(default_factory=list)
     in_progress_courses: list[NonBlankText] = Field(default_factory=list)
+    course_attempts: list[CourseAttempt] | None = Field(
+        default=None,
+        description="Observed attempts; null is legacy history without grade evidence. When present, derives the course summary lists.",
+    )
     still_needed: list[StillNeededItem] = Field(default_factory=list)
     # semesters_remaining deliberately absent — computed by the planner from
     # credits_remaining and the student's chosen credits_per_semester
+
+    @model_validator(mode="after")
+    def derive_course_history(self):
+        if self.course_attempts is not None:
+            # Keep every occurrence for grade/term evidence; summaries contain
+            # distinct codes. A previous pass and a current retake can coexist.
+            object.__setattr__(self, "completed_courses", list(dict.fromkeys(
+                attempt.course_code for attempt in self.course_attempts if attempt.earns_credit is True
+            )))
+            object.__setattr__(self, "in_progress_courses", list(dict.fromkeys(
+                attempt.course_code for attempt in self.course_attempts if attempt.status == "in_progress"
+            )))
+        return self
 
     @model_validator(mode="after")
     def assign_requirement_identities(self):

@@ -284,9 +284,21 @@ exhaustion is reported separately from an unavoidable choice cycle. A bounded
 fallback proposal remains reviewable with diagnostics; it is not a verified
 feasible schedule or a guarantee of the shortest graduation timeline.
 
-Concurrent/prior-or-concurrent rules and unsupported/unverified sources still
-use the existing ordering fallback and are checked afterward. Corequisite bundles
-and broader capstone heuristics remain unfinished. Other-term rules are a provisional planning basis, with their
+Complete AND trees of explicit concurrent corequisites now keep selected courses
+together, including transitive groups. Every member's prior prerequisites must
+come first. Groups move intact across the capstone phase boundary and cannot
+partially fill a semester's remaining capacity. A group above the credit target
+gets its own semester with a Partial plan target-conflict notice. Missing selected
+corequisites are reported without inventing additional courses. If grouping
+conflicts with strict prior ordering, those courses remain separate proposals
+with an explicit notice and final diagnostics. Grouping does not establish grades,
+academic-level eligibility or required section matches.
+
+Corequisite OR choices, concurrent conditions in prerequisite trees,
+prior-or-concurrent scheduling and broader capstone heuristics remain unfinished.
+Unsupported/unverified sources retain existing ordering fallback and final checks.
+Prior-course alternative search does not yet retry choices to accommodate
+corequisite groups. Other-term rules are a provisional planning basis, with their
 applicability warning preserved. Course choices do not change in this step.
 No new API fields or database migration are required.
 

@@ -30,6 +30,7 @@ from src.scheduler.time_utils import (
 )
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
+from src.services.corequisite_groups import corequisite_groups
 from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering
 from src.catalog import course_subject
 from src.config import settings
@@ -560,6 +561,7 @@ def _pack_semesters(
     placed_at: dict[int, int],
     start_term_idx: int = 0,
     initial_card: SemesterCard | None = None,
+    concurrent_groups: dict[int, frozenset[int]] | None = None,
 ) -> list[SemesterCard]:
     """
     Packs items_pool into semester cards term-by-term, starting at
@@ -572,12 +574,16 @@ def _pack_semesters(
     planning_terms in place too (appending further-out terms) if the plan
     runs past the initially pre-computed window.
 
+    Members of concurrent_groups are placed atomically and wait for every
+    member's prior dependencies. The caller keeps groups within one phase
+    and rejects groups that conflict with strict prior ordering.
+
     If initial_card is given, the very first term processed
     (start_term_idx) tops it up in place — adding courses/credits to that
     existing card rather than creating a new one — instead of starting a
     fresh semester. initial_card is never included in this function's
     return value; the caller already holds a reference to it. The
-    force-add fallback (a single oversized course gets its own semester
+    force-add fallback (an oversized course or group gets its own semester
     rather than blocking all progress) is skipped specifically on a
     topping-up pass: initial_card is guaranteed already non-empty (the
     caller only ever passes the last semester from a prior packing call,
@@ -586,6 +592,24 @@ def _pack_semesters(
     isn't a stuck state — leftover items simply proceed to the next,
     fresh term, where force-add resumes normally.
     """
+    concurrent_groups = concurrent_groups or {}
+
+    def group_for(item, pool_by_index):
+        index = index_by_item[id(item)]
+        members = concurrent_groups.get(index, frozenset({index}))
+        if not members <= pool_by_index.keys():
+            raise ValueError("Corequisite group spans packing phases or was partially placed")
+        return [pool_by_index[i] for i in sorted(members)]
+
+    def planned(item):
+        return PlannedCourse(
+            slot_id=item.slot_id, requirement=item.source_requirement, allocation=item.allocation,
+            course_code=item.course_code or "TBD", title=item.title, credits=item.credits,
+            badge=item.badge, reason=item.reason, credits_estimated=item.credits_estimated,
+            credits_note=item.credits_note, title_status=item.title_status,
+            catalog_status=item.catalog_status, catalog_note=item.catalog_note,
+        )
+
     semesters: list[SemesterCard] = []
     term_idx = start_term_idx
 
@@ -604,53 +628,36 @@ def _pack_semesters(
         blocked:   list[_ResolvedItem] = []
         placed:    list[PlannedCourse] = []
 
+        pool_by_index = {index_by_item[id(item)]: item for item in items_pool}
+        visited = set()
         for item in items_pool:
             idx = index_by_item[id(item)]
-            deps = depends_on[idx]
+            if idx in visited:
+                continue
+            group = group_for(item, pool_by_index)
+            indices = {index_by_item[id(member)] for member in group}
+            visited.update(indices)
+            deps = set().union(*(depends_on[index] for index in indices))
+            group_credits = round(sum(member.credits for member in group), 2)
             if any(d not in placed_at or placed_at[d] >= term_idx for d in deps):
-                blocked.append(item)
-            elif credits_used + item.credits <= credit_target:
-                placed.append(PlannedCourse(
-                    slot_id=item.slot_id, requirement=item.source_requirement, allocation=item.allocation,
-                    course_code=item.course_code or "TBD",
-                    title=item.title,
-                    credits=item.credits,
-                    badge=item.badge,
-                    reason=item.reason,
-                    credits_estimated=item.credits_estimated,
-                    credits_note=item.credits_note,
-                    title_status=item.title_status,
-                    catalog_status=item.catalog_status,
-                    catalog_note=item.catalog_note,
-                ))
-                placed_at[idx] = term_idx
-                credits_used = round(credits_used + item.credits, 2)
+                blocked.extend(group)
+            elif credits_used + group_credits <= credit_target:
+                placed.extend(planned(member) for member in group)
+                placed_at.update({index: term_idx for index in indices})
+                credits_used = round(credits_used + group_credits, 2)
             else:
-                remaining.append(item)
+                remaining.extend(group)
 
-        # Force-add if nothing fit (single course exceeds credit_target) —
-        # only from `remaining` (eligible but over budget), never from
-        # `blocked` (prerequisite not yet satisfied), and never on a
-        # topping-up pass (see docstring).
+        # An oversized eligible group gets its own semester, with an explicit
+        # target-conflict notice supplied by group construction. Never split it,
+        # take blocked members, or partially top up an existing semester.
         if not placed and remaining and not topping_up:
-            forced = remaining[0]
-            forced_idx = index_by_item[id(forced)]
-            placed.append(PlannedCourse(
-                slot_id=forced.slot_id, requirement=forced.source_requirement, allocation=forced.allocation,
-                course_code=forced.course_code or "TBD",
-                title=forced.title,
-                credits=forced.credits,
-                badge=forced.badge,
-                reason=forced.reason,
-                credits_estimated=forced.credits_estimated,
-                credits_note=forced.credits_note,
-                title_status=forced.title_status,
-                catalog_status=forced.catalog_status,
-                catalog_note=forced.catalog_note,
-            ))
-            placed_at[forced_idx] = term_idx
-            credits_used = forced.credits
-            remaining = remaining[1:]
+            group = group_for(remaining[0], pool_by_index)
+            indices = {index_by_item[id(member)] for member in group}
+            placed.extend(planned(member) for member in group)
+            placed_at.update({index: term_idx for index in indices})
+            credits_used = round(sum(member.credits for member in group), 2)
+            remaining = [member for member in remaining if index_by_item[id(member)] not in indices]
 
         # A semester where everything left is prerequisite-blocked (nothing
         # placed) must not appear as an empty card — skip it and let the
@@ -1117,6 +1124,9 @@ async def generate_plan(
             "Review missing prerequisites, grades, or circular requirements."
         )
 
+    concurrent_groups, group_warnings = corequisite_groups(rule_rows, resolved, depends_on, credit_target)
+    warnings.extend(group_warnings)
+
     # A normal item's prerequisite may resolve to a senior/capstone-flagged
     # item (ADR-28). Phase 1 packing never places capstone items, so
     # placed_at would never gain an entry for that index and the normal
@@ -1134,6 +1144,8 @@ async def generate_plan(
         additions = {i for i, deps in enumerate(depends_on) if i not in capstone_indices
                      and (deps & promoted or (resolved[i].course_code in verified_history
                                               and deps & capstone_indices))}
+        additions.update(index for index, group in concurrent_groups.items()
+                         if index not in capstone_indices and group & capstone_indices)
         if not additions:
             break
         capstone_indices.update(additions)
@@ -1183,7 +1195,7 @@ async def generate_plan(
 
     semesters = _pack_semesters(
         _sorted_pool(normal_items), depends_on, index_by_item,
-        credit_target, planning_terms, placed_at,
+        credit_target, planning_terms, placed_at, concurrent_groups=concurrent_groups,
     )
 
     if capstone_items:
@@ -1207,7 +1219,7 @@ async def generate_plan(
         capstone_semesters = _pack_semesters(
             _sorted_pool(capstone_items), depends_on, index_by_item,
             credit_target, planning_terms, placed_at,
-            start_term_idx=start_term_idx, initial_card=initial_card,
+            start_term_idx=start_term_idx, initial_card=initial_card, concurrent_groups=concurrent_groups,
         )
         semesters.extend(capstone_semesters)
 
@@ -1226,7 +1238,7 @@ async def generate_plan(
 
     warnings.append(
         "Review prerequisite and corequisite issues before using this proposed schedule. "
-        "Explicit prior-course chains guide scheduling, but flagged issues still need review. "
+        "Supported prerequisite chains and mandatory corequisite groups guide scheduling; flagged issues still need review. "
         "Requirements may differ by section. Confirm registration eligibility with NJIT."
     )
 

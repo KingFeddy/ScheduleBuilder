@@ -32,7 +32,7 @@ from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
 from src.services.corequisite_groups import corequisite_groups
 from src.services.flexible_prerequisites import flexible_course_ordering, prepare_flexible_groups
-from src.services.mixed_prerequisite_choices import choose_mixed_prerequisite_paths
+from src.services.mixed_prerequisite_choices import choose_rule_paths
 from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering
 from src.catalog import course_subject
 from src.config import settings
@@ -1120,7 +1120,7 @@ async def generate_plan(
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
     rule_rows = await load_prerequisite_rows(session, prerequisites_by_code)
-    ordering_rows, choice_warnings = choose_mixed_prerequisite_paths(
+    ordering_rows, choice_warnings = choose_rule_paths(
         rule_rows, validated, prerequisites_by_code, current_term,
         {item.course_code: item.credits for item in resolved if item.course_code}, credit_target,
     )
@@ -1153,7 +1153,7 @@ async def generate_plan(
         )
 
     concurrent_groups, group_warnings = corequisite_groups(
-        rule_rows, resolved, depends_on, credit_target, mandatory_concurrent=concurrent,
+        ordering_rows, resolved, depends_on, credit_target, mandatory_concurrent=concurrent,
     )
     warnings.extend(group_warnings)
     same_or_before, concurrent_groups, flexible_warnings = prepare_flexible_groups(

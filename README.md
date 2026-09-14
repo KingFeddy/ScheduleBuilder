@@ -326,19 +326,23 @@ same-semester selection, and planned grades or required section CRNs remain unve
 Prerequisite AND/OR trees can now mix all three explicit timing modes. A bounded
 selector prefers paths supported by qualifying history and selected courses,
 preserves mandatory siblings, and retries earlier choices when later choices
-conflict. Prior-only alternatives participate when a mixed-timing choice is
-present. Fixed corequisite groups constrain this search. It first seeks groups
+conflict. When prerequisite choices meet corequisite constraints, or corequisite
+choices meet prerequisite constraints, both participate in one search. It can
+retry a prerequisite path when later corequisite options conflict, including
+interactions with flexible timing and fixed groups. It first seeks groups
 within the credit target, then permits oversized groups with existing notices.
 Missing escapes cannot stop backtracking among available paths. Expansion permits
-512 nodes and 64 paths per course; both passes share a 2,048-candidate budget.
+512 nodes and 64 paths per rule tree; both passes share a 2,048-candidate budget.
+Each prerequisite/corequisite tree is a separate decision, avoiding expansion of
+every combination between them. Simpler independent cases keep existing selectors.
 Limits and unavoidable timing conflicts retain explicit partial proposals.
 Chosen paths exist only in temporary ordering copies; final diagnostics use the
 complete original rules from the same database snapshot.
 
 Broader capstone heuristics remain unfinished.
 Unsupported/unverified sources retain existing ordering fallback and final checks.
-Prerequisite and corequisite OR choices are still selected in separate stages;
-they are not jointly retried to resolve all timing/group interactions.
+Unsupported rules and search limits can still leave an incomplete proposal;
+the search does not certify eligibility or optimize the graduation date.
 Other-term rules are a provisional planning basis, with their
 applicability warning preserved. Course choices do not change in this step.
 No new API fields or database migration are required.

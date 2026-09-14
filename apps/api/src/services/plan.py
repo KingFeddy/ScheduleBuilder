@@ -677,21 +677,24 @@ def _allocated_amount(rows: list[_ResolvedItem], unit: str) -> Decimal:
 
 async def _allocate_requirement_quantities(
     resolved, course_data, completed, in_progress, target_term, credit_target,
-    session, warnings, prerequisites_by_code, requested_codes,
+    session, warnings, prerequisites_by_code, requested_codes, requirement_choices=None,
 ) -> list[_ResolvedItem]:
     """Allocate each concrete course once, without inferring sharing permission.
 
     Credits are counted only from verified fixed metadata. Uncertain courses
     remain planned suggestions, with their requirement remainder still explicit.
     """
+    requirement_choices = requirement_choices or {}
+    reserved = {code for codes in requirement_choices.values() for code in codes}
     linked = [row for row in resolved if row.source_requirement is not None]
     extras = [row for row in resolved if row.source_requirement is None]
     requested_rows = {row.course_code: row for row in resolved if row.course_code in requested_codes}
     allocated_to: dict[str, StillNeededItem] = {}
     excluded = completed | in_progress
-    # Protect narrow requirements before flexible choices. Equal constraints
-    # retain audit order; unknown quantities never displace known requirements.
+    # Explicit ownership comes first, then protect narrow requirements before
+    # flexible automatic choices. Equal constraints retain audit order.
     linked.sort(key=lambda row: (
+        row.source_requirement.requirement_id not in requirement_choices,
         row.source_requirement.quantity_status != "known",
         any(WILDCARD_PATTERN.search(code) for code in row.source_requirement.options),
         len({code for code in row.source_requirement.options
@@ -708,11 +711,17 @@ async def _allocate_requirement_quantities(
         course_data.update(await get_course_data(session, additional_codes))
 
     remaining_slots = max(0, MAX_QUANTITY_ALLOCATION_SLOTS - len(resolved))
+    # Reserve every explicit selection before placeholders consume the budget.
+    extra_choice_slots = sum(len(codes) - 1 for codes in requirement_choices.values())
+    if extra_choice_slots > remaining_slots:
+        raise ParseValidationError("preferences.requirement_choices", "Selected courses exceed the plan allocation limit.")
+    remaining_slots -= extra_choice_slots
     expanded = []
     for base in linked:
         requirement = base.source_requirement
         unit = requirement.quantity_unit
-        unavailable = excluded | allocated_to.keys()
+        choices = requirement_choices.get(requirement.requirement_id)
+        unavailable = excluded | allocated_to.keys() | (reserved - set(choices or []))
         if base.course_code is None or base.course_code in unavailable:
             requested = next((code for code in requested_rows if code not in unavailable
                               and any(matches_wildcard(code, option) for option in requirement.options)), None)
@@ -766,9 +775,15 @@ async def _allocate_requirement_quantities(
                                reason=f"Course with verified credits allocated toward '{requirement.requirement}'")
                 _apply_course_data(base, course_data, [], prerequisites_by_code)
         rows = [base] if base.course_code else []
+        if choices:
+            for code in choices[1:]:
+                candidate = replace(base, course_code=code,
+                                    reason=f"Your chosen course {code} is allocated toward '{requirement.requirement}'")
+                _apply_course_data(candidate, course_data, [], prerequisites_by_code)
+                rows.append(candidate)
         used_codes = {row.course_code for row in rows}
         limit_reached = False
-        while _allocated_amount(rows, unit) < target:
+        while not choices and _allocated_amount(rows, unit) < target:
             # Do not pile extra courses/placeholders beside an uncertain-credit
             # selection and pretend the missing credit amount is known.
             if unit == "credits" and any(row.credits_estimated for row in rows):
@@ -868,6 +883,7 @@ async def generate_plan(
 
     Validated preferences:
       courses (list[str])        — student-chosen electives
+      requirement_choices       — concrete choices owned by audit requirement ID
       credits_per_semester (int) — MIN_CREDITS_PER_SEMESTER..MAX_CREDITS_PER_SEMESTER
     """
     warnings: list[str] = []
@@ -878,6 +894,41 @@ async def generate_plan(
     completed   = set(validated.completed_courses)
     in_progress = set(validated.in_progress_courses)
     all_excluded = completed | in_progress
+
+    requirement_choices = preferences.requirement_choices
+    requirements_by_id = {item.requirement_id: item for item in validated.still_needed}
+    chosen_codes = {code for codes in requirement_choices.values() for code in codes}
+    for requirement_id, codes in requirement_choices.items():
+        field = f"preferences.requirement_choices.{requirement_id}"
+        requirement = requirements_by_id.get(requirement_id)
+        if requirement is None:
+            raise ParseValidationError(field, "This requirement is not in the submitted audit. Regenerate from the current audit.")
+        if requirement.quantity_status == "known":
+            if requirement.remaining_quantity == 0:
+                raise ParseValidationError(field, "This requirement has no remaining quantity.")
+            if requirement.quantity_unit == "classes" and len(codes) > requirement.remaining_quantity:
+                raise ParseValidationError(field, "More courses selected than the remaining class count.")
+        elif len(codes) > 1:
+            raise ParseValidationError(field, "Select only one course while the requirement quantity is unknown.")
+        for code in codes:
+            if code in all_excluded:
+                raise ParseValidationError(field, f"{code} is already completed or in progress.")
+            if not any(
+                (option == "@" or (option.isascii() and re.fullmatch(r"[A-Z]{2,5}[0-9X]{3}[A-Z]?", option)))
+                and matches_wildcard(code, option) for option in requirement.options
+            ):
+                raise ParseValidationError(field, f"{code} does not match this requirement's parsed course options.")
+    if chosen_codes:
+        # Scope status combines presence and refresh coverage, so it cannot
+        # establish existence. Check actual records, including excluded subjects.
+        result = await session.execute(text("SELECT course_code FROM courses WHERE course_code = ANY(:codes)"),
+                                       {"codes": sorted(chosen_codes)})
+        present = {row["course_code"] for row in result.mappings()}
+        for requirement_id, codes in requirement_choices.items():
+            missing = sorted(set(codes) - present)
+            if missing:
+                raise ParseValidationError(f"preferences.requirement_choices.{requirement_id}",
+                                           f"Courses not found in the collected catalog: {', '.join(missing)}. Choose a collected course.")
 
     # ── 1. Early exit: already graduated ─────────────────────────────────────
 
@@ -892,6 +943,8 @@ async def generate_plan(
 
     electives_to_place: list[str] = []
     for code in student_electives:
+        if code in chosen_codes:
+            continue
         if code in all_excluded:
             warnings.append(
                 f"{code} is already completed or in progress — removed from elective list."
@@ -916,7 +969,9 @@ async def generate_plan(
     current_term   = planning_terms[0]
 
     resolved: list[_ResolvedItem] = []
-    satisfied_indices: set[int] = set()
+    satisfied_indices: set[int] = {
+        i for i, item in enumerate(validated.still_needed) if item.requirement_id in requirement_choices
+    }
 
     # Match student electives to requirements (exact first, then wildcard)
     elective_to_req: dict[str, int] = {}   # elective code → still_needed index
@@ -939,7 +994,8 @@ async def generate_plan(
         if item.quantity_status == "unresolved":
             warnings.append(f"Remaining quantity for '{item.requirement}' is unknown. Confirm the required amount with your advisor.")
         if i in satisfied_indices:
-            code = next(e for e, idx in elective_to_req.items() if idx == i)
+            choices = requirement_choices.get(item.requirement_id)
+            code = choices[0] if choices else next(e for e, idx in elective_to_req.items() if idx == i)
             resolved.append(_ResolvedItem(
                 slot_id=stable_identity("slot", item.requirement_id, 1), source_requirement=item.model_copy(deep=True),
                 requirement=item.requirement,
@@ -989,7 +1045,7 @@ async def generate_plan(
 
     # ── 4. Fetch credits + titles + prerequisites in one batched query ───────
 
-    all_codes = [r.course_code for r in resolved if r.course_code]
+    all_codes = list(dict.fromkeys([r.course_code for r in resolved if r.course_code] + sorted(chosen_codes)))
     course_data = await get_course_data(session, all_codes)
 
     prerequisites_by_code: dict[str, list[str]] = {}
@@ -998,7 +1054,7 @@ async def generate_plan(
 
     resolved = await _allocate_requirement_quantities(
         resolved, course_data, completed, in_progress, current_term, credit_target,
-        session, warnings, prerequisites_by_code, set(student_electives),
+        session, warnings, prerequisites_by_code, set(student_electives) | chosen_codes, requirement_choices,
     )
     # Automatic choices can change during quantity allocation. Publish metadata
     # warnings and dependencies only for the final selections.

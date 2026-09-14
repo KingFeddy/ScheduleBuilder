@@ -25,10 +25,19 @@ def normalize_elective(code: str) -> str:
     return normalized
 
 
+StableIdentifier = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
+
+
 class PlanPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     courses: list[Annotated[str, AfterValidator(normalize_elective)]] = Field(default_factory=list)
+    requirement_choices: dict[StableIdentifier, Annotated[
+        list[Annotated[str, AfterValidator(normalize_elective)]], Field(min_length=1, max_length=200),
+    ]] = Field(default_factory=dict, max_length=200, description=(
+        "Concrete choices keyed by audit requirement ID. Replaces automatic choices for those requirements; "
+        "unselected amounts remain unresolved. At most 200 courses total."
+    ))
     credits_per_semester: int = Field(default=15, ge=MIN_CREDITS_PER_SEMESTER, le=MAX_CREDITS_PER_SEMESTER)
     start_term: str | None = Field(default=None, pattern=r"^(19|20|21)[0-9]{2}(10|90)$",
                                   description="Spring or fall planning start (1900–2199). Null uses the configured default; no collected sections are required.")
@@ -40,8 +49,15 @@ class PlanPreferences(BaseModel):
             raise ValueError("List each elective course only once.")
         return courses
 
-
-StableIdentifier = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
+    @field_validator("requirement_choices")
+    @classmethod
+    def distinct_requirement_choices(cls, choices: dict[str, list[str]]) -> dict[str, list[str]]:
+        codes = [code for selected in choices.values() for code in selected]
+        if len(codes) > 200:
+            raise ValueError("Select at most 200 requirement courses.")
+        if len(codes) != len(set(codes)):
+            raise ValueError("Allocate each chosen course to only one requirement, once.")
+        return choices
 
 
 def stable_identity(kind: str, *parts: object) -> str:

@@ -654,6 +654,13 @@ export interface components {
              */
             credits_per_semester?: number;
             /**
+             * Requirement Choices
+             * @description Concrete choices keyed by audit requirement ID. Replaces automatic choices for those requirements; unselected amounts remain unresolved. At most 200 courses total.
+             */
+            requirement_choices?: {
+                [key: string]: string[];
+            };
+            /**
              * Start Term
              * @description Spring or fall planning start (1900–2199). Null uses the configured default; no collected sections are required.
              */

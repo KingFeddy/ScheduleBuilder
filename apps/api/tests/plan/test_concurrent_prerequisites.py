@@ -123,10 +123,10 @@ async def test_unsupported_sibling_does_not_get_dropped_to_establish_group():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_prerequisite_or_remains_diagnostic_only():
+async def test_concurrent_prerequisite_or_selects_one_same_term_course():
     rule = AnyConditions(items=[concurrent('CS100'), concurrent('CS200')])
     _, terms, _ = await generate(['CS300', 'CS100', 'CS200'], [stored('CS300', prereq=rule)], target=3)
-    assert len(set(terms.values())) == 3
+    assert terms['CS300'] == terms['CS100'] != terms['CS200']
 
 
 @pytest.mark.asyncio

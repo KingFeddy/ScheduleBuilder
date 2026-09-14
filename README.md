@@ -323,11 +323,23 @@ and prior dependencies. Contradictory prior/same-term requirements retain separa
 proposals with explicit notices. Passing an earlier course does not manufacture a
 same-semester selection, and planned grades or required section CRNs remain unverified.
 
-Prerequisite OR choices involving prior-or-concurrent or strictly concurrent
-conditions, and broader capstone heuristics, remain unfinished.
+Prerequisite AND/OR trees can now mix all three explicit timing modes. A bounded
+selector prefers paths supported by qualifying history and selected courses,
+preserves mandatory siblings, and retries earlier choices when later choices
+conflict. Prior-only alternatives participate when a mixed-timing choice is
+present. Fixed corequisite groups constrain this search. It first seeks groups
+within the credit target, then permits oversized groups with existing notices.
+Missing escapes cannot stop backtracking among available paths. Expansion permits
+512 nodes and 64 paths per course; both passes share a 2,048-candidate budget.
+Limits and unavoidable timing conflicts retain explicit partial proposals.
+Chosen paths exist only in temporary ordering copies; final diagnostics use the
+complete original rules from the same database snapshot.
+
+Broader capstone heuristics remain unfinished.
 Unsupported/unverified sources retain existing ordering fallback and final checks.
-Alternative searches do not yet jointly retry choices to accommodate flexible
-timing and corequisite groups. Other-term rules are a provisional planning basis, with their
+Prerequisite and corequisite OR choices are still selected in separate stages;
+they are not jointly retried to resolve all timing/group interactions.
+Other-term rules are a provisional planning basis, with their
 applicability warning preserved. Course choices do not change in this step.
 No new API fields or database migration are required.
 

@@ -140,10 +140,10 @@ async def test_unsupported_branch_preserves_legacy_fallback():
 
 
 @pytest.mark.asyncio
-async def test_flexible_or_is_not_flattened_into_all_dependencies():
+async def test_flexible_or_selects_one_dependency_without_flattening():
     rule = AnyConditions(items=[flexible('CS100'), flexible('CS200')])
     _, terms, _ = await generate(['CS300', 'CS100', 'CS200'], [stored('CS300', prereq=rule)], target=3)
-    assert terms['CS300'] == '202690'  # Remains diagnostic-only until mixed OR selection is implemented.
+    assert terms['CS100'] <= terms['CS300']
 
 
 @pytest.mark.asyncio

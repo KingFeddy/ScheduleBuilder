@@ -304,11 +304,23 @@ a 2,048-candidate budget. Search limits and unresolved prior conflicts produce
 explicit partial proposals with deterministic fallback choices. The search does
 not change which courses satisfy degree requirements or certify future grades.
 
-Concurrent conditions in prerequisite trees, prior-or-concurrent scheduling and
-broader capstone heuristics remain unfinished.
+Mandatory AND prerequisite trees combining `prior` and `prior_or_concurrent`
+conditions now distinguish strictly earlier courses from courses allowed earlier
+or in the same semester. Qualifying history must establish every repeated grade
+and timing condition; unknown history and missing selections remain partial.
+Packing retries newly eligible courses within the semester and moves prerequisites
+earlier when credits require it. Mutual same-or-before dependencies form atomic
+groups, including connections through existing corequisite groups. If a strict
+prior edge makes such a cycle impossible, the fallback preserves strict ordering
+and reports the conflicting flexible requirements. Oversized mandatory groups
+receive target notices. These dependencies and groups cross capstone phases
+without being silently dropped. Rule traversal is bounded to 512 nodes.
+
+OR choices involving prior-or-concurrent conditions, strictly concurrent conditions
+in prerequisite trees and broader capstone heuristics remain unfinished.
 Unsupported/unverified sources retain existing ordering fallback and final checks.
-Prior-course alternative search does not yet retry choices to accommodate
-corequisite groups. Other-term rules are a provisional planning basis, with their
+Alternative searches do not yet jointly retry choices to accommodate flexible
+timing and corequisite groups. Other-term rules are a provisional planning basis, with their
 applicability warning preserved. Course choices do not change in this step.
 No new API fields or database migration are required.
 

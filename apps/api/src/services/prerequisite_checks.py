@@ -154,12 +154,14 @@ class _PriorAlternativeLimit(ValueError):
     pass
 
 
-def prior_course_ordering(rows, audit, legacy, start_term):
+def prior_course_ordering(rows, audit, legacy, start_term, *, fixed_history=None):
     """Choose bounded, deterministic AND/OR prior-course paths among selections.
 
     Prefer verified history, then selected coursework. Never add a course or
     flatten a concurrency/unsupported condition. Search only controls prior edges;
     actual credit-aware packing and conditional-grade diagnostics remain separate.
+    fixed_history preserves grade/timing evidence for mixed mandatory trees
+    whose strict edges were prepared before this alternative-selection pass.
     """
     def alternatives(rule, visited):
         visited[0] += 1
@@ -187,7 +189,7 @@ def prior_course_ordering(rows, audit, legacy, start_term):
                 result = [left + right for left in result for right in values]
         return result
 
-    dependencies, history, warnings, candidates = dict(legacy), {}, [], {}
+    dependencies, history, warnings, candidates = dict(legacy), dict(fixed_history or {}), [], {}
     for code in sorted(legacy):
         rules = verified_rules(rows.get(code, {}))
         if rules is None:

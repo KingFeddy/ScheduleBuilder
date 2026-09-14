@@ -31,6 +31,7 @@ from src.scheduler.time_utils import (
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
 from src.services.corequisite_groups import corequisite_groups
+from src.services.flexible_prerequisites import flexible_course_ordering, prepare_flexible_groups
 from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering
 from src.catalog import course_subject
 from src.config import settings
@@ -562,6 +563,7 @@ def _pack_semesters(
     start_term_idx: int = 0,
     initial_card: SemesterCard | None = None,
     concurrent_groups: dict[int, frozenset[int]] | None = None,
+    same_or_before: list[set[int]] | None = None,
 ) -> list[SemesterCard]:
     """
     Packs items_pool into semester cards term-by-term, starting at
@@ -577,6 +579,8 @@ def _pack_semesters(
     Members of concurrent_groups are placed atomically and wait for every
     member's prior dependencies. The caller keeps groups within one phase
     and rejects groups that conflict with strict prior ordering.
+    same_or_before permits an external predecessor in the current semester;
+    newly eligible courses are retried before advancing to the next semester.
 
     If initial_card is given, the very first term processed
     (start_term_idx) tops it up in place — adding courses/credits to that
@@ -593,6 +597,7 @@ def _pack_semesters(
     fresh term, where force-add resumes normally.
     """
     concurrent_groups = concurrent_groups or {}
+    same_or_before = same_or_before or [set() for _ in depends_on]
 
     def group_for(item, pool_by_index):
         index = index_by_item[id(item)]
@@ -629,24 +634,37 @@ def _pack_semesters(
         placed:    list[PlannedCourse] = []
 
         pool_by_index = {index_by_item[id(item)]: item for item in items_pool}
-        visited = set()
-        for item in items_pool:
-            idx = index_by_item[id(item)]
-            if idx in visited:
-                continue
-            group = group_for(item, pool_by_index)
-            indices = {index_by_item[id(member)] for member in group}
-            visited.update(indices)
-            deps = set().union(*(depends_on[index] for index in indices))
-            group_credits = round(sum(member.credits for member in group), 2)
-            if any(d not in placed_at or placed_at[d] >= term_idx for d in deps):
-                blocked.extend(group)
-            elif credits_used + group_credits <= credit_target:
-                placed.extend(planned(member) for member in group)
-                placed_at.update({index: term_idx for index in indices})
-                credits_used = round(credits_used + group_credits, 2)
-            else:
-                remaining.extend(group)
+        pending = items_pool
+        while pending:
+            visited = set()
+            blocked = []
+            progressed = False
+            for item in pending:
+                idx = index_by_item[id(item)]
+                if idx in visited:
+                    continue
+                group = group_for(item, pool_by_index)
+                indices = {index_by_item[id(member)] for member in group}
+                visited.update(indices)
+                deps = set().union(*(depends_on[index] for index in indices))
+                flexible_deps = set().union(*(same_or_before[index] for index in indices)) - indices
+                group_credits = round(sum(member.credits for member in group), 2)
+                if (any(d not in placed_at or placed_at[d] >= term_idx for d in deps)
+                        or any(d not in placed_at or placed_at[d] > term_idx for d in flexible_deps)):
+                    blocked.extend(group)
+                elif credits_used + group_credits <= credit_target:
+                    placed.extend(planned(member) for member in group)
+                    placed_at.update({index: term_idx for index in indices})
+                    credits_used = round(credits_used + group_credits, 2)
+                    progressed = True
+                else:
+                    remaining.extend(group)
+            # A newly placed predecessor can unlock same-term coursework that
+            # appeared earlier in the pool. Strict prior edges still wait. Each
+            # retry must place something, so this loop cannot spin without progress.
+            if not progressed:
+                break
+            pending = blocked
 
         # An oversized eligible group gets its own semester, with an explicit
         # target-conflict notice supplied by group construction. Never split it,
@@ -1101,8 +1119,12 @@ async def generate_plan(
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
     rule_rows = await load_prerequisite_rows(session, prerequisites_by_code)
-    prerequisites_by_code, verified_history, ordering_warnings = prior_course_ordering(
+    prerequisites_by_code, flexible_history, flexible, flexible_warnings = flexible_course_ordering(
         rule_rows, validated, prerequisites_by_code, current_term,
+    )
+    warnings.extend(flexible_warnings)
+    prerequisites_by_code, verified_history, ordering_warnings = prior_course_ordering(
+        rule_rows, validated, prerequisites_by_code, current_term, fixed_history=flexible_history,
     )
     warnings.extend(ordering_warnings)
     depends_on, prereq_warnings = _compute_prerequisite_dependencies(
@@ -1126,6 +1148,10 @@ async def generate_plan(
 
     concurrent_groups, group_warnings = corequisite_groups(rule_rows, resolved, depends_on, credit_target)
     warnings.extend(group_warnings)
+    same_or_before, concurrent_groups, flexible_warnings = prepare_flexible_groups(
+        resolved, depends_on, flexible, concurrent_groups, credit_target,
+    )
+    warnings.extend(flexible_warnings)
 
     # A normal item's prerequisite may resolve to a senior/capstone-flagged
     # item (ADR-28). Phase 1 packing never places capstone items, so
@@ -1146,6 +1172,8 @@ async def generate_plan(
                                               and deps & capstone_indices))}
         additions.update(index for index, group in concurrent_groups.items()
                          if index not in capstone_indices and group & capstone_indices)
+        additions.update(index for index, deps in enumerate(same_or_before)
+                         if index not in capstone_indices and deps & capstone_indices)
         if not additions:
             break
         capstone_indices.update(additions)
@@ -1196,6 +1224,7 @@ async def generate_plan(
     semesters = _pack_semesters(
         _sorted_pool(normal_items), depends_on, index_by_item,
         credit_target, planning_terms, placed_at, concurrent_groups=concurrent_groups,
+        same_or_before=same_or_before,
     )
 
     if capstone_items:
@@ -1220,6 +1249,7 @@ async def generate_plan(
             _sorted_pool(capstone_items), depends_on, index_by_item,
             credit_target, planning_terms, placed_at,
             start_term_idx=start_term_idx, initial_card=initial_card, concurrent_groups=concurrent_groups,
+            same_or_before=same_or_before,
         )
         semesters.extend(capstone_semesters)
 

@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from src.schemas.plan import COURSE_CODE_PATTERN, ParsedDegreeValidated
 from src.schemas.prerequisites import (
-    AnyConditions, CourseCondition, PrerequisiteRules, Rule, UnresolvedCondition, is_empty,
+    AllConditions, AnyConditions, CourseCondition, PrerequisiteRules, Rule, UnresolvedCondition, is_empty,
 )
 
 # Published NJIT undergraduate ordering. Other imported +/- variants remain
@@ -120,27 +120,86 @@ def evaluate_rule(rule: Rule, audit: ParsedDegreeValidated, planned: dict[str, s
                     alternative=isinstance(rule, AnyConditions))
 
 
-async def check_plan_prerequisites(session, audit: ParsedDegreeValidated, planned: dict[str, str]) -> list[str]:
-    """One read for final selections; this function never writes or changes packing."""
-    if not planned:
-        return []
+async def load_prerequisite_rows(session, codes) -> dict[str, dict]:
+    """Share one rule snapshot between ordering and final diagnostics."""
+    if not codes:
+        return {}
     result = await session.execute(text(
         'SELECT course_code, prerequisites_status, prerequisites_rules FROM courses WHERE course_code = ANY(:codes)'
-    ), {'codes': sorted(planned)})
-    rows = {row['course_code']: row for row in result.mappings()}
+    ), {'codes': sorted(set(codes))})
+    return {row['course_code']: row for row in result.mappings()}
+
+
+def verified_rules(row) -> PrerequisiteRules | None:
+    if row.get('prerequisites_status') not in {'verified', 'verified_empty'}:
+        return None
+    try:
+        raw = row.get('prerequisites_rules')
+        rules = PrerequisiteRules.model_validate(json.loads(raw) if isinstance(raw, str) else raw)
+        if (_term(rules.scope.term) != rules.scope.term or not re.fullmatch(r'[0-9]{5}', rules.scope.crn)
+                or (row['prerequisites_status'] == 'verified_empty'
+                    and not (is_empty(rules.prerequisites) and is_empty(rules.corequisites)))):
+            return None
+        return rules
+    except (ValidationError, ValueError, TypeError, RecursionError):
+        return None
+
+
+def prior_course_ordering(rows, audit, legacy, start_term):
+    """Use complete AND-only prior-course trees without flattening OR/concurrency.
+
+    Return dependency codes and the independently verified history for each
+    supported course. Empty history must override legacy completed/IP summaries.
+    Grades for planned prerequisites remain conditional in the final diagnostics.
+    """
+    def leaves(rule):
+        if isinstance(rule, CourseCondition):
+            return [rule] if rule.timing == 'prior' and COURSE_CODE_PATTERN.fullmatch(rule.course_code) else None
+        if isinstance(rule, AllConditions):
+            result = []
+            for child in rule.items:
+                values = leaves(child)
+                if values is None:
+                    return None
+                result.extend(values)
+            return result
+        return None
+
+    dependencies, history = dict(legacy), {}
+    for code in legacy:
+        rules = verified_rules(rows.get(code, {}))
+        if rules is None:
+            continue
+        try:
+            conditions = leaves(rules.prerequisites)
+            if conditions is None:
+                continue
+            by_code = {}
+            for rule in conditions:
+                by_code.setdefault(rule.course_code, []).append(rule)
+            dependencies[code] = list(by_code)
+            history[code] = {prereq for prereq, requirements in by_code.items()
+                             if all(evaluate_rule(rule, audit, {}, start_term).status == 'satisfied'
+                                    for rule in requirements)}
+        except RecursionError:
+            continue
+    return dependencies, history
+
+
+async def check_plan_prerequisites(session, audit: ParsedDegreeValidated, planned: dict[str, str], *, rows=None) -> list[str]:
+    """Use supplied ordering evidence, or load once when called independently."""
+    if not planned:
+        return []
+    if rows is None:
+        rows = await load_prerequisite_rows(session, planned)
     warnings, unavailable, other_term = [], [], []
     for code, term in sorted(planned.items()):
         row = rows.get(code, {})
-        if row.get('prerequisites_status') not in {'verified', 'verified_empty'}:
+        rules = verified_rules(row)
+        if rules is None:
             unavailable.append(code)
             continue
         try:
-            raw = row.get('prerequisites_rules')
-            rules = PrerequisiteRules.model_validate(json.loads(raw) if isinstance(raw, str) else raw)
-            if (_term(rules.scope.term) != rules.scope.term or not re.fullmatch(r'[0-9]{5}', rules.scope.crn)
-                    or (row['prerequisites_status'] == 'verified_empty'
-                        and not (is_empty(rules.prerequisites) and is_empty(rules.corequisites)))):
-                raise ValueError('Inconsistent recorded rule scope/status')
             same_term = rules.scope.term == term
             if not same_term:
                 other_term.append(code)

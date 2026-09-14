@@ -30,7 +30,7 @@ from src.scheduler.time_utils import (
 )
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
-from src.services.prerequisite_checks import check_plan_prerequisites
+from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering
 from src.catalog import course_subject
 from src.config import settings
 from src.schemas.catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
@@ -463,6 +463,7 @@ def _compute_prerequisite_dependencies(
     completed: set[str],
     in_progress: set[str],
     prerequisites_by_code: dict[str, list[str]],
+    verified_history: dict[str, set[str]] | None = None,
 ) -> tuple[list[set[int]], list[str]]:
     """
     Returns (depends_on, warnings).
@@ -482,11 +483,10 @@ def _compute_prerequisite_dependencies(
     and a static-bound version of this function let the dependent get
     bundled into the same semester as its just-placed prerequisite.)
 
-    A prerequisite already in `completed` or `in_progress` imposes no
-    constraint. A prerequisite not found in `completed`, `in_progress`, or
-    as another resolved item's course_code is assumed already satisfied
-    (real DegreeWorks data is known to be incomplete) and is named in the
-    returned warning instead of creating a dependency.
+    For supported structured rules, only verified_history discharges a
+    prerequisite. Other courses retain the legacy completed/in-progress
+    compatibility behavior. Missing prerequisites cannot create an edge;
+    they are named for review, with structured gaps marked partial by the caller.
 
     A genuine cycle in the prerequisite data is broken by dropping the
     back-edge that would close the loop, and the affected courses are
@@ -515,7 +515,9 @@ def _compute_prerequisite_dependencies(
         for prereq_code in prerequisites_by_code.get(code, []):
             if prereq_code == code:
                 continue
-            if prereq_code in completed or prereq_code in in_progress:
+            history = (verified_history[code] if verified_history is not None and code in verified_history
+                       else completed | in_progress)
+            if prereq_code in history:
                 continue
             dep_idx = code_to_index.get(prereq_code)
             if dep_idx is None:
@@ -1091,10 +1093,28 @@ async def generate_plan(
 
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
+    rule_rows = await load_prerequisite_rows(session, prerequisites_by_code)
+    prerequisites_by_code, verified_history = prior_course_ordering(
+        rule_rows, validated, prerequisites_by_code, current_term,
+    )
     depends_on, prereq_warnings = _compute_prerequisite_dependencies(
-        resolved, completed, in_progress, prerequisites_by_code,
+        resolved, completed, in_progress, prerequisites_by_code, verified_history,
     )
     warnings.extend(prereq_warnings)
+
+    index_by_code = {r.course_code: i for i, r in enumerate(resolved) if r.course_code}
+    unresolved_ordering = {
+        code for code, history in verified_history.items()
+        if any(prereq not in history and (prereq not in index_by_code
+               or index_by_code[prereq] not in depends_on[index_by_code[code]])
+               for prereq in prerequisites_by_code[code])
+    }
+    if unresolved_ordering:
+        warnings.append(
+            "Partial plan: prerequisite ordering for " + ", ".join(sorted(unresolved_ordering))
+            + " could not be established from the available history and selected courses. "
+            "Review missing prerequisites, grades, or circular requirements."
+        )
 
     # A normal item's prerequisite may resolve to a senior/capstone-flagged
     # item (ADR-28). Phase 1 packing never places capstone items, so
@@ -1102,13 +1122,24 @@ async def generate_plan(
     # item would stay permanently blocked — an infinite loop in
     # _pack_semesters' `while items_pool:` with no `await` inside it,
     # hanging the whole event loop, not just one request. Treat this the
-    # same way ADR-27 already treats an unverifiable prerequisite: drop
-    # the edge so it can't block anything, and surface it in a warning
-    # instead of silently ignoring it.
+    # same way ADR-27 already treats an unverifiable prerequisite for legacy
+    # rules. Supported structured chains move into the later phase instead.
     capstone_indices = {i for i, r in enumerate(resolved) if r.must_be_last}
+    # Keep supported prior-course edges across the phase boundary. Move their
+    # dependents (and downstream legacy dependents) into the later packing phase;
+    # this is scheduling membership, not a new academic capstone classification.
+    promoted = set()
+    while True:
+        additions = {i for i, deps in enumerate(depends_on) if i not in capstone_indices
+                     and (deps & promoted or (resolved[i].course_code in verified_history
+                                              and deps & capstone_indices))}
+        if not additions:
+            break
+        capstone_indices.update(additions)
+        promoted.update(additions)
     cross_phase_flagged: set[str] = set()
     for i, deps in enumerate(depends_on):
-        if resolved[i].must_be_last:
+        if i in capstone_indices:
             continue
         conflicting = deps & capstone_indices
         if conflicting:
@@ -1126,8 +1157,8 @@ async def generate_plan(
 
     index_by_item: dict[int, int] = {id(item): i for i, item in enumerate(resolved)}
 
-    normal_items   = [r for r in resolved if not r.must_be_last]
-    capstone_items = [r for r in resolved if r.must_be_last]
+    normal_items   = [r for i, r in enumerate(resolved) if i not in capstone_indices]
+    capstone_items = [r for i, r in enumerate(resolved) if i in capstone_indices]
 
     def _sorted_pool(items: list[_ResolvedItem]) -> list[_ResolvedItem]:
         concrete = [r for r in items if r.course_code is not None]
@@ -1155,9 +1186,13 @@ async def generate_plan(
     )
 
     if capstone_items:
-        natural_start = _synchronized_capstone_start(
-            capstone_items, depends_on, index_by_item, placed_at,
-        )
+        # Structured chains use actual placement checks in the packer. Applying
+        # the legacy deepest-capstone floor would unnecessarily postpone roots
+        # before scheduling the entire chain again from that later starting point.
+        natural_start = (0 if any(resolved[i].course_code in verified_history for i in capstone_indices)
+                         else _synchronized_capstone_start(
+                             capstone_items, depends_on, index_by_item, placed_at,
+                         ))
         start_term_idx = max(len(semesters) - 1, natural_start)
         # Only top up the last normal semester's card when the synchronized
         # floor lands exactly there — if a real prerequisite chain pushes
@@ -1186,12 +1221,12 @@ async def generate_plan(
     warnings.extend(await check_plan_prerequisites(session, validated, {
         course.course_code: semester.term for semester in semesters for course in semester.courses
         if re.fullmatch(COURSE_CODE_PATTERN, course.course_code)
-    }))
+    }, rows=rule_rows))
 
     warnings.append(
         "Review prerequisite and corequisite issues before using this proposed schedule. "
-        "Courses have not been automatically rearranged to resolve flagged issues, "
-        "and requirements may differ by section. Confirm registration eligibility with NJIT."
+        "Explicit prior-course chains guide scheduling, but flagged issues still need review. "
+        "Requirements may differ by section. Confirm registration eligibility with NJIT."
     )
 
     return GeneratedPlan(

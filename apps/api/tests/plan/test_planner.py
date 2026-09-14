@@ -35,6 +35,7 @@ def isolate_rule_diagnostics(monkeypatch):
     # in test_prerequisite_checks.py, including the additional batched rule read.
     from src.services import plan
     monkeypatch.setattr(plan, "check_plan_prerequisites", AsyncMock(return_value=[]))
+    monkeypatch.setattr(plan, "load_prerequisite_rows", AsyncMock(return_value={}))
 
 def _make_mock_session(course_rows=None, section_rows=None):
     """

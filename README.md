@@ -224,8 +224,9 @@ production formats. Regression coverage lives in
 #### Structured prerequisite checks on generated plans
 
 Generation performs one additional batched read for the final selected courses'
-`prerequisites_status` and `prerequisites_rules`, then checks the proposed semester
-assignments against both prerequisite and corequisite trees. AND requires every
+`prerequisites_status` and `prerequisites_rules` before packing. Ordering and final
+diagnostics share that same rule snapshot. The diagnostics check the proposed
+semester assignments against both prerequisite and corequisite trees. AND requires every
 condition; OR accepts a qualifying alternative without demanding the unused ones.
 Results distinguish satisfied recorded conditions, conflicts with the supplied
 history/schedule, and unknown evidence. They do not establish degree completion
@@ -253,11 +254,28 @@ Even same-term rules describe a representative section, not every possible secti
 
 The diagnostics use the existing generated-plan warnings, which persist with a
 saved plan. Regenerate older plans against the updated API to obtain these checks.
-**This pass reports problems without changing course choices or semester packing.**
-The current packer still uses legacy prerequisite lists and capstone grouping;
-resolving structured alternatives/concurrency during scheduling remains the next
-repair. Warnings explain that unresolved conflicts need review before using the
-proposed schedule. No new API fields or database migration are required.
+**Complete AND-only trees of explicit prior-course rules now guide semester
+packing.** These replace the course's legacy prerequisite list, including clearing
+obsolete edges for verified empty prerequisites. A history summary or in-progress
+course does not discharge a supported rule: the recorded attempt must establish
+its grade/timing conditions before the plan's start. Repeated conditions on the
+same course must all pass. Planned prerequisite courses stay strictly earlier
+than their dependents, checked against actual placements under the credit target.
+
+When a supported chain crosses the capstone grouping boundary, its dependent and
+subsequent dependents move into the later packing phase instead of losing the
+edge. Structured chains in that phase start when dependencies allow; they do not
+wait for the old deepest-capstone starting floor. The academic requirement labels
+remain unchanged. Missing prerequisite selections, insufficient history and cyclic
+rules keep a proposed result with a specific Partial plan notice and final rule
+diagnostics; courses or successful grades are never invented to complete a chain.
+
+OR trees, concurrent/prior-or-concurrent rules and unsupported/unverified sources
+still use the existing ordering fallback and are checked afterward. Corequisite
+bundles and automatic OR selection remain unfinished, as does replacing broader
+capstone heuristics. Other-term rules are a provisional planning basis, with their
+applicability warning preserved. Course choices do not change in this step.
+No new API fields or database migration are required.
 
 ### 6. Course metadata and credit estimates
 

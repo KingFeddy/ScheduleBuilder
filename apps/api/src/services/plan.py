@@ -1094,9 +1094,10 @@ async def generate_plan(
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
     rule_rows = await load_prerequisite_rows(session, prerequisites_by_code)
-    prerequisites_by_code, verified_history = prior_course_ordering(
+    prerequisites_by_code, verified_history, ordering_warnings = prior_course_ordering(
         rule_rows, validated, prerequisites_by_code, current_term,
     )
+    warnings.extend(ordering_warnings)
     depends_on, prereq_warnings = _compute_prerequisite_dependencies(
         resolved, completed, in_progress, prerequisites_by_code, verified_history,
     )

@@ -145,45 +145,139 @@ def verified_rules(row) -> PrerequisiteRules | None:
         return None
 
 
+MAX_PRIOR_ALTERNATIVES = 64
+MAX_PRIOR_RULE_NODES = 512
+MAX_PRIOR_SEARCH_STEPS = 2048
+
+
+class _PriorAlternativeLimit(ValueError):
+    pass
+
+
 def prior_course_ordering(rows, audit, legacy, start_term):
-    """Use complete AND-only prior-course trees without flattening OR/concurrency.
+    """Choose bounded, deterministic AND/OR prior-course paths among selections.
 
-    Return dependency codes and the independently verified history for each
-    supported course. Empty history must override legacy completed/IP summaries.
-    Grades for planned prerequisites remain conditional in the final diagnostics.
+    Prefer verified history, then selected coursework. Never add a course or
+    flatten a concurrency/unsupported condition. Search only controls prior edges;
+    actual credit-aware packing and conditional-grade diagnostics remain separate.
     """
-    def leaves(rule):
+    def alternatives(rule, visited):
+        visited[0] += 1
+        if visited[0] > MAX_PRIOR_RULE_NODES:
+            raise _PriorAlternativeLimit
         if isinstance(rule, CourseCondition):
-            return [rule] if rule.timing == 'prior' and COURSE_CODE_PATTERN.fullmatch(rule.course_code) else None
-        if isinstance(rule, AllConditions):
-            result = []
-            for child in rule.items:
-                values = leaves(child)
-                if values is None:
-                    return None
+            return [[rule]] if rule.timing == 'prior' and COURSE_CODE_PATTERN.fullmatch(rule.course_code) else None
+        if not isinstance(rule, (AllConditions, AnyConditions)):
+            return None
+        groups = []
+        for child in rule.items:
+            values = alternatives(child, visited)
+            if values is None:
+                return None
+            groups.append(values)
+        result = [] if isinstance(rule, AnyConditions) else [[]]
+        for values in groups:
+            if isinstance(rule, AnyConditions):
+                if len(result) + len(values) > MAX_PRIOR_ALTERNATIVES:
+                    raise _PriorAlternativeLimit
                 result.extend(values)
-            return result
-        return None
+            else:
+                if len(result) * len(values) > MAX_PRIOR_ALTERNATIVES:
+                    raise _PriorAlternativeLimit
+                result = [left + right for left in result for right in values]
+        return result
 
-    dependencies, history = dict(legacy), {}
-    for code in legacy:
+    dependencies, history, warnings, candidates = dict(legacy), {}, [], {}
+    for code in sorted(legacy):
         rules = verified_rules(rows.get(code, {}))
         if rules is None:
             continue
         try:
-            conditions = leaves(rules.prerequisites)
-            if conditions is None:
+            paths = alternatives(rules.prerequisites, [0])
+            if paths is None:
                 continue
-            by_code = {}
-            for rule in conditions:
-                by_code.setdefault(rule.course_code, []).append(rule)
-            dependencies[code] = list(by_code)
-            history[code] = {prereq for prereq, requirements in by_code.items()
-                             if all(evaluate_rule(rule, audit, {}, start_term).status == 'satisfied'
-                                    for rule in requirements)}
-        except RecursionError:
+            options = []
+            for conditions in paths:
+                by_code = {}
+                for rule in conditions:
+                    by_code.setdefault(rule.course_code, []).append(rule)
+                satisfied = frozenset(prereq for prereq, requirements in by_code.items()
+                                      if all(evaluate_rule(rule, audit, {}, start_term).status == 'satisfied'
+                                             for rule in requirements))
+                candidate = (tuple(sorted(by_code)), satisfied)
+                if candidate not in options:
+                    options.append(candidate)
+            complete = [option for option in options
+                        if all(prereq in legacy or prereq in option[1] for prereq in option[0])]
+            # A missing-course escape must not prevent backtracking to an
+            # available path elsewhere in the graph. Keep incomplete choices only
+            # when this course has no path fully backed by history/selections.
+            options = complete or options
+            options.sort(key=lambda option: (
+                sum(prereq not in legacy and prereq not in option[1] for prereq in option[0]),
+                sum(prereq not in option[1] for prereq in option[0]), option[0],
+            ))
+            candidates[code] = options
+            dependencies[code], history[code] = list(options[0][0]), set(options[0][1])
+        except (_PriorAlternativeLimit, RecursionError):
+            warnings.append(f'Partial plan: prerequisite alternatives for {code} exceed the supported expansion limit; review their ordering.')
+
+    # Fixed rules and legacy edges constrain the search. Unassigned OR nodes have
+    # no outgoing edges yet, so a later assignment can trigger backtracking.
+    legacy_history = set(audit.completed_courses + audit.in_progress_courses)
+    graph = {code: {prereq for prereq in deps if prereq in legacy
+                    and prereq not in history.get(code, legacy_history)}
+             for code, deps in dependencies.items()}
+    choices = sorted((code for code, options in candidates.items() if len(options) > 1),
+                     key=lambda code: (len(candidates[code]), code))
+    for code in choices:
+        graph[code] = set()
+    selected = {}
+
+    def closes_cycle(code):
+        pending, seen = list(graph[code]), set()
+        while pending:
+            current = pending.pop()
+            if current == code:
+                return True
+            if current not in seen:
+                seen.add(current)
+                pending.extend(graph.get(current, ()))
+        return False
+
+    # Iterative backtracking avoids recursion limits on large elective lists.
+    position, steps, limited = 0, 0, False
+    next_option = [0] * len(choices)
+    while 0 <= position < len(choices):
+        code = choices[position]
+        if next_option[position] == len(candidates[code]):
+            next_option[position] = 0
+            graph[code] = set()
+            selected.pop(code, None)
+            position -= 1
             continue
-    return dependencies, history
+        if steps >= MAX_PRIOR_SEARCH_STEPS:
+            limited = True
+            break
+        option = candidates[code][next_option[position]]
+        next_option[position] += 1
+        steps += 1
+        graph[code] = {prereq for prereq in option[0] if prereq in legacy and prereq not in option[1]}
+        if closes_cycle(code):
+            graph[code] = set()
+            selected.pop(code, None)
+            continue
+        selected[code] = option
+        position += 1
+
+    if position == len(choices):
+        for code, option in selected.items():
+            dependencies[code], history[code] = list(option[0]), set(option[1])
+    elif choices:
+        reason = ('reached the search limit' if limited else 'could not avoid a prerequisite cycle')
+        warnings.append('Partial plan: prerequisite alternative selection for ' + ', '.join(choices)
+                        + f' {reason}. Review the proposed ordering.')
+    return dependencies, history, warnings
 
 
 async def check_plan_prerequisites(session, audit: ParsedDegreeValidated, planned: dict[str, str], *, rows=None) -> list[str]:

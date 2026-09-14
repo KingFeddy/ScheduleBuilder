@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.schemas.plan import CourseAttempt, ParsedDegreeValidated, PlanPreferences, StillNeededItem
-from src.schemas.prerequisites import AllConditions, AnyConditions
+from src.schemas.prerequisites import AllConditions
 from src.services.plan import generate_plan
 from tests.plan.test_prerequisite_checks import condition, stored
 
@@ -99,8 +99,8 @@ async def test_cycle_and_missing_course_remain_explicit_partial_plans():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('rule', [AnyConditions(items=[condition('CS100'),condition('CS101')]), condition('CS100',timing='concurrent')])
-async def test_alternatives_and_concurrent_rules_are_not_flattened_into_prior_edges(rule):
+async def test_concurrent_rules_are_not_flattened_into_prior_edges():
+    rule = condition('CS100',timing='concurrent')
     plan,terms,_=await generate(['CS200','CS100'],[stored('CS200',prereq=rule)])
     assert terms['CS200'] == terms['CS100']
     assert any('needs review' in w or 'conflict with recorded rules' in w for w in plan.warnings)

@@ -254,7 +254,7 @@ Even same-term rules describe a representative section, not every possible secti
 
 The diagnostics use the existing generated-plan warnings, which persist with a
 saved plan. Regenerate older plans against the updated API to obtain these checks.
-**Complete AND-only trees of explicit prior-course rules now guide semester
+**Complete AND/OR trees of explicit prior-course rules now guide semester
 packing.** These replace the course's legacy prerequisite list, including clearing
 obsolete edges for verified empty prerequisites. A history summary or in-progress
 course does not discharge a supported rule: the recorded attempt must establish
@@ -270,10 +270,23 @@ remain unchanged. Missing prerequisite selections, insufficient history and cycl
 rules keep a proposed result with a specific Partial plan notice and final rule
 diagnostics; courses or successful grades are never invented to complete a chain.
 
-OR trees, concurrent/prior-or-concurrent rules and unsupported/unverified sources
-still use the existing ordering fallback and are checked afterward. Corequisite
-bundles and automatic OR selection remain unfinished, as does replacing broader
-capstone heuristics. Other-term rules are a provisional planning basis, with their
+For OR rules, the planner prefers a branch satisfied by verified history, then
+one backed by courses already selected for the plan. Nested AND conditions remain
+required. A deterministic search tries alternative combinations when a choice
+would create a prerequisite cycle; it does not demand all OR branches or add
+unrequested prerequisite courses. It searches available paths before accepting
+missing-course evidence, so a missing escape cannot hide a valid selected path.
+If every path for a course lacks evidence/selections, the proposal stays partial.
+
+Expansion is bounded to 512 visited rule nodes and 64 paths per course; the
+iterative cross-course search permits at most 2,048 candidate attempts. Limit
+exhaustion is reported separately from an unavoidable choice cycle. A bounded
+fallback proposal remains reviewable with diagnostics; it is not a verified
+feasible schedule or a guarantee of the shortest graduation timeline.
+
+Concurrent/prior-or-concurrent rules and unsupported/unverified sources still
+use the existing ordering fallback and are checked afterward. Corequisite bundles
+and broader capstone heuristics remain unfinished. Other-term rules are a provisional planning basis, with their
 applicability warning preserved. Course choices do not change in this step.
 No new API fields or database migration are required.
 

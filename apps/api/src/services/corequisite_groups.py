@@ -73,14 +73,24 @@ def _closes_cycle(graph, group):
     return False
 
 
-def corequisite_groups(rows, resolved, depends_on, credit_target):
+def corequisite_groups(rows, resolved, depends_on, credit_target, *, mandatory_concurrent=None):
     """Choose bounded AND/OR concurrent paths without adding courses.
 
     Search selected paths for compatible prior ordering and credit limits. If
     only oversized groups work, keep them with target notices. Unresolved choices
     retain deterministic partial proposals and the final rule diagnostics.
+    Mandatory concurrent prerequisites seed both search and fallback grouping;
+    corequisite OR choices must account for these existing same-term constraints.
     """
     by_code = {item.course_code: i for i, item in enumerate(resolved) if item.course_code}
+    mandatory_concurrent = mandatory_concurrent or {}
+
+    def mandatory_parent():
+        parent = list(range(len(resolved)))
+        for code, requirements in mandatory_concurrent.items():
+            _join(parent, by_code[code], (by_code[other] for other in requirements if other in by_code))
+        return parent
+
     warnings, candidates = [], {}
     for code in sorted(by_code):
         rules = verified_rules(rows.get(code, {}))
@@ -104,7 +114,7 @@ def corequisite_groups(rows, resolved, depends_on, credit_target):
         ))
 
     selected = {code: options[0] for code, options in candidates.items()}
-    base_parent = list(range(len(resolved)))
+    base_parent = mandatory_parent()
     for code, options in candidates.items():
         if len(options) == 1:
             _join(base_parent, by_code[code], (by_code[other] for other in options[0] if other in by_code))
@@ -158,7 +168,7 @@ def corequisite_groups(rows, resolved, depends_on, credit_target):
         warnings.append('Partial plan: corequisite alternative selection for ' + ', '.join(choices)
                         + f' {reason}. Review the proposed grouping.')
 
-    parent = list(range(len(resolved)))
+    parent = mandatory_parent()
     for code, required in selected.items():
         missing = sorted(required - by_code.keys())
         if missing:
@@ -175,13 +185,17 @@ def corequisite_groups(rows, resolved, depends_on, credit_target):
         if len(indices) < 2:
             continue
         codes = ', '.join(sorted(resolved[index].course_code for index in indices))
+        label = ('concurrent prerequisite' if any(
+            by_code[code] in indices and any(by_code.get(other) in indices for other in requirements)
+            for code, requirements in mandatory_concurrent.items()
+        ) else 'corequisite')
         if _closes_cycle(graph, group):
-            warnings.append(f'Partial plan: corequisite grouping for {codes} conflicts with prior-course ordering. '
+            warnings.append(f'Partial plan: {label} grouping for {codes} conflicts with prior-course ordering. '
                             'These courses remain separate proposals for review.')
             continue
         credits = round(sum(resolved[index].credits for index in indices), 2)
         if credits > credit_target:
-            warnings.append(f'Partial plan: corequisite group {codes} needs {credits:g} credits together, '
+            warnings.append(f'Partial plan: {label} group {codes} needs {credits:g} credits together, '
                             f'above your {credit_target}-credit target. Review the target or course choices.')
         for index in indices:
             groups[index] = frozenset(indices)

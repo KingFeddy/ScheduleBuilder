@@ -304,10 +304,11 @@ a 2,048-candidate budget. Search limits and unresolved prior conflicts produce
 explicit partial proposals with deterministic fallback choices. The search does
 not change which courses satisfy degree requirements or certify future grades.
 
-Mandatory AND prerequisite trees combining `prior` and `prior_or_concurrent`
-conditions now distinguish strictly earlier courses from courses allowed earlier
-or in the same semester. Qualifying history must establish every repeated grade
-and timing condition; unknown history and missing selections remain partial.
+Mandatory AND prerequisite trees combining `prior`, `prior_or_concurrent` and
+`concurrent` conditions now distinguish strictly earlier, earlier-or-same-semester
+and required same-semester courses. Qualifying history must establish every
+repeated earlier-course grade/timing condition; same-term selections remain
+separate requirements. Unknown history and missing selections remain partial.
 Packing retries newly eligible courses within the semester and moves prerequisites
 earlier when credits require it. Mutual same-or-before dependencies form atomic
 groups, including connections through existing corequisite groups. If a strict
@@ -316,8 +317,14 @@ and reports the conflicting flexible requirements. Oversized mandatory groups
 receive target notices. These dependencies and groups cross capstone phases
 without being silently dropped. Rule traversal is bounded to 512 nodes.
 
-OR choices involving prior-or-concurrent conditions, strictly concurrent conditions
-in prerequisite trees and broader capstone heuristics remain unfinished.
+Mandatory same-semester prerequisite groups seed corequisite alternative search
+and its fallback. Alternative choices account for those groups' combined credits
+and prior dependencies. Contradictory prior/same-term requirements retain separate
+proposals with explicit notices. Passing an earlier course does not manufacture a
+same-semester selection, and planned grades or required section CRNs remain unverified.
+
+Prerequisite OR choices involving prior-or-concurrent or strictly concurrent
+conditions, and broader capstone heuristics, remain unfinished.
 Unsupported/unverified sources retain existing ordering fallback and final checks.
 Alternative searches do not yet jointly retry choices to accommodate flexible
 timing and corequisite groups. Other-term rules are a provisional planning basis, with their

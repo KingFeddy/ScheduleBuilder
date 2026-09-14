@@ -1,4 +1,4 @@
-"""Mandatory prior-or-concurrent constraints for selected degree-plan courses."""
+"""Mandatory prerequisite timing constraints for selected degree-plan courses."""
 from src.schemas.plan import COURSE_CODE_PATTERN
 from src.schemas.prerequisites import AllConditions, CourseCondition
 from src.services.prerequisite_checks import evaluate_rule, verified_rules
@@ -11,17 +11,18 @@ class _RuleLimit(ValueError):
 
 
 def flexible_course_ordering(rows, audit, legacy, start_term):
-    """Replace complete mixed AND trees with strict and same-or-before edges.
+    """Replace complete mixed AND trees with strict, flexible and concurrent edges.
 
-    Every repeated condition must be established before history discharges a
-    course. Unknown trees and OR choices retain the existing fallback behavior.
+    Every repeated earlier-course condition must be established before history
+    discharges it; same-term enrollment remains separate. Unknown trees and OR
+    choices retain the existing fallback behavior.
     """
     def leaves(rule, visited):
         visited[0] += 1
         if visited[0] > MAX_FLEXIBLE_RULE_NODES:
             raise _RuleLimit
         if isinstance(rule, CourseCondition):
-            if rule.timing in {'prior', 'prior_or_concurrent'} and COURSE_CODE_PATTERN.fullmatch(rule.course_code):
+            if rule.timing in {'prior', 'prior_or_concurrent', 'concurrent'} and COURSE_CODE_PATTERN.fullmatch(rule.course_code):
                 return [rule]
             return None
         if not isinstance(rule, AllConditions):
@@ -34,7 +35,7 @@ def flexible_course_ordering(rows, audit, legacy, start_term):
             result.extend(values)
         return result
 
-    dependencies, history, flexible, warnings = dict(legacy), {}, {}, []
+    dependencies, history, flexible, concurrent, warnings = dict(legacy), {}, {}, {}, []
     for code in sorted(legacy):
         rules = verified_rules(rows.get(code, {}))
         if rules is None:
@@ -42,26 +43,38 @@ def flexible_course_ordering(rows, audit, legacy, start_term):
         try:
             conditions = leaves(rules.prerequisites, [0])
         except (_RuleLimit, RecursionError):
-            warnings.append(f'Partial plan: prior-or-concurrent rule processing for {code} '
+            warnings.append(f'Partial plan: prerequisite timing rule processing for {code} '
                             'exceeds the supported expansion limit; review its ordering.')
             continue
-        if conditions is None or not any(rule.timing == 'prior_or_concurrent' for rule in conditions):
+        if conditions is None or not any(rule.timing != 'prior' for rule in conditions):
             continue
         by_code = {}
         for rule in conditions:
             by_code.setdefault(rule.course_code, []).append(rule)
-        history[code] = {other for other, requirements in by_code.items()
-                         if all(evaluate_rule(rule, audit, {}, start_term).status == 'satisfied'
-                                for rule in requirements)}
+        # History can discharge earlier-course conditions while a separately
+        # required same-term enrollment stays mandatory. Do not turn an old
+        # attempt into a concurrent course selection.
+        earlier = {other: [rule for rule in requirements if rule.timing != 'concurrent']
+                   for other, requirements in by_code.items()}
+        history[code] = {other for other, requirements in earlier.items()
+                         if requirements and all(evaluate_rule(rule, audit, {}, start_term).status == 'satisfied'
+                                                 for rule in requirements)}
         strict = {other for other, requirements in by_code.items()
                   if any(rule.timing == 'prior' for rule in requirements)}
         dependencies[code] = sorted(strict)
-        flexible[code] = set(by_code) - strict - history[code]
-        missing = sorted(set(by_code) - history[code] - legacy.keys())
+        concurrent[code] = {other for other, requirements in by_code.items()
+                            if any(rule.timing == 'concurrent' for rule in requirements)}
+        flexible[code] = set(by_code) - strict - history[code] - concurrent[code]
+        missing_concurrent = sorted(concurrent[code] - legacy.keys())
+        if missing_concurrent:
+            warnings.append(f'Partial plan: concurrent prerequisite requirements for {code} need selected '
+                            'same-semester coursework for ' + ', '.join(missing_concurrent)
+                            + '. Review the course choices.')
+        missing = sorted(set(by_code) - history[code] - legacy.keys() - concurrent[code])
         if missing:
             warnings.append(f'Partial plan: prior-or-concurrent requirements for {code} lack qualifying history '
                             'or selected coursework for ' + ', '.join(missing) + '. Review grades and course choices.')
-    return dependencies, history, flexible, warnings
+    return dependencies, history, flexible, concurrent, warnings
 
 
 def _components(graph):

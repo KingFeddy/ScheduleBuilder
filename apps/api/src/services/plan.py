@@ -1119,7 +1119,7 @@ async def generate_plan(
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
     rule_rows = await load_prerequisite_rows(session, prerequisites_by_code)
-    prerequisites_by_code, flexible_history, flexible, flexible_warnings = flexible_course_ordering(
+    prerequisites_by_code, flexible_history, flexible, concurrent, flexible_warnings = flexible_course_ordering(
         rule_rows, validated, prerequisites_by_code, current_term,
     )
     warnings.extend(flexible_warnings)
@@ -1146,7 +1146,9 @@ async def generate_plan(
             "Review missing prerequisites, grades, or circular requirements."
         )
 
-    concurrent_groups, group_warnings = corequisite_groups(rule_rows, resolved, depends_on, credit_target)
+    concurrent_groups, group_warnings = corequisite_groups(
+        rule_rows, resolved, depends_on, credit_target, mandatory_concurrent=concurrent,
+    )
     warnings.extend(group_warnings)
     same_or_before, concurrent_groups, flexible_warnings = prepare_flexible_groups(
         resolved, depends_on, flexible, concurrent_groups, credit_target,

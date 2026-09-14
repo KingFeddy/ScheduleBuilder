@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { test, expect } from './fixtures'
-import { gerCoverage, parsedDegree, parseResponse, planResponse, presentCatalog, syntheticPdf } from './data'
+import { courses, replacementCourse, replacementPlan, parsedDegree, parseResponse, planResponse, syntheticPdf } from './data'
 
 test('uploads a synthetic audit, generates a plan, and restores it on reload', async ({ page, api }) => {
   await page.goto('/scheduler')
@@ -43,9 +43,7 @@ test('uploads a synthetic audit, generates a plan, and restores it on reload', a
 })
 
 test('preserves replacement warnings through regeneration, swapping, and reload', async ({ page, api }) => {
-  api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage,
-    groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM201', title: 'Replacement', title_status: 'verified' }] }],
-  })
+  api.respond('GET', '/api/courses', [replacementCourse])
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
@@ -58,12 +56,14 @@ test('preserves replacement warnings through regeneration, swapping, and reload'
   await page.reload()
   for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'swap →', exact: true }).click()
+  api.respond('POST', '/api/plan/generate', { ...replacementPlan, warnings })
   await page.getByRole('button', { name: 'HUM201 Replacement', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.reload()
   for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toBeVisible()
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-plan') || '{}').warnings)).toEqual(warnings)
 
-  api.respond('POST', '/api/plan/generate', { ...planResponse, warnings: [] })
+  api.respond('POST', '/api/plan/generate', { ...replacementPlan, warnings: [] })
   await page.getByRole('button', { name: 'Regenerate', exact: true }).click()
   await expect(page.getByText(warnings[0], { exact: true })).toHaveCount(0)
   await page.reload()
@@ -137,9 +137,7 @@ test('shows missing degree metadata as unknown without inventing credit totals',
 })
 
 test('searches GER courses when catalog titles are missing', async ({ page, api }) => {
-  api.respond('GET', '/api/plan/ger-courses', {
-    ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM101', title: null, title_status: 'missing' }] }],
-  })
+  api.respond('GET', '/api/courses', [{ ...courses[1], title: null, title_status: 'missing' }])
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()

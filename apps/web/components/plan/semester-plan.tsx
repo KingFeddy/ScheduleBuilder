@@ -6,13 +6,7 @@ import { planningTermLabel } from '@/lib/planner-terms'
 import { formatCredits } from '@/lib/course-metadata'
 import { CatalogNote } from '@/components/ui/catalog-note'
 
-// Known GER subject prefixes at NJIT — swap button shown only for these
-const GER_PREFIXES = new Set(['HUM', 'COM', 'HIST', 'STS', 'LIB', 'SSC'])
-
-function isGerCourse(code: string): boolean {
-  const prefix = code.replace(/\d.*$/, '')
-  return GER_PREFIXES.has(prefix)
-}
+import { canChoose } from '@/lib/planner-choices'
 
 interface CourseRowProps {
   code: string
@@ -31,7 +25,7 @@ interface CourseRowProps {
 }
 
 function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, requirement, allocation, onSwap }: CourseRowProps) {
-  const showSwap = (badge === 'Required' || badge === 'Elective') && isGerCourse(code) && !!onSwap
+  const showSwap = canChoose(requirement) && requirement!.options.some((option) => option !== code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
   const knownQuantity = requirement?.quantity_status === 'known'
     && typeof requirement.remaining_quantity === 'number' && Number.isFinite(requirement.remaining_quantity)
@@ -86,7 +80,7 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
           onClick={onSwap}
           className="text-xs text-muted underline underline-offset-2 hover:text-text flex-shrink-0 transition-colors duration-150"
         >
-          swap →
+          {code === 'TBD' ? 'choose →' : 'swap →'}
         </button>
       )}
       <span className="font-mono tabular-nums text-xs text-faint w-32 text-right flex-shrink-0">
@@ -132,7 +126,7 @@ interface SemesterPlanProps {
   regenerateDisabled?: boolean
   startTerm?: string
   onRegenerate: () => void
-  onSwapCourse?: (semesterTerm: string, courseCode: string) => void
+  onSwapCourse?: (slotId: string) => void
 }
 
 export function SemesterPlan({
@@ -236,7 +230,7 @@ export function SemesterPlan({
                     allocation={course.allocation}
                     onSwap={
                       onSwapCourse
-                        ? () => onSwapCourse(semester.term, course.course_code)
+                        ? () => onSwapCourse(course.slot_id)
                         : undefined
                     }
                   />

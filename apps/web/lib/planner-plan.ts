@@ -1,12 +1,14 @@
 import type { ParsedDegreeValidated, SemesterPlan } from './api'
 import { isCurrentAudit } from './planner-audit'
 import { isPlanningTerm } from './planner-terms'
+import { validChoices, type RequirementChoices } from './planner-choices'
 
 export interface PlanState {
   semesters: SemesterPlan[]
   graduation: string
   warnings: string[]
   startTerm?: string
+  requirementChoices?: RequirementChoices
 }
 
 export const SAVED_PLAN_NOTICE = 'Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.'
@@ -36,6 +38,7 @@ export function isPlanForAudit(value: unknown, audit: ParsedDegreeValidated): va
   if (!record(value) || !nonblank(value.graduation) || !Array.isArray(value.warnings)
     || !value.warnings.every(text) || !Array.isArray(value.semesters)) return false
   if (value.startTerm !== undefined && !isPlanningTerm(value.startTerm)) return false
+  if (value.requirementChoices !== undefined && !validChoices(value.requirementChoices, audit)) return false
   const requirements = new Map(audit.still_needed.map((item) => [item.requirement_id, canonical(item)]))
   const slots = new Set<string>()
   let previousTerm = ''
@@ -71,6 +74,14 @@ export function isPlanForAudit(value: unknown, audit: ParsedDegreeValidated): va
     }
     if (!Number.isFinite(credits) || Math.round(credits * 100) !== Math.round(semester.total_credits * 100)) return false
   }
+  if (value.requirementChoices) {
+    const rows = (value as unknown as PlanState).semesters.flatMap((semester) => semester.courses)
+    for (const [id, codes] of Object.entries(value.requirementChoices as RequirementChoices)) {
+      const assigned = rows.filter((row) => row.requirement?.requirement_id === id && row.course_code !== 'TBD')
+      if (assigned.length !== codes.length || !assigned.every((row) => codes.includes(row.course_code))) return false
+      if (codes.some((code) => rows.filter((row) => row.course_code === code).length !== 1)) return false
+    }
+  }
   return true
 }
 
@@ -84,6 +95,7 @@ export function restoreSavedPlan(raw: string, audit: ParsedDegreeValidated): Pla
     if (!record(saved) || saved.version !== 1 || !isCurrentAudit(saved.source_audit)
       || !sameAudit(saved.source_audit, audit) || !isPlanForAudit(saved, audit)) return null
     return { semesters: saved.semesters, graduation: saved.graduation, warnings: saved.warnings,
-      ...(saved.startTerm ? { startTerm: saved.startTerm } : {}) }
+      ...(saved.startTerm ? { startTerm: saved.startTerm } : {}),
+      ...(saved.requirementChoices ? { requirementChoices: saved.requirementChoices } : {}) }
   } catch { return null }
 }

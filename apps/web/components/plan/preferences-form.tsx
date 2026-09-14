@@ -2,18 +2,17 @@
 
 import { useState, useRef, type KeyboardEvent } from 'react'
 import { X, Loader2 } from 'lucide-react'
-import { generatePlan, getApiErrorMessage, type ParsedDegreeValidated, type SemesterPlan } from '@/lib/api'
 import { planningTermLabel, planningTermOptions } from '@/lib/planner-terms'
 import { normalizeElective, type PlannerPreferences } from '@/lib/planner-preferences'
 
 interface PreferencesFormProps {
-  parsed: ParsedDegreeValidated
+  generating: boolean
   preferences: PlannerPreferences
   defaultStartTerm: string | null
   startTermError: string | null
   onRetryStartTerm: () => void
   onPreferencesChange: (preferences: PlannerPreferences) => void
-  onPlanGenerated: (semesters: SemesterPlan[], graduation: string, warnings: string[], sourceAudit: ParsedDegreeValidated, startTerm: string) => void
+  onGenerate: (preferences: PlannerPreferences) => Promise<boolean>
   onBrowseGer?: () => void
 }
 
@@ -27,12 +26,11 @@ const MIN_CUSTOM_CREDITS = 3
 const MAX_CUSTOM_CREDITS = 24
 const CHARGE_THRESHOLD = 17
 
-export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPlanGenerated, onBrowseGer, defaultStartTerm, startTermError, onRetryStartTerm }: PreferencesFormProps) {
+export function PreferencesForm({ generating: isLoading, preferences, onPreferencesChange, onGenerate, onBrowseGer, defaultStartTerm, startTermError, onRetryStartTerm }: PreferencesFormProps) {
   const { courses, creditsPerSemester } = preferences
   const startTerm = preferences.startTerm || defaultStartTerm
   const [customDraft, setCustomDraft] = useState(String(creditsPerSemester))
   const [inputValue, setInputValue] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const customInputRef = useRef<HTMLInputElement>(null)
@@ -97,23 +95,15 @@ export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPl
     onPreferencesChange({ courses: selectedCourses, creditsPerSemester: credits, startTerm })
     setInputValue('')
     setCustomDraft(String(credits))
-    setIsLoading(true)
     setError(null)
-    try {
-      const res = await generatePlan(parsed, { courses: selectedCourses, credits_per_semester: credits, start_term: startTerm })
-      onPlanGenerated(res.semesters, res.projected_graduation, res.warnings, parsed, startTerm)
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to generate plan. Please try again.'))
-    } finally {
-      setIsLoading(false)
-    }
+    await onGenerate({ courses: selectedCourses, creditsPerSemester: credits, startTerm })
   }
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
       <p className="text-xs font-medium uppercase tracking-wider text-muted mb-5">Preferences</p>
 
-      <div className="flex flex-col gap-5">
+      <fieldset disabled={isLoading} className="flex flex-col gap-5">
         <div className="flex flex-col gap-2">
           <label htmlFor="planner-start-term" className="text-xs font-medium uppercase tracking-wider text-muted">Start semester</label>
           <select id="planner-start-term" value={preferences.startTerm || ''}
@@ -242,7 +232,7 @@ export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPl
           </button>
           {error && <p className="text-sm text-njit-red">{error}</p>}
         </div>
-      </div>
+      </fieldset>
     </div>
   )
 }

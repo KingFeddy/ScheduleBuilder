@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { gerCoverage, parsedDegree, planResponse, presentCatalog, syntheticPdf } from './data'
+import { replacementCourse, replacementPlan, parsedDegree, planResponse, presentCatalog, syntheticPdf } from './data'
 
 test('shows credit metadata without title warnings in course search', async ({ page, api }, testInfo) => {
   const metadata = { ...presentCatalog, title_status: 'verified' as const, credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }
@@ -60,15 +60,17 @@ test('requires regeneration for an older unbound saved plan', async ({ page }) =
   await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toBeVisible()
 })
 
-test('marks inherited credits as an estimate when a different course is selected', async ({ page, api }) => {
-  api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM201', title: 'Replacement', title_status: 'unverified' }] }] })
+test('uses recalculated credits and metadata for a replacement', async ({ page, api }) => {
+  api.respond('GET', '/api/courses', [{ ...replacementCourse, title_status: 'unverified' }])
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
   await page.getByRole('button', { name: 'swap →', exact: true }).click()
   await expect(page.getByText('Title unverified', { exact: true })).toBeVisible()
+  api.respond('POST', '/api/plan/generate', replacementPlan)
   await page.getByRole('button', { name: 'HUM201 Replacement Title unverified' }).click()
-  await expect(page.getByText('3 cr (estimated)', { exact: true })).toBeVisible()
-  await expect(page.getByText('Credits for this replacement are unverified; this amount is an estimate.', { exact: true })).toBeVisible()
-  await expect(page.getByText('Catalog coverage unchecked.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText('4 cr', { exact: true })).toBeVisible()
+  await expect(page.getByText('Title unverified', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Catalog coverage unchecked.', { exact: true })).toHaveCount(0)
 })

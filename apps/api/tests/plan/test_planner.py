@@ -28,6 +28,14 @@ from src.schemas.plan import ParsedDegreeValidated, ParseValidationError, PlanPr
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def isolate_rule_diagnostics(monkeypatch):
+    # These packing regressions own fixed availability/metadata query sequences.
+    # The independent post-check and its real generation integration are exercised
+    # in test_prerequisite_checks.py, including the additional batched rule read.
+    from src.services import plan
+    monkeypatch.setattr(plan, "check_plan_prerequisites", AsyncMock(return_value=[]))
+
 def _make_mock_session(course_rows=None, section_rows=None):
     """
     Returns a mock AsyncSession whose execute() calls return empty mappings by
@@ -1163,7 +1171,7 @@ class TestPrerequisiteAwarePlanning:
         ))
 
         assert (
-            "orders courses using scraped prerequisite data" in " ".join(plan.warnings)
+            "Review prerequisite and corequisite issues" in " ".join(plan.warnings)
         )
         assert not any("does not verify course prerequisites" in w for w in plan.warnings)
 

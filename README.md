@@ -213,11 +213,51 @@ and prerequisite failures allow independent section refreshes to continue.
 The legacy `prerequisites` array remains an unverified compatibility projection.
 Simple AND-only prerequisites can update its codes; alternatives, concurrency, or
 corequisites retain its historical value instead of being flattened. The public
-API and planner behavior are unchanged. Student eligibility enforcement remains
-Goal 27. Tests use synthetic Banner responses; they do not certify the current NJIT
+API schema remains unchanged. The planner now diagnoses structured rules after
+packing (see below); automatic constraint-based rescheduling and registration
+eligibility enforcement remain unfinished. Tests use synthetic Banner responses;
+they do not certify the current NJIT
 production formats. Regression coverage lives in
 `apps/api/tests/scrapers/test_prerequisite_rules.py` and
 `apps/api/tests/scrapers/test_prerequisite_verification.py`.
+
+#### Structured prerequisite checks on generated plans
+
+Generation performs one additional batched read for the final selected courses'
+`prerequisites_status` and `prerequisites_rules`, then checks the proposed semester
+assignments against both prerequisite and corequisite trees. AND requires every
+condition; OR accepts a qualifying alternative without demanding the unused ones.
+Results distinguish satisfied recorded conditions, conflicts with the supplied
+history/schedule, and unknown evidence. They do not establish degree completion
+or registration eligibility.
+
+Minimum grades use NJIT's published A, B+, B, C+, C, D, F ordering. A D does not
+satisfy a minimum C. P/S, transfer marks and imported grade variants outside that
+scale do not acquire invented threshold equivalents. Every attempt is considered;
+a later failed retake does not erase an earlier qualifying attempt. Passing a
+course condition does not require degree-credit units: a successful zero-credit
+course can still satisfy a recorded course prerequisite.
+
+Attempt timing accepts explicit Banner term codes or unambiguous Spring/Summer/Fall
+year text. Undated history and unknown timing stay unresolved, including legacy
+completed-course summaries. Prior courses must precede the target semester;
+concurrent courses must occur in the same semester. Planned or in-progress courses
+never acquire an assumed final grade. Academic-level restrictions and required
+section CRNs remain unknown because the planner has no matching evidence/selection.
+
+Missing, malformed, failed or unverified rule data receives a grouped notice;
+an empty legacy array is not evidence of no requirements. Verified-empty rules
+must explicitly contain empty prerequisite and corequisite groups. Rules observed
+in a different term are identified separately and any findings are conditional.
+Even same-term rules describe a representative section, not every possible section.
+
+The diagnostics use the existing generated-plan warnings, which persist with a
+saved plan. Regenerate older plans against the updated API to obtain these checks.
+**This pass reports problems without changing course choices or semester packing.**
+The current packer still uses legacy prerequisite lists and capstone grouping;
+resolving structured alternatives/concurrency during scheduling remains the next
+repair. Warnings explain that unresolved conflicts need review before using the
+proposed schedule. No new API fields or database migration are required.
 
 ### 6. Course metadata and credit estimates
 
@@ -700,7 +740,8 @@ Contract details that previously differed between the two sides:
   present, including when generation receives client JSON.
 - Letter grades (including imported +/- variants), P/S, and transfer T/TR marks
   stay distinct evidence. Earning credit does not prove a minimum-grade
-  prerequisite; that evaluation remains Goal 27. The NJIT status classifications
+  prerequisite; generated-plan diagnostics now evaluate supported minimum-grade
+  evidence, while automatic scheduling enforcement remains pending. The NJIT status classifications
   follow its [grading legend](https://www.njit.edu/registrar/grading-instructions);
   T/TR compatibility retains the parser's existing transfer marks.
   Legacy saved audits have `course_attempts: null`, retain their original summary

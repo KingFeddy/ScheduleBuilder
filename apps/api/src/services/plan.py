@@ -30,6 +30,7 @@ from src.scheduler.time_utils import (
 )
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
+from src.services.prerequisite_checks import check_plan_prerequisites
 from src.catalog import course_subject
 from src.config import settings
 from src.schemas.catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
@@ -1181,12 +1182,16 @@ async def generate_plan(
     # Keep these diagnostics first so a partial allocation is visible immediately.
     warnings = _credit_reconciliation_warnings(validated, semesters) + warnings
 
-    # ── 8. Prerequisite disclaimer ────────────────────────────────────────────
+    # ── 8. Check structured rules against the actual proposed semesters ───────
+    warnings.extend(await check_plan_prerequisites(session, validated, {
+        course.course_code: semester.term for semester in semesters for course in semester.courses
+        if re.fullmatch(COURSE_CODE_PATTERN, course.course_code)
+    }))
 
     warnings.append(
-        "This plan orders courses using scraped prerequisite data, which "
-        "may be incomplete for some courses. Verify with your advisor if a "
-        "semester's course list looks unexpected."
+        "Review prerequisite and corequisite issues before using this proposed schedule. "
+        "Courses have not been automatically rearranged to resolve flagged issues, "
+        "and requirements may differ by section. Confirm registration eligibility with NJIT."
     )
 
     return GeneratedPlan(

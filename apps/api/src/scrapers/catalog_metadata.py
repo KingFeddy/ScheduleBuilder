@@ -17,7 +17,7 @@ from src.scrapers.course_metadata import parse_credits, parse_title
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 _NUMBER = r"[0-9]+(?:\.[0-9]+)?"
 _HEADING = re.compile(
-    rf"(?P<subject>[A-Z]{{2,5}})\s*(?P<number>[0-9]{{3}}[A-Z]?)\.\s+"
+    rf"(?P<subject>[A-Z]{{2,5}})\s*(?P<number>[0-9]{{3}}[A-Z]?|[0-9]\*{{2}})\.\s+"
     rf"(?P<title>.+?)\.\s+(?P<low>{_NUMBER})"
     rf"(?:\s*(?P<separator>[-–]|or)\s*(?P<high>{_NUMBER}))?\s+credits?"
     r"(?:\.|,\s+[0-9]+(?:\.[0-9]+)?\s+contact hours?\s*\([^()]*\)\.)?",
@@ -39,6 +39,7 @@ class CatalogPage:
     catalog_year: int
     observed_at: str
     courses: tuple[CatalogCourse, ...]
+    skipped_placeholders: tuple[str, ...] = ()
 
     def evidence(self, course: CatalogCourse, value) -> dict:
         return {"schema_version": 1, "source_kind": "njit_catalog", "url": self.url,
@@ -87,13 +88,14 @@ def parse_catalog_page(html: str, *, url: str, subject: str, catalog_year: int) 
     if editions != {(catalog_year, catalog_year + 1)}:
         raise ValueError("Page catalog edition does not match the requested year.")
     records: dict[str, CatalogCourse] = {}
+    skipped_placeholders: list[str] = []
     for block in soup.select(".courseblock"):
         heading_element = block.select_one(".courseblocktitle")
         if heading_element is None:
             # A damaged course block prevents claiming a complete page import.
             raise ValueError("Catalog course block has no title heading.")
         heading = " ".join(heading_element.get_text(" ", strip=True).split())
-        if not re.match(rf"{re.escape(subject)}(?=\s|[0-9]|\.)", heading):
+        if not re.match(rf"{re.escape(subject)}(?=\s|[0-9]|\*|\.)", heading):
             continue
         match = _HEADING.fullmatch(heading)
         if not match or match["subject"] != subject:
@@ -105,13 +107,19 @@ def parse_catalog_page(html: str, *, url: str, subject: str, catalog_year: int) 
         credits, credits_error = parse_credits(raw)
         if title_error or credits_error:
             raise ValueError(f"Invalid catalog title or credits for {code}.")
+        if match["number"].endswith("**"):
+            # Official level placeholders are not individually selectable courses.
+            # Validate their full heading, report them, and never manufacture a code.
+            skipped_placeholders.append(heading)
+            continue
         record = CatalogCourse(code, title, credits, heading)
         if code in records and (records[code].title, records[code].credits) != (title, credits):
             raise ValueError(f"Conflicting catalog entries for {code}.")
         records[code] = record
     if not records:
         raise ValueError(f"No supported {subject} courses found on the catalog page.")
-    return CatalogPage(url, subject, catalog_year, datetime.now(timezone.utc).isoformat(), tuple(records.values()))
+    return CatalogPage(url, subject, catalog_year, datetime.now(timezone.utc).isoformat(),
+                       tuple(records.values()), tuple(skipped_placeholders))
 
 
 # Catalog titles are canonical; section titles may describe topics/honors variants.

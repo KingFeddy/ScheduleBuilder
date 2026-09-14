@@ -204,3 +204,45 @@ async def test_cli_rejected_page_explains_edition_and_never_writes(monkeypatch, 
     assert await command.run(Namespace(url=URL, subject="PHYS", catalog_year=2026, apply=True)) == 1
     assert "edition does not match" in capsys.readouterr().err
     writer.assert_not_called()
+
+
+@pytest.mark.parametrize("subject,placeholder,number", [("COM", "1**", "312"), ("CS", "2**", "491"), ("CS", "3**", "490"), ("CS", "4**", "485")])
+def test_elective_placeholders_are_reported_without_blocking_real_courses(subject, placeholder, number):
+    heading = f"{subject}\u00a0{placeholder}. Synthetic Elective. 3 credits, 3 contact hours (3;0;0)."
+    result = catalog.parse_catalog_page(page(heading, f"{subject} {number}. Synthetic Course. 3 credits."),
+                                        url=URL, subject=subject, catalog_year=2026)
+    assert [record.course_code for record in result.courses] == [subject + number]
+    assert result.skipped_placeholders == (heading.replace('\u00a0', ' '),)
+
+
+@pytest.mark.parametrize("bad", [
+    "CS 49*. Damaged code. 3 credits.", "CS ***. Damaged code. 3 credits.",
+    "CS***. Damaged code. 3 credits.", "CS 4**A. Damaged code. 3 credits.",
+    "CS 4**. Elective. Unknown credits.", "CS 4**. Elective. 3 credits. unexpected tail",
+    "CS 491. Real course. Unknown credits.",
+])
+def test_placeholder_support_does_not_ignore_malformed_entries(bad):
+    with pytest.raises(ValueError):
+        catalog.parse_catalog_page(page("CS 490. Valid Course. 3 credits.", bad),
+                                   url=URL, subject="CS", catalog_year=2026)
+
+
+def test_placeholder_only_page_is_not_a_successful_import():
+    with pytest.raises(ValueError, match="No supported CS courses"):
+        catalog.parse_catalog_page(page("CS 2**. Synthetic Elective. 3 credits."),
+                                   url=URL, subject="CS", catalog_year=2026)
+
+
+@pytest.mark.asyncio
+async def test_cli_preview_reports_skipped_placeholders(monkeypatch, capsys):
+    from argparse import Namespace
+    from unittest.mock import AsyncMock
+    from scripts import import_catalog_metadata as command
+    heading = "COM 1**. Synthetic Elective. 3 credits."
+    monkeypatch.setattr(command, "fetch_catalog_page", AsyncMock(return_value=page(
+        heading, "COM 312. Synthetic Communication. 3 credits.")))
+    assert await command.run(Namespace(url=URL, subject="COM", catalog_year=2026, apply=False)) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["candidate_count"] == 1 and output["skipped_placeholder_count"] == 1
+    assert output["skipped_placeholders"] == [heading]
+    assert [record["course_code"] for record in output["courses"]] == ["COM312"]

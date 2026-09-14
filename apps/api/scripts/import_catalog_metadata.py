@@ -26,7 +26,8 @@ async def run(args) -> int:
     if not args.apply:
         # Preview is source data, not a database diff; no settings or DB are loaded.
         print(json.dumps({"mode": "preview", "database_accessed": False,
-                          "candidate_count": len(page.courses), **asdict(page)}, indent=2))
+                          "candidate_count": len(page.courses),
+                          "skipped_placeholder_count": len(page.skipped_placeholders), **asdict(page)}, indent=2))
         return 0
     raw_url = os.environ.get("DATABASE_URL", "")
     try:
@@ -44,6 +45,7 @@ async def run(args) -> int:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             count = await import_catalog_page(session, page)
         print(f"Applied metadata policy to {count} catalog candidates. Section and prerequisite data unchanged.")
+        print(f"Skipped {len(page.skipped_placeholders)} catalog elective placeholders.")
     finally:
         await engine.dispose()
     return 0

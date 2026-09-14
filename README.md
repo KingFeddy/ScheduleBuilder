@@ -271,7 +271,13 @@ The standalone importer reads one explicitly selected undergraduate department
 page and subject from `catalog.njit.edu`. This fills catalog-only course rows,
 such as PHYS485, even when no sections were collected. It validates the displayed
 catalog edition and all relevant course headings before writing anything. An
-invalid row, conflicting duplicate, or missing subject aborts the page. It does
+invalid real-course row, conflicting duplicate, or missing subject aborts the page.
+Recognized level placeholders such as `COM 1**` and `CS 4**` are validated and
+excluded from writable courses. The preview lists their original headings in
+`skipped_placeholders` and reports `skipped_placeholder_count`; apply reports the
+skipped count. These placeholders never become course codes or wildcard selections.
+Other malformed code formats still reject the page, and a subject containing only
+placeholders cannot be imported successfully. The importer does
 not discover other pages or run automatically in the Banner/RMP cron.
 
 Preview the source candidates from `apps/api` (no database or `.env` is needed):
@@ -286,6 +292,20 @@ The JSON preview contains source records, **not a comparison with the database**
 The physics page was previewed against the 2026–2027 catalog and yielded 51 PHYS
 courses, including PHYS485 at 3 credits. Other subject/page pairs require their
 own preview. The catalog year is explicit so a new annual edition requires review.
+
+Additional 2026–2027 department previews checked on September 14, 2026:
+
+| Subject | Official department page | Concrete courses | Skipped placeholders |
+| --- | --- | ---: | ---: |
+| BME | [Biomedical Engineering](https://catalog.njit.edu/undergraduate/newark-college-engineering/biomedical/) | 41 | 0 |
+| COM | [Humanities and Social Sciences](https://catalog.njit.edu/undergraduate/science-liberal-arts/humanities-and-social-sciences/) | 49 | 1 |
+| HSS | [Humanities and Social Sciences](https://catalog.njit.edu/undergraduate/science-liberal-arts/humanities-and-social-sciences/) | 2 | 0 |
+| CS | [Computer Science](https://catalog.njit.edu/undergraduate/computing-sciences/computer-science/) | 56 | 3 |
+
+Use the relevant page and subject with the same preview command. These are observed
+counts, not permanently expected totals or proof of complete university coverage.
+The records include BME301, COM312, HSS404, CS490 and CS491; previews alone have not
+updated stored titles. All source headings and credits remain reviewable in JSON.
 
 After deploying the updated Banner writer and reviewing the preview, apply with
 the intended database environment (retain a current backup for a live import):

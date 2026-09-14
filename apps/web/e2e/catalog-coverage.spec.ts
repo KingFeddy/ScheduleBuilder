@@ -62,12 +62,15 @@ test('reports incomplete elective coverage and marks retained course rows', asyn
   await expect(page.getByText('Browsing a subject does not confirm that a course satisfies this requirement.', { exact: true })).toBeVisible()
 })
 
-test('marks excluded catalog results independently of verified credits', async ({ page, api }) => {
+test('shows course results without collection scope or refresh warnings', async ({ page, api }) => {
   api.respond('GET', '/api/courses', [{ ...courses[0],
     catalog_status: 'subject_not_configured', catalog_note: 'This subject is not refreshed.',
+    metadata_warnings: ['Title refresh: Conflicting section title.'],
   }])
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS')
   await expect(page.getByText('3 cr', { exact: true })).toBeVisible()
-  await expect(page.getByText('Subject outside collection scope.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Subject outside collection scope.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('This subject is not refreshed.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Title refresh: Conflicting section title.', { exact: true })).toHaveCount(0)
 })

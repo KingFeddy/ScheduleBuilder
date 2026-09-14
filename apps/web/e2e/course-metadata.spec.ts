@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 import { gerCoverage, parsedDegree, planResponse, presentCatalog, syntheticPdf } from './data'
 
-test('labels fixed, variable, missing, and unverified catalog metadata', async ({ page, api }, testInfo) => {
+test('shows credit metadata without title warnings in course search', async ({ page, api }, testInfo) => {
   const metadata = { ...presentCatalog, title_status: 'verified' as const, credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }
   api.respond('GET', '/api/courses', [
     { ...metadata, course_code: 'ZZZ101', title: 'One credit', credits: 1, credits_status: 'fixed', credits_min: 1, credits_max: 1 },
@@ -18,7 +18,7 @@ test('labels fixed, variable, missing, and unverified catalog metadata', async (
   await expect(page.getByText('Credits unknown', { exact: true })).toBeVisible()
   await expect(page.getByText('1–4 cr (variable)', { exact: true })).toBeVisible()
   await expect(page.getByText('3 cr (unverified)', { exact: true })).toBeVisible()
-  await expect(page.getByText('Title unverified', { exact: true })).toBeVisible()
+  await expect(page.getByText('Title unverified', { exact: true })).toHaveCount(0)
   await expect(page.getByText('1 or 4 cr (variable)', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('catalog-metadata.png'), fullPage: true })
 })

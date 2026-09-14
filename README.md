@@ -265,6 +265,60 @@ upgrades, API contracts, planner use, and browser rendering. Fixtures are synthe
 the current NJIT production formats and existing data still require the later
 catalog audit and release checks.
 
+#### Import official catalog metadata without section listings
+
+The standalone importer reads one explicitly selected undergraduate department
+page and subject from `catalog.njit.edu`. This fills catalog-only course rows,
+such as PHYS485, even when no sections were collected. It validates the displayed
+catalog edition and all relevant course headings before writing anything. An
+invalid row, conflicting duplicate, or missing subject aborts the page. It does
+not discover other pages or run automatically in the Banner/RMP cron.
+
+Preview the source candidates from `apps/api` (no database or `.env` is needed):
+
+```bash
+uv run --no-sync python -m scripts.import_catalog_metadata \
+  --url https://catalog.njit.edu/undergraduate/science-liberal-arts/physics/ \
+  --subject PHYS --catalog-year 2026
+```
+
+The JSON preview contains source records, **not a comparison with the database**.
+The physics page was previewed against the 2026–2027 catalog and yielded 51 PHYS
+courses, including PHYS485 at 3 credits. Other subject/page pairs require their
+own preview. The catalog year is explicit so a new annual edition requires review.
+
+After deploying the updated Banner writer and reviewing the preview, apply with
+the intended database environment (retain a current backup for a live import):
+
+```bash
+uv run --env-file .env --no-sync python -m scripts.import_catalog_metadata \
+  --url https://catalog.njit.edu/undergraduate/science-liberal-arts/physics/ \
+  --subject PHYS --catalog-year 2026 --apply
+```
+
+`--apply` verifies the runtime schema, acquires the shared Banner writer lock,
+and imports the entire page in one transaction. A busy writer or failed write
+aborts the import; no partial page is committed. The reported count is processed
+candidates, not necessarily changed rows. No course is deleted. Source evidence
+records the official URL, catalog year, observation timestamp and original heading
+in the existing metadata JSON fields; no schema migration is required.
+
+Official catalog titles take precedence over Banner section topics and honors
+variants. Updated Banner writers preserve that title and source; **older deployed
+writers do not**, so update the scraper before applying catalog records. Catalog
+credits fill missing/unverified values or refresh earlier catalog evidence.
+Verified Banner credits/bounds remain authoritative and can replace catalog
+fallback credits on a later successful scrape. Older catalog editions cannot
+replace newer catalog evidence. Variable credits remain ranges/options rather
+than an invented fixed scalar.
+
+The importer leaves sections, seats, prerequisite evidence, and Banner attempt
+history intact. New courses retain unverified prerequisites. Title-topic conflict
+warnings are omitted when an official catalog title is retained; credit and save
+errors still appear. Catalog presence establishes neither a future offering nor
+degree eligibility. Apply reviewed pages and regenerate saved plans before expecting
+the live planner to use the corrected data; a preview alone changes nothing.
+
 ### 7. Configurable catalog coverage
 
 `CATALOG_SUBJECTS` is the comma-separated collection scope used by the scraper and

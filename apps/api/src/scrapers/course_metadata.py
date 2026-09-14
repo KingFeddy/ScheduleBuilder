@@ -125,8 +125,11 @@ async def refresh_course_metadata(session, course_code: str, term: str, observat
         async with session.begin():
             await session.execute(text("""
                 UPDATE courses SET
-                    title = CASE WHEN :has_title THEN :title ELSE title END,
-                    title_source = COALESCE(CAST(:title_source AS jsonb), title_source),
+                    title = CASE WHEN :has_title
+                        AND COALESCE(title_source->>'source_kind', '') <> 'njit_catalog'
+                        THEN :title ELSE title END,
+                    title_source = CASE WHEN COALESCE(title_source->>'source_kind', '') = 'njit_catalog'
+                        THEN title_source ELSE COALESCE(CAST(:title_source AS jsonb), title_source) END,
                     credits = CASE WHEN :has_credits THEN CAST(:credits AS numeric) ELSE credits END,
                     credits_source = COALESCE(CAST(:credits_source AS jsonb), credits_source),
                     metadata_latest_attempt = CAST(:attempt AS jsonb)

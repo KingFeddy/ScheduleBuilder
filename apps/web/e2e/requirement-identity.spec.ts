@@ -37,7 +37,7 @@ test('keeps separate requirement identities and quantities through reload and re
   await page.screenshot({ path: testInfo.outputPath('requirement-quantities.png'), fullPage: true })
 })
 
-test('renders legacy duplicate rows without inventing requirement identities', async ({ page }) => {
+test('requires regeneration for legacy duplicate rows without source binding', async ({ page }) => {
   const course = { ...planResponse.semesters[0].courses[0] }
   Reflect.deleteProperty(course, 'slot_id')
   Reflect.deleteProperty(course, 'requirement')
@@ -48,8 +48,8 @@ test('renders legacy duplicate rows without inventing requirement identities', a
     } catch { /* Synthetic storage only. */ }
   }, { parsed: parsedDegree, plan: { graduation: 'Fall 2026', semesters: [{ ...planResponse.semesters[0], courses: [course, course] }] } })
   await page.goto('/planner')
-  await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
-  await expect(page.getByText(course.title!, { exact: true })).toHaveCount(2)
+  await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toHaveCount(0)
+  await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-plan') || '{}').semesters[0].courses))
     .toEqual([course, course])
 })

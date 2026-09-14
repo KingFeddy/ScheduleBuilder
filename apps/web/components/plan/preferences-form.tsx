@@ -6,7 +6,7 @@ import { generatePlan, getApiErrorMessage, type ParsedDegreeValidated, type Seme
 
 interface PreferencesFormProps {
   parsed: ParsedDegreeValidated
-  onPlanGenerated: (semesters: SemesterPlan[], graduation: string, warnings: string[]) => void
+  onPlanGenerated: (semesters: SemesterPlan[], graduation: string, warnings: string[], sourceAudit: ParsedDegreeValidated) => void
   onBrowseGer?: () => void
 }
 
@@ -104,7 +104,7 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
     setError(null)
     try {
       const res = await generatePlan(parsed, { courses, credits_per_semester: credits })
-      onPlanGenerated(res.semesters, res.projected_graduation, res.warnings)
+      onPlanGenerated(res.semesters, res.projected_graduation, res.warnings, parsed)
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to generate plan. Please try again.'))
     } finally {

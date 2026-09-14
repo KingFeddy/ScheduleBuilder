@@ -38,8 +38,9 @@ for (const savedAudit of [
 
 test('upgrades a compatible saved audit while retaining explicitly unresolved quantities', async ({ page, api }, testInfo) => {
   const audit = { ...parsedDegree, still_needed: [{ ...parsedDegree.still_needed[0],
-    remaining_quantity: null, quantity_unit: 'unknown', quantity_status: 'unresolved',
+    remaining_quantity: null, quantity_unit: 'unknown' as const, quantity_status: 'unresolved' as const,
   }] }
+  api.respond('POST', '/api/plan/generate', { ...planResponse, semesters: planResponse.semesters.map((semester) => ({ ...semester, courses: semester.courses.map((course) => ({ ...course, requirement: audit.still_needed[0] })) })) })
   await page.addInitScript((audit) => {
     try {
       if (!localStorage.getItem('njit-dw-parsed')) localStorage.setItem('njit-dw-parsed', JSON.stringify(audit))

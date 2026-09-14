@@ -69,20 +69,20 @@ test('preserves replacement warnings through regeneration, swapping, and reload'
   await expect(page.getByText(warnings[0], { exact: true })).toHaveCount(0)
   await page.reload()
   for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toHaveCount(0)
-  await expect(page.getByText('This saved plan does not include readable warnings. Regenerate it to check for unresolved requirements.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toHaveCount(0)
 })
 
 for (const warnings of [undefined, 'invalid', ['Valid text', null]]) {
-  test(`explains unavailable saved warnings (${JSON.stringify(warnings)}) without inventing a clean plan`, async ({ page }, testInfo) => {
+  test(`requires regeneration for saved plans with invalid warnings (${JSON.stringify(warnings)})`, async ({ page }, testInfo) => {
     await page.addInitScript(({ parsed, plan }) => {
       try {
         localStorage.setItem('njit-dw-parsed', JSON.stringify(parsed))
         localStorage.setItem('njit-dw-plan', JSON.stringify(plan))
       } catch { /* Synthetic storage only. */ }
-    }, { parsed: parsedDegree, plan: { semesters: planResponse.semesters, graduation: planResponse.projected_graduation, warnings } })
+    }, { parsed: parsedDegree, plan: { version: 1, source_audit: parsedDegree, semesters: planResponse.semesters, graduation: planResponse.projected_graduation, warnings } })
     await page.goto('/planner')
-    await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
-    await expect(page.getByText('This saved plan does not include readable warnings. Regenerate it to check for unresolved requirements.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toHaveCount(0)
+    await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toBeVisible()
     if (warnings === undefined) await page.screenshot({ path: testInfo.outputPath('legacy-plan-warnings.png'), fullPage: true })
   })
 }

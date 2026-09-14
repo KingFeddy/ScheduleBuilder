@@ -1,27 +1,23 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { UploadZone } from '@/components/plan/upload-zone'
 import { DegreeSummary } from '@/components/plan/degree-summary'
 import { PreferencesForm } from '@/components/plan/preferences-form'
 import { SemesterPlan } from '@/components/plan/semester-plan'
 import { GerModal } from '@/components/plan/ger-modal'
 import { encodeSavedAudit, restoreSavedAudit } from '@/lib/planner-audit'
+import { encodeSavedPlan, restoreSavedPlan, isPlanForAudit, sameAudit, SAVED_PLAN_NOTICE, type PlanState } from '@/lib/planner-plan'
 import {
   generatePlan,
+  getApiErrorMessage,
   type ParsedDegreeValidated,
   type SemesterPlan as SemesterPlanType,
 } from '@/lib/api'
 
-interface PlanState {
-  semesters: SemesterPlanType[]
-  graduation: string
-  warnings: string[]
-}
-
-function savePlan(plan: PlanState) {
+function savePlan(plan: PlanState, audit: ParsedDegreeValidated) {
   try {
-    localStorage.setItem('njit-dw-plan', JSON.stringify(plan))
+    localStorage.setItem('njit-dw-plan', encodeSavedPlan(plan, audit))
   } catch { /* Keep the current plan usable when browser storage is unavailable. */ }
 }
 
@@ -34,10 +30,14 @@ export default function PlannerPage() {
   const [parsed, setParsed] = useState<ParsedDegreeValidated | null>(null)
   const [loadedFromCache, setLoadedFromCache] = useState(false)
   const [auditNotice, setAuditNotice] = useState<string | null>(null)
+  const [planNotice, setPlanNotice] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [plan, setPlan] = useState<PlanState | null>(null)
   const [generating, setGenerating] = useState(false)
   const [gerModal, setGerModal] = useState<GerModalState | null>(null)
+  const currentAudit = useRef<ParsedDegreeValidated | null>(null)
+
+  useEffect(() => () => { currentAudit.current = null }, [])
 
   useEffect(() => {
     let restored: ParsedDegreeValidated | null = null
@@ -52,6 +52,7 @@ export default function PlannerPage() {
           return
         }
         setParsed(restored)
+        currentAudit.current = restored
         setLoadedFromCache(true)
         localStorage.setItem('njit-dw-parsed', encodeSavedAudit(restored))
       }
@@ -62,20 +63,19 @@ export default function PlannerPage() {
     try {
       const rawPlan = localStorage.getItem('njit-dw-plan')
       if (rawPlan) {
-        const p = JSON.parse(rawPlan) as { semesters: SemesterPlanType[]; graduation: string; warnings?: unknown }
-        // Older saves omitted warnings entirely. Their absence cannot establish
-        // that the original generation had no unresolved requirements.
-        const warnings = Array.isArray(p.warnings) && p.warnings.every((warning) => typeof warning === 'string')
-          ? p.warnings
-          : ['This saved plan does not include readable warnings. Regenerate it to check for unresolved requirements.']
-        setPlan({ semesters: p.semesters, graduation: p.graduation, warnings })
+        const saved = restoreSavedPlan(rawPlan, restored)
+        if (saved) setPlan(saved)
+        else setPlanNotice(SAVED_PLAN_NOTICE)
       }
     } catch { /* ignore */ }
   }, [])
 
   function handleParsed(newParsed: ParsedDegreeValidated) {
+    currentAudit.current = newParsed
     setParsed(newParsed)
     setAuditNotice(null)
+    setPlanNotice(null)
+    setGenerating(false)
     setLoadedFromCache(false)
     setShowUpload(false)
     setPlan(null)
@@ -86,15 +86,21 @@ export default function PlannerPage() {
     semesters: SemesterPlanType[],
     graduation: string,
     warnings: string[],
+    sourceAudit: ParsedDegreeValidated,
   ) {
+    if (!currentAudit.current || !sameAudit(currentAudit.current, sourceAudit)) return
     const newPlan = { semesters, graduation, warnings }
+    if (!isPlanForAudit(newPlan, sourceAudit)) throw new Error('Invalid generated plan')
     setPlan(newPlan)
-    savePlan(newPlan)
+    setPlanNotice(null)
+    savePlan(newPlan, sourceAudit)
   }
 
   async function handleRegenerate() {
     if (!parsed || generating) return
+    const sourceAudit = parsed
     setGenerating(true)
+    setPlanNotice(null)
     try {
       let courses: string[] = []
       let credits_per_semester = 15
@@ -108,20 +114,18 @@ export default function PlannerPage() {
       } catch { /* ignore */ }
 
       const res = await generatePlan(parsed, { courses, credits_per_semester })
-      const newPlan: PlanState = {
-        semesters: res.semesters,
-        graduation: res.projected_graduation,
-        warnings: res.warnings,
+      handlePlanGenerated(res.semesters, res.projected_graduation, res.warnings, sourceAudit)
+    } catch (error) {
+      if (currentAudit.current && sameAudit(currentAudit.current, sourceAudit)) {
+        setPlanNotice(getApiErrorMessage(error, 'Could not regenerate the plan. Please try again.'))
       }
-      setPlan(newPlan)
-      savePlan(newPlan)
-    } catch { /* errors shown inline in SemesterPlan */ } finally {
-      setGenerating(false)
+    } finally {
+      if (currentAudit.current && sameAudit(currentAudit.current, sourceAudit)) setGenerating(false)
     }
   }
 
   function handleSwap(newCode: string) {
-    if (!plan || !gerModal?.courseCode) return
+    if (!plan || !parsed || !gerModal?.courseCode) return
     const affectedRequirements = new Set(plan.semesters
       .filter((sem) => sem.term === gerModal.semesterTerm)
       .flatMap((sem) => sem.courses)
@@ -145,7 +149,7 @@ export default function PlannerPage() {
     }))
     const newPlan = { ...plan, semesters: updated }
     setPlan(newPlan)
-    savePlan(newPlan)
+    savePlan(newPlan, parsed)
   }
 
   // No degree data yet — full-page upload prompt
@@ -205,6 +209,7 @@ export default function PlannerPage() {
 
           {/* Right column */}
           <div className="min-w-0">
+            {planNotice && <p role="status" className="text-sm text-muted mb-4">{planNotice}</p>}
             {plan ? (
               <SemesterPlan
                 semesters={plan.semesters}

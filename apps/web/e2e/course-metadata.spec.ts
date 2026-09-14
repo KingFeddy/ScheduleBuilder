@@ -46,7 +46,7 @@ test('shows estimates on required course rows and totals after generation and re
   await page.screenshot({ path: testInfo.outputPath('planned-credit-estimates.png'), fullPage: true })
 })
 
-test('treats credit amounts in an older saved plan as unverified estimates', async ({ page }) => {
+test('requires regeneration for an older unbound saved plan', async ({ page }) => {
   await page.addInitScript(({ degree, plan }) => {
     try {
       localStorage.setItem('njit-dw-parsed', JSON.stringify(degree))
@@ -56,9 +56,8 @@ test('treats credit amounts in an older saved plan as unverified estimates', asy
     courses: [{ course_code: 'ZZZ199', title: 'Legacy', credits: 3, badge: 'Required', reason: '' }],
   }] } })
   await page.goto('/planner')
-  await expect(page.getByText('3 cr (estimated)', { exact: true })).toBeVisible()
-  await expect(page.getByText('3 credits (estimated)', { exact: true })).toHaveCount(2)
-  await expect(page.getByText('Catalog coverage unchecked.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toHaveCount(0)
+  await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toBeVisible()
 })
 
 test('marks inherited credits as an estimate when a different course is selected', async ({ page, api }) => {

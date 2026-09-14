@@ -37,10 +37,55 @@ test('uploads a synthetic audit, generates a plan, and restores it on reload', a
   await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
   await expect(page.getByText('Programming Language Concepts', { exact: true })).toBeVisible()
   await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
+  await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
   expect(api.requests('POST', '/api/plan/parse')).toHaveLength(1)
   expect(api.requests('POST', '/api/plan/generate')).toHaveLength(1)
-  // Preference hydration and warning persistence are separate Goals 38 and 40.
+  // Preference hydration is tracked separately.
 })
+
+test('preserves replacement warnings through regeneration, swapping, and reload', async ({ page, api }) => {
+  api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage,
+    groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM201', title: 'Replacement', title_status: 'verified' }] }],
+  })
+  await page.goto('/planner')
+  await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
+  await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
+  await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
+  const warnings = ['Synthetic unresolved requirement.', 'Synthetic unverified prerequisites.']
+  api.respond('POST', '/api/plan/generate', { ...planResponse, warnings })
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click()
+  await expect(page.getByText(warnings[0], { exact: true })).toBeVisible()
+  await expect(page.getByText(planResponse.warnings[0], { exact: true })).toHaveCount(0)
+  await page.reload()
+  for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'swap →', exact: true }).click()
+  await page.getByRole('button', { name: 'HUM201 Replacement', exact: true }).click()
+  await page.reload()
+  for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-plan') || '{}').warnings)).toEqual(warnings)
+
+  api.respond('POST', '/api/plan/generate', { ...planResponse, warnings: [] })
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click()
+  await expect(page.getByText(warnings[0], { exact: true })).toHaveCount(0)
+  await page.reload()
+  for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toHaveCount(0)
+  await expect(page.getByText('This saved plan does not include readable warnings. Regenerate it to check for unresolved requirements.', { exact: true })).toHaveCount(0)
+})
+
+for (const warnings of [undefined, 'invalid', ['Valid text', null]]) {
+  test(`explains unavailable saved warnings (${JSON.stringify(warnings)}) without inventing a clean plan`, async ({ page }, testInfo) => {
+    await page.addInitScript(({ parsed, plan }) => {
+      try {
+        localStorage.setItem('njit-dw-parsed', JSON.stringify(parsed))
+        localStorage.setItem('njit-dw-plan', JSON.stringify(plan))
+      } catch { /* Synthetic storage only. */ }
+    }, { parsed: parsedDegree, plan: { semesters: planResponse.semesters, graduation: planResponse.projected_graduation, warnings } })
+    await page.goto('/planner')
+    await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
+    await expect(page.getByText('This saved plan does not include readable warnings. Regenerate it to check for unresolved requirements.', { exact: true })).toBeVisible()
+    if (warnings === undefined) await page.screenshot({ path: testInfo.outputPath('legacy-plan-warnings.png'), fullPage: true })
+  })
+}
 
 test('rejects a non-PDF upload before calling the API', async ({ page, api }) => {
   await page.goto('/planner')

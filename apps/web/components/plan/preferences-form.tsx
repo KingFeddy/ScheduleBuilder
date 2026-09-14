@@ -104,12 +104,6 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
     setError(null)
     try {
       const res = await generatePlan(parsed, { courses, credits_per_semester: credits })
-      try {
-        localStorage.setItem(
-          'njit-dw-plan',
-          JSON.stringify({ semesters: res.semesters, graduation: res.projected_graduation }),
-        )
-      } catch { /* ignore */ }
       onPlanGenerated(res.semesters, res.projected_graduation, res.warnings)
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to generate plan. Please try again.'))

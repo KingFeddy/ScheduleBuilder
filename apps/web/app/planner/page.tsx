@@ -18,6 +18,12 @@ interface PlanState {
   warnings: string[]
 }
 
+function savePlan(plan: PlanState) {
+  try {
+    localStorage.setItem('njit-dw-plan', JSON.stringify(plan))
+  } catch { /* Keep the current plan usable when browser storage is unavailable. */ }
+}
+
 interface GerModalState {
   semesterTerm: string
   courseCode: string
@@ -44,8 +50,13 @@ export default function PlannerPage() {
     try {
       const rawPlan = localStorage.getItem('njit-dw-plan')
       if (rawPlan) {
-        const p = JSON.parse(rawPlan) as { semesters: SemesterPlanType[]; graduation: string }
-        setPlan({ semesters: p.semesters, graduation: p.graduation, warnings: [] })
+        const p = JSON.parse(rawPlan) as { semesters: SemesterPlanType[]; graduation: string; warnings?: unknown }
+        // Older saves omitted warnings entirely. Their absence cannot establish
+        // that the original generation had no unresolved requirements.
+        const warnings = Array.isArray(p.warnings) && p.warnings.every((warning) => typeof warning === 'string')
+          ? p.warnings
+          : ['This saved plan does not include readable warnings. Regenerate it to check for unresolved requirements.']
+        setPlan({ semesters: p.semesters, graduation: p.graduation, warnings })
       }
     } catch { /* ignore */ }
   }, [])
@@ -63,7 +74,9 @@ export default function PlannerPage() {
     graduation: string,
     warnings: string[],
   ) {
-    setPlan({ semesters, graduation, warnings })
+    const newPlan = { semesters, graduation, warnings }
+    setPlan(newPlan)
+    savePlan(newPlan)
   }
 
   async function handleRegenerate() {
@@ -88,12 +101,7 @@ export default function PlannerPage() {
         warnings: res.warnings,
       }
       setPlan(newPlan)
-      try {
-        localStorage.setItem(
-          'njit-dw-plan',
-          JSON.stringify({ semesters: res.semesters, graduation: res.projected_graduation }),
-        )
-      } catch { /* ignore */ }
+      savePlan(newPlan)
     } catch { /* errors shown inline in SemesterPlan */ } finally {
       setGenerating(false)
     }
@@ -124,12 +132,7 @@ export default function PlannerPage() {
     }))
     const newPlan = { ...plan, semesters: updated }
     setPlan(newPlan)
-    try {
-      localStorage.setItem(
-        'njit-dw-plan',
-        JSON.stringify({ semesters: updated, graduation: plan.graduation }),
-      )
-    } catch { /* ignore */ }
+    savePlan(newPlan)
   }
 
   // No degree data yet — full-page upload prompt

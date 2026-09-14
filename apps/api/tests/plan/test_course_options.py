@@ -40,6 +40,30 @@ def test_unknown_or_constrained_choices_are_not_silently_partially_resolved(text
     assert _extract_course_codes(text) == []
 
 
+@pytest.mark.parametrize("expression", [
+    "CS490\nAND 491", "CS490, AND 491", "CS490\nAND 4@",
+    "AND 491", "OR 491", "CS490\nWITH 300", "CS490\nONLY 400",
+    "CS490\nGRADE 300", "CS490\nFROM 300",
+])
+def test_operator_words_cannot_become_course_subjects(expression):
+    assert _extract_course_codes(expression) == []
+    [item] = _extract_still_needed(f"Synthetic sequence\nStill needed: 2 Classes in {expression}")
+    assert item.options == []
+    assert item.remaining_quantity == 2 and item.quantity_unit == "classes"
+    assert expression in item.source.text
+
+
+def test_wrapped_conjunction_remains_unresolved_in_generated_plan():
+    [item] = _extract_still_needed("Synthetic sequence\nStill needed: 2 Classes in CS490\nAND 491")
+    degree = validate_parsed_degree(ParsedDegree(majors=["Synthetic"], credits_remaining=6, still_needed=[item]))
+    generated = asyncio.run(generate_plan(degree, PlanPreferences(), _make_mock_session()))
+    slots = [c for s in generated.semesters for c in s.courses if c.requirement is not None]
+    assert slots and all(slot.course_code == "TBD" for slot in slots)
+    assert all(slot.requirement == item for slot in slots)
+    assert any("Course options could not be read" in warning for warning in generated.warnings)
+    assert not any("AND" in warning for warning in generated.warnings)
+
+
 def test_requirement_options_stop_before_neighboring_headings_and_grade_rows():
     text = (
         "Synthetic elective\nStill needed: 1 Class in CS 490 or\n4@ or PHYS 310\n"

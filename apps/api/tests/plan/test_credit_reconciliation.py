@@ -43,10 +43,15 @@ async def test_unknown_audit_total_is_not_zero(catalog):
 
 
 @pytest.mark.asyncio
-async def test_requested_extras_do_not_inflate_requirement_discrepancy(catalog):
+@pytest.mark.parametrize("is_capstone", [False, True])
+async def test_requested_extras_do_not_inflate_requirement_discrepancy(catalog, is_capstone):
     catalog("CS435", 3)
     catalog("CS480", 9)
-    generated = await generate([requirement("core", ["CS435"])], 3, ["CS480"])
+    item = requirement("core", ["CS435"])
+    if is_capstone:
+        item.requirement = "Synthetic senior project"
+    generated = await generate([item], 3, ["CS480"])
+    assert {c.course_code for s in generated.semesters for c in s.courses} == {"CS435", "CS480"}
     message = review(generated)
     assert "12 scheduled credits" in message
     assert "3 selected for requirements" in message
@@ -55,15 +60,13 @@ async def test_requested_extras_do_not_inflate_requirement_discrepancy(catalog):
 
 
 @pytest.mark.asyncio
-async def test_final_load_fillers_are_included_in_schedule_but_not_requirements(catalog):
+async def test_small_final_semester_does_not_create_extra_credits_or_credit_review(catalog):
     catalog("HSS404", 3)
     item = requirement("capstone", ["HSS404"])
     item.requirement = "Synthetic senior seminar"
     generated = await generate([item], 3)
-    assert sum(s.total_credits for s in generated.semesters) == 12
-    message = review(generated)
-    assert "12 scheduled credits" in message and "9 course-load filler credits" in message
-    assert "above" not in message and "below" not in message
+    assert sum(s.total_credits for s in generated.semesters) == 3
+    assert not any(w.startswith("Credit review:") for w in generated.warnings)
 
 
 @pytest.mark.asyncio
@@ -105,7 +108,7 @@ async def test_verified_matching_allocation_needs_no_credit_review(catalog):
 
 
 @pytest.mark.asyncio
-async def test_sample_arithmetic_separates_39_requirement_credits_from_48_scheduled(catalog):
+async def test_sample_arithmetic_keeps_39_requirement_credits_without_inflating_to_48(catalog):
     # Synthetic reproduction of the totals, not a reconstruction of a personal PDF.
     items = []
     for index in range(11):
@@ -119,9 +122,9 @@ async def test_sample_arithmetic_separates_39_requirement_credits_from_48_schedu
     items.append(capstone)
     generated = await generate(items, 24, credit_target=12)
     message = review(generated)
-    assert sum(s.total_credits for s in generated.semesters) == 48
+    assert sum(s.total_credits for s in generated.semesters) == 39
     assert "audit lists 24 remaining credits" in message
-    assert "48 scheduled credits: 36 selected for requirements, 3 unresolved slot credits" in message
-    assert "9 course-load filler credits" in message
-    assert "12 estimated credits" in message
+    assert "39 scheduled credits: 36 selected for requirements, 3 unresolved slot credits" in message
+    assert "0 course-load filler credits" in message
+    assert "3 estimated credits" in message
     assert "Requirement-linked credits are 15 above the audit figure" in message

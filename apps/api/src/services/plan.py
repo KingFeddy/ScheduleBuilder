@@ -38,7 +38,6 @@ from src.services.catalog import course_coverage
 logger = logging.getLogger(__name__)
 
 CREDIT_CONSISTENCY_TOLERANCE = 6
-FULL_TIME_CREDITS = 12
 MAX_QUANTITY_ALLOCATION_SLOTS = 200
 
 
@@ -1175,34 +1174,10 @@ async def generate_plan(
         )
         semesters.extend(capstone_semesters)
 
-        # Clustering every senior/capstone requirement into the true final
-        # semester (above) can leave that semester thin — e.g. a single
-        # 3-credit capstone with nothing else left to pack alongside it.
-        # Pad it to a full-time load with one placeholder rather than
-        # showing the student a near-empty final semester. Never pad past
-        # the student's own credit_target — that's a hard ceiling the rest
-        # of the planner already respects everywhere else.
-        last = semesters[-1]
-        pad_target = min(FULL_TIME_CREDITS, credit_target)
-        if last.total_credits < pad_target:
-            gap = round(pad_target - last.total_credits, 2)
-            last.courses.append(PlannedCourse(
-                slot_id=stable_identity("slot", "final-load-filler"),
-                course_code="FREE",
-                catalog_status="unresolved",
-                catalog_note="No specific catalog course has been selected for this slot.",
-                title="Free Elective",
-                credits=gap,
-                badge="Elective",
-                reason=(
-                    f"Added to reach a full-time course load "
-                    f"({FULL_TIME_CREDITS} credits) — pick any elective "
-                    f"that interests you."
-                ),
-            ))
-            last.total_credits = pad_target
+    # Credit targets guide packing; a lighter final semester needs no filler.
+    # Additional courses must come from the student's explicit elective choices.
 
-    # Reconcile the final schedule, including requested extras and any fillers.
+    # Reconcile the final schedule, including requested extras.
     # Keep these diagnostics first so a partial allocation is visible immediately.
     warnings = _credit_reconciliation_warnings(validated, semesters) + warnings
 

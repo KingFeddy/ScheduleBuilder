@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 import { catalogCoverage, courses, planResponse, syntheticPdf } from './data'
 
-test('shows excluded subjects even when course search returns nothing', async ({ page, api }, testInfo) => {
+test('keeps course search usable without the catalog coverage panel', async ({ page, api }, testInfo) => {
   api.respond('GET', '/api/catalog/coverage', {
     ...catalogCoverage,
     configured_subjects: ['CS', 'HSS'], elective_subjects: ['HUM'],
@@ -14,12 +14,15 @@ test('shows excluded subjects even when course search returns nothing', async ({
   })
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('IS350')
-  await expect(page.getByText('IS is outside the collected subject scope.', { exact: true })).toBeVisible()
-  await page.getByText('Catalog coverage', { exact: true }).click()
-  await expect(page.getByText('No catalog courses collected for: HSS. The catalog is incomplete for these subjects.', { exact: true })).toBeVisible()
-  await expect(page.getByText('CS', { exact: true })).toBeVisible()
-  expect(new URL(api.requests('GET', '/api/catalog/coverage')[0].url()).searchParams.get('term')).toBe('202690')
-  await page.screenshot({ path: testInfo.outputPath('catalog-coverage.png'), fullPage: true })
+  await expect.poll(() => api.requests('GET', '/api/courses').length).toBeGreaterThan(0)
+  await expect(page.getByText('IS is outside the collected subject scope.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Catalog coverage', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('No catalog courses collected for: HSS. The catalog is incomplete for these subjects.', { exact: true })).toHaveCount(0)
+  await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
+  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
+  await expect(page.getByText('CS280', { exact: true })).toBeVisible()
+  expect(api.requests('GET', '/api/catalog/coverage')).toHaveLength(0)
+  await page.screenshot({ path: testInfo.outputPath('course-picker.png'), fullPage: true })
 })
 
 test('keeps catalog warnings on required courses after reload', async ({ page, api }, testInfo) => {
@@ -57,15 +60,6 @@ test('reports incomplete elective coverage and marks retained course rows', asyn
   await expect(page.getByText('Subjects outside collection scope: HUM. Data in these subjects is not refreshed.', { exact: true })).toBeVisible()
   await expect(page.getByText('Subject outside collection scope.', { exact: true })).toBeVisible()
   await expect(page.getByText('Browsing a subject does not confirm that a course satisfies this requirement.', { exact: true })).toBeVisible()
-})
-
-test('reports coverage lookup failure and allows retry', async ({ page, api }) => {
-  api.respond('GET', '/api/catalog/coverage', { detail: 'Synthetic outage' }, 503)
-  await page.goto('/scheduler')
-  await expect(page.getByText('Catalog coverage unavailable.', { exact: true })).toBeVisible()
-  api.reset('GET', '/api/catalog/coverage')
-  await page.getByRole('button', { name: 'Retry catalog coverage' }).click()
-  await expect(page.getByText('Catalog coverage', { exact: true })).toBeVisible()
 })
 
 test('marks excluded catalog results independently of verified credits', async ({ page, api }) => {

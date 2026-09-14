@@ -8,10 +8,9 @@ import { getCourses, getCoursesSections, getProfessor, type CourseResponse, type
 import { useSchedulerStore } from '@/store/scheduler'
 import { CourseCodePill } from '@/components/ui/course-code-pill'
 import { ProfessorPicker } from './professor-picker'
-import { CatalogCoverage } from './catalog-coverage'
 import { CatalogNote } from '@/components/ui/catalog-note'
 
-export function CourseSelector({ termResolved, hasTermData }: { termResolved: boolean; hasTermData: boolean }) {
+export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
   const { selectedCourses, term, termRevision, addCourse, removeCourse, setProfessorCache, setProfessorsByCourse } =
     useSchedulerStore()
 
@@ -150,8 +149,6 @@ export function CourseSelector({ termResolved, hasTermData }: { termResolved: bo
           </ul>
         )}
       </div>
-
-      {termResolved && <CatalogCoverage term={term} query={query} />}
 
       {/* Selected course cards */}
       {selectedCourses.length > 0 && (

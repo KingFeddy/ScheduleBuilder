@@ -107,7 +107,7 @@ export default function SchedulerPage() {
           <p className="text-xs font-medium uppercase tracking-wider text-muted mb-3">
             Add Courses
           </p>
-          <CourseSelector termResolved={!!selectedTerm} hasTermData={hasTermData} />
+          <CourseSelector hasTermData={hasTermData} />
         </div>
 
         <div className="border-t border-border pt-5">

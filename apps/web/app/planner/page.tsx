@@ -6,6 +6,7 @@ import { DegreeSummary } from '@/components/plan/degree-summary'
 import { PreferencesForm } from '@/components/plan/preferences-form'
 import { SemesterPlan } from '@/components/plan/semester-plan'
 import { GerModal } from '@/components/plan/ger-modal'
+import { encodeSavedAudit, restoreSavedAudit } from '@/lib/planner-audit'
 import {
   generatePlan,
   type ParsedDegreeValidated,
@@ -32,21 +33,32 @@ interface GerModalState {
 export default function PlannerPage() {
   const [parsed, setParsed] = useState<ParsedDegreeValidated | null>(null)
   const [loadedFromCache, setLoadedFromCache] = useState(false)
+  const [auditNotice, setAuditNotice] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [plan, setPlan] = useState<PlanState | null>(null)
   const [generating, setGenerating] = useState(false)
   const [gerModal, setGerModal] = useState<GerModalState | null>(null)
 
   useEffect(() => {
+    let restored: ParsedDegreeValidated | null = null
     try {
       const raw = localStorage.getItem('njit-dw-parsed')
       if (raw) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setParsed(JSON.parse(raw) as ParsedDegreeValidated)
+        restored = restoreSavedAudit(raw)
+        if (!restored) {
+          // Browser storage is restored after hydration, never during SSR.
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setAuditNotice('Your saved audit is incomplete or uses an unsupported format. Upload your DegreeWorks PDF again to refresh the requirements.')
+          return
+        }
+        setParsed(restored)
         setLoadedFromCache(true)
+        localStorage.setItem('njit-dw-parsed', encodeSavedAudit(restored))
       }
     } catch { /* ignore */ }
 
+    // A generated plan cannot be restored without a usable source audit.
+    if (!restored) return
     try {
       const rawPlan = localStorage.getItem('njit-dw-plan')
       if (rawPlan) {
@@ -63,6 +75,7 @@ export default function PlannerPage() {
 
   function handleParsed(newParsed: ParsedDegreeValidated) {
     setParsed(newParsed)
+    setAuditNotice(null)
     setLoadedFromCache(false)
     setShowUpload(false)
     setPlan(null)
@@ -144,6 +157,7 @@ export default function PlannerPage() {
           <p className="text-sm text-muted mb-8">
             Upload your DegreeWorks PDF to generate a semester-by-semester graduation plan.
           </p>
+          {auditNotice && <p role="status" className="text-sm text-muted mb-6">{auditNotice}</p>}
           <UploadZone onParsed={handleParsed} />
           {showUpload && (
             <button

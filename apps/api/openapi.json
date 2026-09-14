@@ -1168,6 +1168,16 @@
       },
       "PlannedCourse": {
         "properties": {
+          "allocation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementAllocation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "badge": {
             "enum": [
               "Required",
@@ -1263,6 +1273,7 @@
           "reason",
           "slot_id",
           "requirement",
+          "allocation",
           "credits_estimated",
           "credits_note",
           "title_status",
@@ -1346,6 +1357,71 @@
           "department"
         ],
         "title": "ProfessorResponse",
+        "type": "object"
+      },
+      "RequirementAllocation": {
+        "description": "Planned quantity only; not degree completion or prerequisite eligibility.",
+        "properties": {
+          "allocated_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocated Quantity"
+          },
+          "quantity_unit": {
+            "enum": [
+              "classes",
+              "credits",
+              "unknown"
+            ],
+            "title": "Quantity Unit",
+            "type": "string"
+          },
+          "required_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Quantity"
+          },
+          "status": {
+            "enum": [
+              "allocated",
+              "partial",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unresolved_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unresolved Quantity"
+          }
+        },
+        "required": [
+          "required_quantity",
+          "quantity_unit",
+          "allocated_quantity",
+          "unresolved_quantity",
+          "status"
+        ],
+        "title": "RequirementAllocation",
         "type": "object"
       },
       "RequirementSource-Input": {

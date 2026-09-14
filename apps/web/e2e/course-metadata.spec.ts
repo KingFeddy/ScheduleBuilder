@@ -27,9 +27,9 @@ test('shows estimates on required course rows and totals after generation and re
   api.respond('POST', '/api/plan/generate', {
     ...planResponse,
     semesters: [{ term: '202690', term_label: 'Fall 2026', total_credits: 8, courses: [
-      { ...presentCatalog, slot_id: 'slot-metadata-1', requirement: null, course_code: 'ZZZ101', title: 'Verified lab', title_status: 'verified', credits: 1, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
-      { ...presentCatalog, slot_id: 'slot-metadata-2', requirement: null, course_code: 'ZZZ104', title: 'Verified class', title_status: 'verified', credits: 4, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
-      { ...presentCatalog, slot_id: 'slot-metadata-3', requirement: null, course_code: 'ZZZ199', title: 'Requirement label', title_status: 'unverified', credits: 3, credits_estimated: true, credits_note: 'Credits unknown; using 3 credits as an estimate.', badge: 'Required', reason: '' },
+      { ...presentCatalog, slot_id: 'slot-metadata-1', requirement: null, allocation: null, course_code: 'ZZZ101', title: 'Verified lab', title_status: 'verified', credits: 1, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
+      { ...presentCatalog, slot_id: 'slot-metadata-2', requirement: null, allocation: null, course_code: 'ZZZ104', title: 'Verified class', title_status: 'verified', credits: 4, credits_estimated: false, credits_note: '', badge: 'Required', reason: '' },
+      { ...presentCatalog, slot_id: 'slot-metadata-3', requirement: null, allocation: null, course_code: 'ZZZ199', title: 'Requirement label', title_status: 'unverified', credits: 3, credits_estimated: true, credits_note: 'Credits unknown; using 3 credits as an estimate.', badge: 'Required', reason: '' },
     ] }],
   })
   await page.goto('/planner')

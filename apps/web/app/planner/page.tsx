@@ -101,20 +101,27 @@ export default function PlannerPage() {
 
   function handleSwap(newCode: string) {
     if (!plan || !gerModal?.courseCode) return
-    const updated = plan.semesters.map((sem) =>
-      sem.term !== gerModal.semesterTerm
-        ? sem
-        : {
-            ...sem,
-            courses: sem.courses.map((c) =>
-              c.course_code === gerModal.courseCode
-                ? { ...c, course_code: newCode, title: null, title_status: 'missing' as const,
-                    catalog_status: 'unknown' as const, catalog_note: 'Catalog coverage for this replacement has not been checked. Regenerate the plan to check it.',
-                    credits_estimated: true, credits_note: 'Credits for this replacement are unverified; this amount is an estimate.' }
-                : c,
-            ),
-          },
-    )
+    const affectedRequirements = new Set(plan.semesters
+      .filter((sem) => sem.term === gerModal.semesterTerm)
+      .flatMap((sem) => sem.courses)
+      .filter((course) => course.course_code === gerModal.courseCode && course.requirement)
+      .map((course) => course.requirement!.requirement_id))
+    const updated = plan.semesters.map((sem) => ({
+      ...sem,
+      courses: sem.courses.map((course) => {
+        let updatedCourse = course
+        if (sem.term === gerModal.semesterTerm && course.course_code === gerModal.courseCode) {
+          updatedCourse = { ...course, course_code: newCode, title: null, title_status: 'missing',
+            catalog_status: 'unknown', catalog_note: 'Catalog coverage for this replacement has not been checked. Regenerate the plan to check it.',
+            credits_estimated: true, credits_note: 'Credits for this replacement are unverified; this amount is an estimate.' }
+        }
+        if (course.requirement && course.allocation && affectedRequirements.has(course.requirement.requirement_id)) {
+          updatedCourse = { ...updatedCourse, allocation: { ...course.allocation,
+            allocated_quantity: null, unresolved_quantity: null, status: 'unknown' } }
+        }
+        return updatedCourse
+      }),
+    }))
     const newPlan = { ...plan, semesters: updated }
     setPlan(newPlan)
     try {

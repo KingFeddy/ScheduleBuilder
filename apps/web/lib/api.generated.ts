@@ -599,6 +599,7 @@ export interface components {
         };
         /** PlannedCourse */
         PlannedCourse: {
+            allocation: components["schemas"]["RequirementAllocation"] | null;
             /**
              * Badge
              * @enum {string}
@@ -667,6 +668,28 @@ export interface components {
             rmp_tags: string[];
             /** Rmp Would Take Again */
             rmp_would_take_again: number | null;
+        };
+        /**
+         * RequirementAllocation
+         * @description Planned quantity only; not degree completion or prerequisite eligibility.
+         */
+        RequirementAllocation: {
+            /** Allocated Quantity */
+            allocated_quantity: number | null;
+            /**
+             * Quantity Unit
+             * @enum {string}
+             */
+            quantity_unit: "classes" | "credits" | "unknown";
+            /** Required Quantity */
+            required_quantity: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "allocated" | "partial" | "unknown";
+            /** Unresolved Quantity */
+            unresolved_quantity: number | null;
         };
         /** RequirementSource */
         "RequirementSource-Input": {

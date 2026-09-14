@@ -1142,12 +1142,12 @@ class TestPrerequisiteAwarePlanning:
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
-            StillNeededItem(requirement="A", options=["AAA"]),
-            StillNeededItem(requirement="B", options=["BBB"]),
+            StillNeededItem(requirement="A", options=["AAA100"]),
+            StillNeededItem(requirement="B", options=["BBB100"]),
         ])
         session = self._mock_session(2, [
-            {"course_code": "AAA", "credits": 3, "title": "A", "prerequisites": ["BBB"]},
-            {"course_code": "BBB", "credits": 3, "title": "B", "prerequisites": ["AAA"]},
+            {"course_code": "AAA100", "credits": 3, "title": "A", "prerequisites": ["BBB100"]},
+            {"course_code": "BBB100", "credits": 3, "title": "B", "prerequisites": ["AAA100"]},
         ])
 
         plan = asyncio.run(generate_plan(
@@ -1155,8 +1155,8 @@ class TestPrerequisiteAwarePlanning:
         ))
 
         placed_codes = {c.course_code for sem in plan.semesters for c in sem.courses}
-        assert placed_codes == {"AAA", "BBB"}
-        cycle_warnings = [w for w in plan.warnings if "AAA" in w and "BBB" in w]
+        assert placed_codes == {"AAA100", "BBB100"}
+        cycle_warnings = [w for w in plan.warnings if "AAA100" in w and "BBB100" in w]
         assert len(cycle_warnings) == 1
 
     def test_disclaimer_text_updated(self):

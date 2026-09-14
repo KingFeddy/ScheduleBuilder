@@ -66,6 +66,7 @@ export type PlanPreferences = GenerateRequest['preferences']
 export type GenerateResponse = paths['/api/plan/generate']['post']['responses'][200]['content']['application/json']
 export type SemesterPlan = GenerateResponse['semesters'][number]
 export type PlannedCourse = SemesterPlan['courses'][number]
+export type RequirementAllocation = NonNullable<PlannedCourse['allocation']>
 export type GerCoursesResponse = paths['/api/plan/ger-courses']['get']['responses'][200]['content']['application/json']
 export type GerGroup = GerCoursesResponse['groups'][number]
 export type ScraperStatusResponse = paths['/api/scraper/status']['get']['responses'][200]['content']['application/json']

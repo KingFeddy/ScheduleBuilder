@@ -119,8 +119,9 @@ Planner rows show the audit amount or an unknown label and use slot IDs as React
 keys. Nested metadata survives save/reload and regeneration. Older saved rows
 remain readable with a temporary rendering key; they are not rewritten with
 invented identities. **A known quantity does not mean it has been fulfilled.**
-Quantity-aware allocation remains Goal 24, option parsing Goal 23, reconciliation
-Goal 26, and validated swaps Goal 46. Goal 20 requires no database migration;
+Goal 24 now allocates known quantities and reports unresolved remainders (see
+below). Cross-requirement sharing remains Goal 25, reconciliation Goal 26, and
+validated swaps Goal 46. Goal 20 requires no database migration;
 release the updated API before its frontend consumer.
 
 Plan generation validates browser-supplied data again. `GenerateRequest` contains
@@ -255,8 +256,9 @@ labeled three-credit estimate, and legacy values stay labeled unverified estimat
 Course rows, semester totals, and the overall total identify estimated amounts.
 These labels survive reloads; older saved plans without verification fields are
 treated as estimates. Selecting a replacement course also marks inherited credits
-as estimates until proper recalculation is implemented in Goal 46. Quantity-aware
-allocation and full credit reconciliation remain Goals 24 and 26.
+as estimates until proper recalculation is implemented in Goal 46. Goal 24 counts
+only verified fixed credits toward credit requirements; full credit reconciliation
+remains Goal 26.
 
 Tests cover extraction, actual PostgreSQL writes/rollback/cancellation, migration
 upgrades, API contracts, planner use, and browser rendering. Fixtures are synthetic;
@@ -662,9 +664,41 @@ The requirement keeps its identity, label, amount/unit, and original source text
 generation retains a TBD slot and explains that the options need review. This
 does not implement a general DegreeWorks expression language or verify PDF
 layout completeness. Re-upload old audits to apply the corrected parser.
-Universal/level choices now use the existing elective matcher, but allocating
-multiple classes/credits remains Goal 24; six credits are not yet six credits
-of automatically allocated coursework merely because the wildcard was parsed.
+Universal/level choices use the existing elective matcher. Goal 24 expands each
+known requirement into multiple course selections or explicit unresolved slots.
+
+### Requirement quantity allocation
+
+A two-class requirement selects two distinct concrete options when available.
+A six-credit requirement uses verified fixed course credits: 4 + 2 allocates six;
+4 + 3 allocates seven because whole courses are selected. If only four verified
+credits can be selected, the requirement explicitly reports two credits unresolved.
+Missing classes become individual TBDs; missing credits become estimated TBD
+amounts split by the semester target. These placeholders do not count as allocated
+coursework. Variable, unknown, and unverified credit estimates also do not count
+toward credit requirements. Explicit selections with uncertain credits stay visible
+with an unresolved remainder; automatic selections prefer verified alternatives.
+
+Known zero quantities generate no requirement rows. Unknown quantities retain an
+advisory suggestion without invented allocation totals. Completed/in-progress
+courses remain excluded. Matching requested electives can fill additional slots;
+unmatched extras and optional load fillers remain separate. Expansion is bounded
+by a 200-slot allocation budget (existing input rows are retained), with any
+unexpanded remainder reported explicitly.
+
+Each requirement-linked row includes nullable `allocation` metadata with
+`required_quantity`, `quantity_unit`, `allocated_quantity`, `unresolved_quantity`,
+and status `allocated`, `partial`, or `unknown`. This is a shared requirement
+summary repeated on its rows, **not amounts to add together across rows**. Each
+row has a stable occurrence-based slot ID. Progress survives save/reload and
+regeneration. A local swap marks progress unknown on every row of the affected
+requirement until regeneration; older saved rows need regeneration for progress.
+
+Allocation describes planned selections, not completed degree requirements or
+verified eligibility. Cross-requirement duplicates/sharing remain Goal 25; overall
+credit reconciliation and filler policy remain Goal 26; prerequisite rules remain
+Goal 27 and validated swaps Goal 46. Real-PDF acceptance remains Goal 63. No new
+migration is required; release the updated API before its frontend consumer.
 
 ## Frontend API errors and cancellation
 

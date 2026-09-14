@@ -162,15 +162,18 @@ async def test_slots_keep_identity_and_requirement_details_across_regeneration(m
     rows = [c for s in first.semesters for c in s.courses]
     assert all(c.slot_id for c in rows)
     assert len({c.slot_id for c in rows}) == len(rows)
-    linked = {c.requirement.requirement_id: c for c in rows if c.requirement}
-    other = {c.requirement.requirement_id: c for s in second.semesters for c in s.courses if c.requirement}
+    linked = {r.requirement_id: [c for c in rows if c.requirement and c.requirement.requirement_id == r.requirement_id]
+              for r in requirements}
+    other = {r.requirement_id: [c for s in second.semesters for c in s.courses
+                               if c.requirement and c.requirement.requirement_id == r.requirement_id]
+             for r in requirements}
     assert set(linked) == {r.requirement_id for r in requirements}
     for requirement in requirements:
-        row = linked[requirement.requirement_id]
-        assert row.requirement == requirement
-        assert row.slot_id == other[requirement.requirement_id].slot_id
-    assert linked[requirements[0].requirement_id].course_code == "CS435"
-    assert other[requirements[0].requirement_id].course_code == "CS480"
+        allocated = linked[requirement.requirement_id]
+        assert all(row.requirement == requirement for row in allocated)
+        assert {row.slot_id for row in allocated} == {row.slot_id for row in other[requirement.requirement_id]}
+    assert {row.course_code for row in linked[requirements[0].requirement_id]} == {"CS435", "CS480"}
+    assert {row.course_code for row in other[requirements[0].requirement_id]} == {"CS435", "CS480"}
     assert any("quantity" in w.lower() and "unknown" in w.lower() for w in first.warnings)
     assert degree.model_dump() == before
 

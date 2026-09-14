@@ -2,6 +2,7 @@
 
 import { Printer, RefreshCw } from 'lucide-react'
 import type { SemesterPlan as SemesterPlanType } from '@/lib/api'
+import { planningTermLabel } from '@/lib/planner-terms'
 import { formatCredits } from '@/lib/course-metadata'
 import { CatalogNote } from '@/components/ui/catalog-note'
 
@@ -128,6 +129,8 @@ interface SemesterPlanProps {
   graduation: string
   warnings: string[]
   generating?: boolean
+  regenerateDisabled?: boolean
+  startTerm?: string
   onRegenerate: () => void
   onSwapCourse?: (semesterTerm: string, courseCode: string) => void
 }
@@ -137,6 +140,8 @@ export function SemesterPlan({
   graduation,
   warnings,
   generating = false,
+  regenerateDisabled = false,
+  startTerm,
   onRegenerate,
   onSwapCourse,
 }: SemesterPlanProps) {
@@ -150,6 +155,10 @@ export function SemesterPlan({
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Your Academic Plan</h2>
           <p className="text-sm text-muted mt-0.5">
+            {startTerm ? <>Plan start: <span className="font-mono text-text">{planningTermLabel(startTerm)}</span></>
+              : 'Saved start semester unavailable. Regenerate to record it.'}
+          </p>
+          <p className="text-sm text-muted mt-0.5">
             Projected graduation:{' '}
             <span className="font-mono text-text">{graduation}</span>
           </p>
@@ -157,7 +166,7 @@ export function SemesterPlan({
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={onRegenerate}
-            disabled={generating}
+            disabled={generating || regenerateDisabled}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-surface-2 text-sm text-muted hover:text-text hover:border-border-strong disabled:opacity-40 transition-colors duration-150"
           >
             <RefreshCw className="w-3.5 h-3.5" />

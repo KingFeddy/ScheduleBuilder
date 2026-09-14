@@ -6,6 +6,7 @@ import { DegreeSummary } from '@/components/plan/degree-summary'
 import { PreferencesForm } from '@/components/plan/preferences-form'
 import { SemesterPlan } from '@/components/plan/semester-plan'
 import { GerModal } from '@/components/plan/ger-modal'
+import { usePlannerTerms } from '@/hooks/usePlannerTerms'
 import { usePlannerPreferences } from '@/hooks/usePlannerPreferences'
 import { encodeSavedAudit, restoreSavedAudit } from '@/lib/planner-audit'
 import { encodeSavedPlan, restoreSavedPlan, isPlanForAudit, sameAudit, SAVED_PLAN_NOTICE, type PlanState } from '@/lib/planner-plan'
@@ -29,6 +30,8 @@ interface GerModalState {
 
 export default function PlannerPage() {
   const plannerPreferences = usePlannerPreferences()
+  const plannerTerms = usePlannerTerms()
+  const startTerm = plannerPreferences.preferences?.startTerm || plannerTerms.defaultTerm
   const [parsed, setParsed] = useState<ParsedDegreeValidated | null>(null)
   const [loadedFromCache, setLoadedFromCache] = useState(false)
   const [auditNotice, setAuditNotice] = useState<string | null>(null)
@@ -89,9 +92,10 @@ export default function PlannerPage() {
     graduation: string,
     warnings: string[],
     sourceAudit: ParsedDegreeValidated,
+    submittedStartTerm: string,
   ) {
     if (!currentAudit.current || !sameAudit(currentAudit.current, sourceAudit)) return
-    const newPlan = { semesters, graduation, warnings }
+    const newPlan = { semesters, graduation, warnings, startTerm: submittedStartTerm }
     if (!isPlanForAudit(newPlan, sourceAudit)) throw new Error('Invalid generated plan')
     setPlan(newPlan)
     setPlanNotice(null)
@@ -99,14 +103,15 @@ export default function PlannerPage() {
   }
 
   async function handleRegenerate() {
-    if (!parsed || !plannerPreferences.preferences || generating) return
+    if (!parsed || !plannerPreferences.preferences || !startTerm || generating) return
     const sourceAudit = parsed
     setGenerating(true)
     setPlanNotice(null)
     try {
       const { courses, creditsPerSemester } = plannerPreferences.preferences
-      const res = await generatePlan(parsed, { courses, credits_per_semester: creditsPerSemester })
-      handlePlanGenerated(res.semesters, res.projected_graduation, res.warnings, sourceAudit)
+      plannerPreferences.update({ ...plannerPreferences.preferences, startTerm })
+      const res = await generatePlan(parsed, { courses, credits_per_semester: creditsPerSemester, start_term: startTerm })
+      handlePlanGenerated(res.semesters, res.projected_graduation, res.warnings, sourceAudit, startTerm)
     } catch (error) {
       if (currentAudit.current && sameAudit(currentAudit.current, sourceAudit)) {
         setPlanNotice(getApiErrorMessage(error, 'Could not regenerate the plan. Please try again.'))
@@ -196,6 +201,9 @@ export default function PlannerPage() {
             {plannerPreferences.preferences ? <PreferencesForm
               parsed={parsed}
               preferences={plannerPreferences.preferences}
+              defaultStartTerm={plannerTerms.defaultTerm}
+              startTermError={plannerTerms.error}
+              onRetryStartTerm={plannerTerms.retry}
               onPreferencesChange={plannerPreferences.update}
               onPlanGenerated={handlePlanGenerated}
               onBrowseGer={() => setGerModal({ semesterTerm: '', courseCode: '' })}
@@ -210,7 +218,9 @@ export default function PlannerPage() {
                 semesters={plan.semesters}
                 graduation={plan.graduation}
                 warnings={plan.warnings}
-                generating={generating || !plannerPreferences.preferences}
+                generating={generating}
+                regenerateDisabled={!plannerPreferences.preferences || !startTerm}
+                startTerm={plan.startTerm}
                 onRegenerate={handleRegenerate}
                 onSwapCourse={(semesterTerm, courseCode) =>
                   setGerModal({ semesterTerm, courseCode })

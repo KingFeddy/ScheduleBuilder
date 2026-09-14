@@ -43,3 +43,12 @@ test('retains partial plans, placeholders, fractional credits and explicit empty
   expect(isPlanForAudit(candidate, parsedDegree)).toBe(true)
   expect(isPlanForAudit({ ...plan, semesters: [], graduation: 'Unknown' }, parsedDegree)).toBe(true)
 })
+
+
+test('preserves submitted start context and rejects semesters before it', () => {
+  const submitted = { ...plan, startTerm: '202690' }
+  expect(restoreSavedPlan(encodeSavedPlan(submitted, parsedDegree), parsedDegree)).toEqual(submitted)
+  expect(isPlanForAudit({ ...plan, startTerm: '203190' }, parsedDegree)).toBe(false)
+  expect(isPlanForAudit({ ...plan, startTerm: '202650' }, parsedDegree)).toBe(false)
+  expect(isPlanForAudit({ ...plan, startTerm: null }, parsedDegree)).toBe(false)
+})

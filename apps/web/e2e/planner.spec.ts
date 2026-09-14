@@ -22,12 +22,12 @@ test('uploads a synthetic audit, generates a plan, and restores it on reload', a
   await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
   expect(api.requests('POST', '/api/plan/generate').map((r) => r.postDataJSON())).toEqual([{
     parsed_degree: parsedDegree,
-    preferences: { courses: ['HUM101'], credits_per_semester: 3 },
+    preferences: { courses: ['HUM101'], credits_per_semester: 3, start_term: '202690' },
   }])
   await expect(page.getByText('Programming Language Concepts', { exact: true })).toBeVisible()
   await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
-  await expect(page.getByText('Fall 2026', { exact: true })).toBeVisible()
-  await expect(page.getByText('Spring 2027', { exact: true })).toHaveCount(2)
+  await expect(page.locator('span.font-bold').filter({ hasText: /^Fall 2026$/ })).toBeVisible()
+  await expect(page.locator('span').filter({ hasText: /^Spring 2027$/ })).toHaveCount(2)
   await expect(page.getByText('6 credits', { exact: true })).toBeVisible()
   await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
 

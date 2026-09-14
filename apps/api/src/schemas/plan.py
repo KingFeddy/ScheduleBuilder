@@ -30,6 +30,8 @@ class PlanPreferences(BaseModel):
 
     courses: list[Annotated[str, AfterValidator(normalize_elective)]] = Field(default_factory=list)
     credits_per_semester: int = Field(default=15, ge=MIN_CREDITS_PER_SEMESTER, le=MAX_CREDITS_PER_SEMESTER)
+    start_term: str | None = Field(default=None, pattern=r"^(19|20|21)[0-9]{2}(10|90)$",
+                                  description="Spring or fall planning start (1900–2199). Null uses the configured default; no collected sections are required.")
 
     @field_validator("courses")
     @classmethod

@@ -3,13 +3,17 @@
 import { useState, useRef, type KeyboardEvent } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { generatePlan, getApiErrorMessage, type ParsedDegreeValidated, type SemesterPlan } from '@/lib/api'
+import { planningTermLabel, planningTermOptions } from '@/lib/planner-terms'
 import { normalizeElective, type PlannerPreferences } from '@/lib/planner-preferences'
 
 interface PreferencesFormProps {
   parsed: ParsedDegreeValidated
   preferences: PlannerPreferences
+  defaultStartTerm: string | null
+  startTermError: string | null
+  onRetryStartTerm: () => void
   onPreferencesChange: (preferences: PlannerPreferences) => void
-  onPlanGenerated: (semesters: SemesterPlan[], graduation: string, warnings: string[], sourceAudit: ParsedDegreeValidated) => void
+  onPlanGenerated: (semesters: SemesterPlan[], graduation: string, warnings: string[], sourceAudit: ParsedDegreeValidated, startTerm: string) => void
   onBrowseGer?: () => void
 }
 
@@ -23,8 +27,9 @@ const MIN_CUSTOM_CREDITS = 3
 const MAX_CUSTOM_CREDITS = 24
 const CHARGE_THRESHOLD = 17
 
-export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPlanGenerated, onBrowseGer }: PreferencesFormProps) {
+export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPlanGenerated, onBrowseGer, defaultStartTerm, startTermError, onRetryStartTerm }: PreferencesFormProps) {
   const { courses, creditsPerSemester } = preferences
+  const startTerm = preferences.startTerm || defaultStartTerm
   const [customDraft, setCustomDraft] = useState(String(creditsPerSemester))
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -81,7 +86,7 @@ export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPl
   const showChargeWarning = !Number.isNaN(customDraftNumber) && customDraftNumber > CHARGE_THRESHOLD
 
   async function handleGenerate() {
-    if (isLoading) return
+    if (isLoading || !startTerm) return
     const pending = inputValue.trim() ? normalizeElective(inputValue) : null
     if (inputValue.trim() && !pending) {
       setError('Use one specific course code such as CS435 per entry.')
@@ -89,14 +94,14 @@ export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPl
     }
     const selectedCourses = pending && !courses.includes(pending) ? [...courses, pending] : courses
     const credits = resolveCredits()
-    onPreferencesChange({ courses: selectedCourses, creditsPerSemester: credits })
+    onPreferencesChange({ courses: selectedCourses, creditsPerSemester: credits, startTerm })
     setInputValue('')
     setCustomDraft(String(credits))
     setIsLoading(true)
     setError(null)
     try {
-      const res = await generatePlan(parsed, { courses: selectedCourses, credits_per_semester: credits })
-      onPlanGenerated(res.semesters, res.projected_graduation, res.warnings, parsed)
+      const res = await generatePlan(parsed, { courses: selectedCourses, credits_per_semester: credits, start_term: startTerm })
+      onPlanGenerated(res.semesters, res.projected_graduation, res.warnings, parsed, startTerm)
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to generate plan. Please try again.'))
     } finally {
@@ -109,6 +114,22 @@ export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPl
       <p className="text-xs font-medium uppercase tracking-wider text-muted mb-5">Preferences</p>
 
       <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-2">
+          <label htmlFor="planner-start-term" className="text-xs font-medium uppercase tracking-wider text-muted">Start semester</label>
+          <select id="planner-start-term" value={preferences.startTerm || ''}
+            onChange={(event) => onPreferencesChange({ ...preferences, startTerm: event.target.value || null })}
+            className="w-full rounded-lg border border-border bg-surface-2 p-2 font-mono text-sm text-text">
+            <option value="">{defaultStartTerm ? `Default (${planningTermLabel(defaultStartTerm)})` : 'Loading default semester…'}</option>
+            {planningTermOptions(defaultStartTerm, preferences.startTerm).map((term) => (
+              <option key={term} value={term}>{planningTermLabel(term)}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted">Plans use spring and fall semesters.</p>
+          {startTermError && <div role="status" className="text-xs text-muted">
+            {startTermError}{' '}
+            <button type="button" onClick={onRetryStartTerm} className="underline underline-offset-2">Retry semester lookup</button>
+          </div>}
+        </div>
         {/* Electives tag input */}
         <div className="flex flex-col gap-2">
           <p className="text-xs font-medium uppercase tracking-wider text-muted">
@@ -207,7 +228,7 @@ export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPl
         <div className="flex flex-col gap-2">
           <button
             onClick={handleGenerate}
-            disabled={isLoading}
+            disabled={isLoading || !startTerm}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md bg-njit-red text-white text-sm font-medium disabled:opacity-60 hover:opacity-90 transition-opacity duration-150"
           >
             {isLoading ? (

@@ -653,6 +653,11 @@ export interface components {
              * @default 15
              */
             credits_per_semester?: number;
+            /**
+             * Start Term
+             * @description Spring or fall planning start (1900–2199). Null uses the configured default; no collected sections are required.
+             */
+            start_term?: string | null;
         };
         /** ProfessorResponse */
         ProfessorResponse: {

@@ -1,10 +1,12 @@
 import type { ParsedDegreeValidated, SemesterPlan } from './api'
 import { isCurrentAudit } from './planner-audit'
+import { isPlanningTerm } from './planner-terms'
 
 export interface PlanState {
   semesters: SemesterPlan[]
   graduation: string
   warnings: string[]
+  startTerm?: string
 }
 
 export const SAVED_PLAN_NOTICE = 'Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.'
@@ -33,11 +35,13 @@ export function sameAudit(a: ParsedDegreeValidated, b: ParsedDegreeValidated): b
 export function isPlanForAudit(value: unknown, audit: ParsedDegreeValidated): value is PlanState {
   if (!record(value) || !nonblank(value.graduation) || !Array.isArray(value.warnings)
     || !value.warnings.every(text) || !Array.isArray(value.semesters)) return false
+  if (value.startTerm !== undefined && !isPlanningTerm(value.startTerm)) return false
   const requirements = new Map(audit.still_needed.map((item) => [item.requirement_id, canonical(item)]))
   const slots = new Set<string>()
   let previousTerm = ''
   for (const semester of value.semesters) {
     if (!record(semester) || !text(semester.term) || !/^[1-9][0-9]{3}(10|50|90)$/.test(semester.term)
+      || (typeof value.startTerm === 'string' && semester.term < value.startTerm)
       || semester.term <= previousTerm || !nonblank(semester.term_label)
       || !amount(semester.total_credits) || !Array.isArray(semester.courses)) return false
     previousTerm = semester.term
@@ -79,6 +83,7 @@ export function restoreSavedPlan(raw: string, audit: ParsedDegreeValidated): Pla
     const saved: unknown = JSON.parse(raw)
     if (!record(saved) || saved.version !== 1 || !isCurrentAudit(saved.source_audit)
       || !sameAudit(saved.source_audit, audit) || !isPlanForAudit(saved, audit)) return null
-    return { semesters: saved.semesters, graduation: saved.graduation, warnings: saved.warnings }
+    return { semesters: saved.semesters, graduation: saved.graduation, warnings: saved.warnings,
+      ...(saved.startTerm ? { startTerm: saved.startTerm } : {}) }
   } catch { return null }
 }

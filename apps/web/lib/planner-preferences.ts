@@ -1,10 +1,13 @@
+import { isPlanningTerm } from './planner-terms'
+
 export interface PlannerPreferences {
   courses: string[]
   creditsPerSemester: number
+  startTerm: string | null
 }
 
-export const DEFAULT_PREFERENCES: PlannerPreferences = { courses: [], creditsPerSemester: 15 }
-export const PREFERENCES_NOTICE = 'Your saved preferences could not be restored. Review your course choices and credit target before generating a plan.'
+export const DEFAULT_PREFERENCES: PlannerPreferences = { courses: [], creditsPerSemester: 15, startTerm: null }
+export const PREFERENCES_NOTICE = 'Your saved preferences could not be restored. Review your course choices, credit target, and start semester before generating a plan.'
 
 export function normalizeElective(value: string): string | null {
   if ([...value].some((character) => character.charCodeAt(0) > 127)) return null
@@ -20,6 +23,8 @@ export function restorePreferences(raw: string): PlannerPreferences | null {
     if (!('courses' in saved) || !Array.isArray(saved.courses)
       || !('creditsPerSemester' in saved) || typeof saved.creditsPerSemester !== 'number'
       || !Number.isInteger(saved.creditsPerSemester) || saved.creditsPerSemester < 3 || saved.creditsPerSemester > 24) return null
+    const startTerm = 'startTerm' in saved ? saved.startTerm : null
+    if (startTerm !== null && !isPlanningTerm(startTerm)) return null
     const courses: string[] = []
     for (const value of saved.courses) {
       if (typeof value !== 'string') return null
@@ -27,7 +32,7 @@ export function restorePreferences(raw: string): PlannerPreferences | null {
       if (!code) return null
       if (!courses.includes(code)) courses.push(code)
     }
-    return { courses, creditsPerSemester: saved.creditsPerSemester }
+    return { courses, creditsPerSemester: saved.creditsPerSemester, startTerm }
   } catch { return null }
 }
 

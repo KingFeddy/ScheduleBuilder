@@ -293,6 +293,75 @@ class GeneratedPlan:
     warnings:             list[str]
 
 
+def _credit_reconciliation_warnings(
+    audit: ParsedDegreeValidated, semesters: list[SemesterCard],
+) -> list[str]:
+    """Explain scheduled amounts, without certifying degree fulfillment.
+
+    Count course rows once, not repeated per-requirement allocation summaries.
+    The audit's remaining total already reflects its own history accounting.
+    """
+    selected = unresolved_slots = extras = fillers = estimated = Decimal(0)
+    active = {item.requirement_id for item in audit.still_needed
+              if item.quantity_status != "known" or item.remaining_quantity != 0}
+    represented: set[str] = set()
+    unresolved: set[str] = set()
+    for semester in semesters:
+        for course in semester.courses:
+            credits = Decimal(str(course.credits))
+            if course.credits_estimated:
+                estimated += credits
+            if course.requirement is not None:
+                identity = course.requirement.requirement_id
+                represented.add(identity)
+                if (course.requirement.quantity_status != "known" or course.allocation is None
+                        or course.allocation.status != "allocated"):
+                    unresolved.add(identity)
+                if course.course_code == "TBD":
+                    unresolved_slots += credits
+                    unresolved.add(identity)
+                else:
+                    selected += credits
+            elif course.course_code == "FREE":
+                fillers += credits
+            else:
+                extras += credits
+    unresolved.update(active - represented)
+    linked = selected + unresolved_slots
+    total = linked + extras + fillers
+    difference = None if audit.credits_remaining is None else linked - Decimal(audit.credits_remaining)
+    warnings = []
+    if unresolved:
+        count = len(unresolved)
+        warnings.append(
+            f"Partial plan: {count} audit {'requirement has' if count == 1 else 'requirements have'} "
+            "unresolved allocation. Matching credit totals would not confirm completion."
+        )
+    if difference == 0 and not (unresolved or estimated or extras or fillers):
+        return warnings
+
+    def amount(value: Decimal) -> str:
+        return format(value.normalize(), "f")
+
+    audit_note = ("Audit remaining credits are unknown." if difference is None else
+                  f"audit lists {audit.credits_remaining} remaining credits.")
+    message = (
+        f"Credit review: {audit_note} {amount(total)} scheduled credits: "
+        f"{amount(selected)} selected for requirements, {amount(unresolved_slots)} unresolved slot credits, "
+        f"{amount(extras)} additional elective credits, {amount(fillers)} course-load filler credits."
+    )
+    if estimated:
+        message += f" The schedule includes {amount(estimated)} estimated credits; confirm their amounts."
+    if difference:
+        message += (
+            f" Requirement-linked credits are {amount(abs(difference))} "
+            f"{'above' if difference > 0 else 'below'} the audit figure (including unresolved slot estimates). "
+            "Confirm the requirement list and any permitted sharing with your advisor."
+        )
+    warnings.append(message)
+    return warnings
+
+
 # ── Last-semester requirement detection ───────────────────────────────────
 
 _LAST_SEMESTER_KEYWORDS = ("senior", "capstone")
@@ -1020,21 +1089,6 @@ async def generate_plan(
         if r.allocation_note:
             r.reason = f"{r.reason} {r.allocation_note}"
 
-    if any(r.credits_estimated for r in resolved):
-        warnings.append("Some planned credits are estimates. Confirm the credits for those courses before registering.")
-
-    # ── 5. Detect credit overflow ─────────────────────────────────────────────
-
-    total_planned = round(sum(r.credits for r in resolved), 2)
-    available_credits = validated.credits_remaining or 0
-
-    if total_planned > available_credits + 6:
-        warnings.append(
-            f"Your plan requires approximately {total_planned} credits, "
-            f"but your remaining credits are listed as {available_credits}. "
-            f"Some requirements may double-count. Verify with your advisor."
-        )
-
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
     depends_on, prereq_warnings = _compute_prerequisite_dependencies(
@@ -1147,6 +1201,10 @@ async def generate_plan(
                 ),
             ))
             last.total_credits = pad_target
+
+    # Reconcile the final schedule, including requested extras and any fillers.
+    # Keep these diagnostics first so a partial allocation is visible immediately.
+    warnings = _credit_reconciliation_warnings(validated, semesters) + warnings
 
     # ── 8. Prerequisite disclaimer ────────────────────────────────────────────
 

@@ -647,6 +647,25 @@ not an audit of all PDF layouts, credit reconciliation, or repeat-replacement
 policy; real-PDF acceptance remains Goal 63. No grades or PDFs are stored by the
 stateless API. The browser keeps the parsed history with its existing saved audit.
 
+DegreeWorks option lists are parsed in source order with shared department
+inheritance: `CS 490 or 4@` becomes `CS490, CS4XX`, and `CS 3@ or 490` becomes
+`CS3XX, CS490`. A level wildcard fills two digits; `CS @` becomes `CSXXX`, while
+universal `@ @` becomes `@`. Alternatives use `or`, commas, or wrapped lines;
+horizontal spaces separate subject/number cells, not arbitrary alternatives.
+Duplicate choices keep their first position. The existing R510/R512 exclusion
+also prevents following bare numbers from inheriting an earlier NJIT department.
+
+Wrapped choices stop before neighboring headings or grade rows. Unsupported
+tokens, qualifiers, or malformed wildcard cells leave the entire option list
+unresolved rather than choosing a recognized subset or broadening eligibility.
+The requirement keeps its identity, label, amount/unit, and original source text;
+generation retains a TBD slot and explains that the options need review. This
+does not implement a general DegreeWorks expression language or verify PDF
+layout completeness. Re-upload old audits to apply the corrected parser.
+Universal/level choices now use the existing elective matcher, but allocating
+multiple classes/credits remains Goal 24; six credits are not yet six credits
+of automatically allocated coursework merely because the wildcard was parsed.
+
 ## Frontend API errors and cancellation
 
 API helpers in `apps/web/lib/api.ts` reject failures with `ApiError`, which keeps:

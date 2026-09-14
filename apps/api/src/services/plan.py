@@ -711,6 +711,12 @@ async def generate_plan(
 
     # Build resolved items
     for i, item in enumerate(validated.still_needed):
+        unreadable_options_note = (
+            f"Course options could not be read for '{item.requirement}'. "
+            "Review the original DegreeWorks requirement with your advisor."
+        )
+        if not item.options:
+            warnings.append(unreadable_options_note)
         if item.quantity_status == "unresolved":
             warnings.append(f"Remaining quantity for '{item.requirement}' is unknown. Confirm the required amount with your advisor.")
         must_be_last = _is_last_semester_requirement(item.requirement)
@@ -745,6 +751,7 @@ async def generate_plan(
                 reason=(
                     f"One of {num_available} options for '{item.requirement}'" if is_choice
                     else f"Required for {validated.majors[0]}" if best
+                    else unreadable_options_note if not item.options
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
                 must_be_last=must_be_last,

@@ -180,7 +180,7 @@ export default function PlannerPage() {
           </div>
 
           {/* Right column */}
-          <div>
+          <div className="min-w-0">
             {plan ? (
               <SemesterPlan
                 semesters={plan.semesters}

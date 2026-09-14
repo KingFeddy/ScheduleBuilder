@@ -55,7 +55,7 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
         ) : <span className="block text-xs text-yellow">Audit requirement quantity is unknown.</span>)}
         <CatalogNote status={catalogStatus} note={catalogNote} />
         {showReason && (
-          <span className="block text-xs text-faint truncate">{reason}</span>
+          <span className="block text-xs text-faint break-words">{reason}</span>
         )}
       </span>
       {showSwap && (

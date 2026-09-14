@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
+import { useState, useRef, type KeyboardEvent } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { generatePlan, getApiErrorMessage, type ParsedDegreeValidated, type SemesterPlan } from '@/lib/api'
+import { normalizeElective, type PlannerPreferences } from '@/lib/planner-preferences'
 
 interface PreferencesFormProps {
   parsed: ParsedDegreeValidated
+  preferences: PlannerPreferences
+  onPreferencesChange: (preferences: PlannerPreferences) => void
   onPlanGenerated: (semesters: SemesterPlan[], graduation: string, warnings: string[], sourceAudit: ParsedDegreeValidated) => void
   onBrowseGer?: () => void
 }
@@ -20,59 +23,41 @@ const MIN_CUSTOM_CREDITS = 3
 const MAX_CUSTOM_CREDITS = 24
 const CHARGE_THRESHOLD = 17
 
-export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: PreferencesFormProps) {
-  const [courses, setCourses] = useState<string[]>([])
-  const [creditsPerSemester, setCreditsPerSemester] = useState(15)
-  const [customDraft, setCustomDraft] = useState('15')
+export function PreferencesForm({ parsed, preferences, onPreferencesChange, onPlanGenerated, onBrowseGer }: PreferencesFormProps) {
+  const { courses, creditsPerSemester } = preferences
+  const [customDraft, setCustomDraft] = useState(String(creditsPerSemester))
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const customInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('njit-dw-preferences')
-      if (saved) {
-        const prefs = JSON.parse(saved) as { courses: string[]; creditsPerSemester: number }
-        const loaded = prefs.creditsPerSemester || 15
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setCourses(prefs.courses || [])
-        setCreditsPerSemester(loaded)
-        setCustomDraft(String(loaded))
-      }
-    } catch { /* ignore */ }
-  }, [])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('njit-dw-preferences', JSON.stringify({ courses, creditsPerSemester }))
-    } catch { /* ignore */ }
-  }, [courses, creditsPerSemester])
-
   function addCourse(raw: string) {
-    const code = raw.toUpperCase().replace(/\s+/g, '')
-    if (code && !courses.includes(code)) {
-      setCourses((prev) => [...prev, code])
+    const code = normalizeElective(raw)
+    if (!code) {
+      setError('Use one specific course code such as CS435 per entry.')
+      return false
     }
+    if (!courses.includes(code)) onPreferencesChange({ ...preferences, courses: [...courses, code] })
+    setError(null)
+    return true
   }
 
   function removeCourse(code: string) {
-    setCourses((prev) => prev.filter((c) => c !== code))
+    onPreferencesChange({ ...preferences, courses: courses.filter((c) => c !== code) })
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if ((e.key === 'Enter' || e.key === ',') && inputValue.trim()) {
       e.preventDefault()
-      addCourse(inputValue.trim())
-      setInputValue('')
+      if (addCourse(inputValue.trim())) setInputValue('')
     } else if (e.key === 'Backspace' && !inputValue && courses.length > 0) {
-      setCourses((prev) => prev.slice(0, -1))
+      onPreferencesChange({ ...preferences, courses: courses.slice(0, -1) })
     }
   }
 
   function selectPreset(credits: number) {
-    setCreditsPerSemester(credits)
+    onPreferencesChange({ ...preferences, creditsPerSemester: credits })
     setCustomDraft(String(credits))
   }
 
@@ -85,7 +70,7 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
 
   function commitCustomCredits() {
     const v = resolveCredits()
-    setCreditsPerSemester(v)
+    onPreferencesChange({ ...preferences, creditsPerSemester: v })
     setCustomDraft(String(v))
   }
 
@@ -97,13 +82,20 @@ export function PreferencesForm({ parsed, onPlanGenerated, onBrowseGer }: Prefer
 
   async function handleGenerate() {
     if (isLoading) return
+    const pending = inputValue.trim() ? normalizeElective(inputValue) : null
+    if (inputValue.trim() && !pending) {
+      setError('Use one specific course code such as CS435 per entry.')
+      return
+    }
+    const selectedCourses = pending && !courses.includes(pending) ? [...courses, pending] : courses
     const credits = resolveCredits()
-    setCreditsPerSemester(credits)
+    onPreferencesChange({ courses: selectedCourses, creditsPerSemester: credits })
+    setInputValue('')
     setCustomDraft(String(credits))
     setIsLoading(true)
     setError(null)
     try {
-      const res = await generatePlan(parsed, { courses, credits_per_semester: credits })
+      const res = await generatePlan(parsed, { courses: selectedCourses, credits_per_semester: credits })
       onPlanGenerated(res.semesters, res.projected_graduation, res.warnings, parsed)
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to generate plan. Please try again.'))

@@ -40,7 +40,6 @@ test('uploads a synthetic audit, generates a plan, and restores it on reload', a
   await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
   expect(api.requests('POST', '/api/plan/parse')).toHaveLength(1)
   expect(api.requests('POST', '/api/plan/generate')).toHaveLength(1)
-  // Preference hydration is tracked separately.
 })
 
 test('preserves replacement warnings through regeneration, swapping, and reload', async ({ page, api }) => {

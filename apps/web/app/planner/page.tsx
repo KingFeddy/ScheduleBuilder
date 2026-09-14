@@ -6,6 +6,7 @@ import { DegreeSummary } from '@/components/plan/degree-summary'
 import { PreferencesForm } from '@/components/plan/preferences-form'
 import { SemesterPlan } from '@/components/plan/semester-plan'
 import { GerModal } from '@/components/plan/ger-modal'
+import { usePlannerPreferences } from '@/hooks/usePlannerPreferences'
 import { encodeSavedAudit, restoreSavedAudit } from '@/lib/planner-audit'
 import { encodeSavedPlan, restoreSavedPlan, isPlanForAudit, sameAudit, SAVED_PLAN_NOTICE, type PlanState } from '@/lib/planner-plan'
 import {
@@ -27,6 +28,7 @@ interface GerModalState {
 }
 
 export default function PlannerPage() {
+  const plannerPreferences = usePlannerPreferences()
   const [parsed, setParsed] = useState<ParsedDegreeValidated | null>(null)
   const [loadedFromCache, setLoadedFromCache] = useState(false)
   const [auditNotice, setAuditNotice] = useState<string | null>(null)
@@ -97,23 +99,13 @@ export default function PlannerPage() {
   }
 
   async function handleRegenerate() {
-    if (!parsed || generating) return
+    if (!parsed || !plannerPreferences.preferences || generating) return
     const sourceAudit = parsed
     setGenerating(true)
     setPlanNotice(null)
     try {
-      let courses: string[] = []
-      let credits_per_semester = 15
-      try {
-        const raw = localStorage.getItem('njit-dw-preferences')
-        if (raw) {
-          const prefs = JSON.parse(raw) as { courses: string[]; creditsPerSemester: number }
-          courses = prefs.courses || []
-          credits_per_semester = prefs.creditsPerSemester || 15
-        }
-      } catch { /* ignore */ }
-
-      const res = await generatePlan(parsed, { courses, credits_per_semester })
+      const { courses, creditsPerSemester } = plannerPreferences.preferences
+      const res = await generatePlan(parsed, { courses, credits_per_semester: creditsPerSemester })
       handlePlanGenerated(res.semesters, res.projected_graduation, res.warnings, sourceAudit)
     } catch (error) {
       if (currentAudit.current && sameAudit(currentAudit.current, sourceAudit)) {
@@ -200,11 +192,14 @@ export default function PlannerPage() {
           {/* Left column */}
           <div className="space-y-6">
             <DegreeSummary parsed={parsed} />
-            <PreferencesForm
+            {plannerPreferences.notice && <p role="status" className="text-sm text-muted">{plannerPreferences.notice}</p>}
+            {plannerPreferences.preferences ? <PreferencesForm
               parsed={parsed}
+              preferences={plannerPreferences.preferences}
+              onPreferencesChange={plannerPreferences.update}
               onPlanGenerated={handlePlanGenerated}
               onBrowseGer={() => setGerModal({ semesterTerm: '', courseCode: '' })}
-            />
+            /> : <p className="text-sm text-muted">Loading preferences…</p>}
           </div>
 
           {/* Right column */}
@@ -215,7 +210,7 @@ export default function PlannerPage() {
                 semesters={plan.semesters}
                 graduation={plan.graduation}
                 warnings={plan.warnings}
-                generating={generating}
+                generating={generating || !plannerPreferences.preferences}
                 onRegenerate={handleRegenerate}
                 onSwapCourse={(semesterTerm, courseCode) =>
                   setGerModal({ semesterTerm, courseCode })

@@ -985,7 +985,7 @@ async def generate_plan(
     excluded_subjects = sorted(required_subjects - set(settings.catalog_subjects))
     if excluded_subjects:
         warnings.append(
-            f"Requirement options include subjects outside collection scope: {', '.join(excluded_subjects)}. "
+            f"Requirement options include subjects outside the configured automatic refresh scope: {', '.join(excluded_subjects)}. "
             "Options in those subjects need confirmation with NJIT."
         )
 

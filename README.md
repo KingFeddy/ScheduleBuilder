@@ -268,11 +268,13 @@ catalog audit and release checks.
 ### 7. Configurable catalog coverage
 
 `CATALOG_SUBJECTS` is the comma-separated collection scope used by the scraper and
-interpreted by the API. Set the same value on both services. The default covers 28
-subject codes: the original 18 plus subjects referenced by the existing synthetic
-parser/planner fixtures and elective browsers, including HSS, IS, and HUM. These
-defaults are a collection scope, not a verified list of all NJIT subjects or a
-claim that real program audits have passed acceptance. PSY and PSYC remain distinct;
+interpreted by the API. Leave it unset on both services to use the shared default,
+or set identical overrides. The default covers 86 subject codes: all 78 supported
+subjects checked in the September 2026 Banner refresh plus eight historical codes
+retained for compatibility. Existing explicit overrides continue to take precedence;
+remove or expand an old narrow override on both services when adopting this scope.
+These defaults do not prove collection, future offerings, or degree eligibility.
+PSY and PSYC remain distinct;
 no subject aliases are guessed. Case and surrounding whitespace are normalized,
 duplicates are removed, and blank entries or non-letter subject codes are rejected.
 
@@ -473,7 +475,7 @@ pnpm dev               # proxies /api/* to localhost:8000 via next.config.ts
 | `SUPABASE_URL` | API | Supabase project URL |
 | `SUPABASE_ANON_KEY` | API | Supabase anon key (read-only queries) |
 | `CURRENT_TERM` | API + scraper | Shared default, e.g. `202690`; six ASCII digits ending in 10/50/90. Use identical values on both services; the frontend discovers it through `/api/terms`. |
-| `CATALOG_SUBJECTS` | API + scraper | Optional comma-separated override of the 28-subject collection default; use identical values on both services |
+| `CATALOG_SUBJECTS` | API + scraper | Optional override of the shared 86-subject default; leave unset on both services or use identical values |
 | `GER_SUBJECTS` | API | Optional comma-separated elective browser subject scope; membership does not establish eligibility |
 | `CORS_ORIGINS` | API | Comma-separated allowed origins |
 | `NEXT_PUBLIC_API_URL` | Frontend | Empty in production (relative), `http://localhost:8000` in dev |

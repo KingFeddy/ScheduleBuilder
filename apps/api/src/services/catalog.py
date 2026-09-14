@@ -12,7 +12,11 @@ def course_coverage(code: str, *, exists: bool) -> tuple[CatalogStatus, str]:
         return "unresolved", "No specific catalog course has been selected for this slot."
     subject = course_subject(code)
     if subject not in settings.catalog_subjects:
-        return "subject_not_configured", "Subject is outside the configured collection scope. Course data is not refreshed; confirm this course with NJIT."
+        presence = "present in" if exists else "missing from"
+        return "subject_not_configured", (
+            f"Course is {presence} the collected catalog, but its subject is outside the configured "
+            "automatic refresh scope. Confirm current details with NJIT."
+        )
     if not exists:
         return "course_missing", "Course not found in the collected catalog. Confirm its details and availability with NJIT."
     return "present", ""
@@ -22,7 +26,7 @@ def scope_warnings(subjects: list[str], present_subjects: set[str]) -> list[str]
     warnings = []
     excluded = sorted(set(subjects) - set(settings.catalog_subjects))
     if excluded:
-        warnings.append(f"Subjects outside collection scope: {', '.join(excluded)}. Data in these subjects is not refreshed.")
+        warnings.append(f"Subjects outside the configured automatic refresh scope: {', '.join(excluded)}. Retained catalog data may still be available.")
     missing = sorted((set(subjects) & set(settings.catalog_subjects)) - present_subjects)
     if missing:
         warnings.append(f"No catalog courses collected for: {', '.join(missing)}. The catalog is incomplete for these subjects.")

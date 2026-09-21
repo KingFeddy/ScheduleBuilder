@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { test, expect } from './fixtures'
-import { gerCoverage, parsedDegree, parseResponse, planResponse, presentCatalog, syntheticPdf } from './data'
+import { courses, replacementCourse, replacementPlan, parsedDegree, parseResponse, planResponse, syntheticPdf } from './data'
 
 test('uploads a synthetic audit, generates a plan, and restores it on reload', async ({ page, api }) => {
   await page.goto('/scheduler')
@@ -22,12 +22,12 @@ test('uploads a synthetic audit, generates a plan, and restores it on reload', a
   await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
   expect(api.requests('POST', '/api/plan/generate').map((r) => r.postDataJSON())).toEqual([{
     parsed_degree: parsedDegree,
-    preferences: { courses: ['HUM101'], credits_per_semester: 3 },
+    preferences: { courses: ['HUM101'], credits_per_semester: 3, start_term: '202690' },
   }])
   await expect(page.getByText('Programming Language Concepts', { exact: true })).toBeVisible()
   await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
-  await expect(page.getByText('Fall 2026', { exact: true })).toBeVisible()
-  await expect(page.getByText('Spring 2027', { exact: true })).toHaveCount(2)
+  await expect(page.locator('span.font-bold').filter({ hasText: /^Fall 2026$/ })).toBeVisible()
+  await expect(page.locator('span').filter({ hasText: /^Spring 2027$/ })).toHaveCount(2)
   await expect(page.getByText('6 credits', { exact: true })).toBeVisible()
   await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
 
@@ -37,10 +37,54 @@ test('uploads a synthetic audit, generates a plan, and restores it on reload', a
   await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
   await expect(page.getByText('Programming Language Concepts', { exact: true })).toBeVisible()
   await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
+  await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
   expect(api.requests('POST', '/api/plan/parse')).toHaveLength(1)
   expect(api.requests('POST', '/api/plan/generate')).toHaveLength(1)
-  // Preference hydration and warning persistence are separate Goals 38 and 40.
 })
+
+test('preserves replacement warnings through regeneration, swapping, and reload', async ({ page, api }) => {
+  api.respond('GET', '/api/courses', [replacementCourse])
+  await page.goto('/planner')
+  await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
+  await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
+  await expect(page.getByText(planResponse.warnings[0], { exact: true })).toBeVisible()
+  const warnings = ['Synthetic unresolved requirement.', 'Synthetic unverified prerequisites.']
+  api.respond('POST', '/api/plan/generate', { ...planResponse, warnings })
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click()
+  await expect(page.getByText(warnings[0], { exact: true })).toBeVisible()
+  await expect(page.getByText(planResponse.warnings[0], { exact: true })).toHaveCount(0)
+  await page.reload()
+  for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'swap →', exact: true }).click()
+  api.respond('POST', '/api/plan/generate', { ...replacementPlan, warnings })
+  await page.getByRole('button', { name: 'HUM201 Replacement', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.reload()
+  for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-plan') || '{}').warnings)).toEqual(warnings)
+
+  api.respond('POST', '/api/plan/generate', { ...replacementPlan, warnings: [] })
+  await page.getByRole('button', { name: 'Regenerate', exact: true }).click()
+  await expect(page.getByText(warnings[0], { exact: true })).toHaveCount(0)
+  await page.reload()
+  for (const warning of warnings) await expect(page.getByText(warning, { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toHaveCount(0)
+})
+
+for (const warnings of [undefined, 'invalid', ['Valid text', null]]) {
+  test(`requires regeneration for saved plans with invalid warnings (${JSON.stringify(warnings)})`, async ({ page }, testInfo) => {
+    await page.addInitScript(({ parsed, plan }) => {
+      try {
+        localStorage.setItem('njit-dw-parsed', JSON.stringify(parsed))
+        localStorage.setItem('njit-dw-plan', JSON.stringify(plan))
+      } catch { /* Synthetic storage only. */ }
+    }, { parsed: parsedDegree, plan: { version: 1, source_audit: parsedDegree, semesters: planResponse.semesters, graduation: planResponse.projected_graduation, warnings } })
+    await page.goto('/planner')
+    await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toHaveCount(0)
+    await expect(page.getByText('Your saved plan is outdated, damaged, or belongs to a different audit. Generate a new plan to continue.', { exact: true })).toBeVisible()
+    if (warnings === undefined) await page.screenshot({ path: testInfo.outputPath('legacy-plan-warnings.png'), fullPage: true })
+  })
+}
 
 test('rejects a non-PDF upload before calling the API', async ({ page, api }) => {
   await page.goto('/planner')
@@ -93,9 +137,7 @@ test('shows missing degree metadata as unknown without inventing credit totals',
 })
 
 test('searches GER courses when catalog titles are missing', async ({ page, api }) => {
-  api.respond('GET', '/api/plan/ger-courses', {
-    ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM101', title: null, title_status: 'missing' }] }],
-  })
+  api.respond('GET', '/api/courses', [{ ...courses[1], title: null, title_status: 'missing' }])
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()

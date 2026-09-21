@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { gerCoverage, parsedDegree, parseResponse, planResponse, presentCatalog, syntheticPdf } from './data'
+import { replacementCourse, parsedDegree, parseResponse, planResponse, syntheticPdf } from './data'
 import type { RequirementAllocation } from '../lib/api'
 
 for (const unit of ['classes', 'credits'] as const) {
@@ -44,26 +44,30 @@ for (const unit of ['classes', 'credits'] as const) {
   })
 }
 
-test('a local swap invalidates allocation on every row of the affected requirement', async ({ page, api }) => {
+test('a swap retains the other selected courses and uses regenerated allocation on every row', async ({ page, api }) => {
   const allocation: RequirementAllocation = { required_quantity: 2, quantity_unit: 'classes', allocated_quantity: 2,
     unresolved_quantity: 0, status: 'allocated' }
-  const requirement = { ...parsedDegree.still_needed[1], remaining_quantity: 2, options: ['HUM101', 'HUM102'] }
+  const requirement = { ...parsedDegree.still_needed[1], remaining_quantity: 2, options: ['HUM101', 'HUM102', 'HUM103'] }
   const semesters = planResponse.semesters.map((semester, i) => ({ ...semester, courses: [{
     ...semester.courses[0], requirement, allocation, course_code: i === 0 ? 'HUM101' : 'HUM102',
   }] }))
   api.respond('POST', '/api/plan/generate', { ...planResponse, semesters })
   api.respond('POST', '/api/plan/parse', { ...parseResponse, parsed: { ...parsedDegree, still_needed: [requirement] } })
-  api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage,
-    groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM103', title: 'Synthetic replacement', title_status: 'verified' }] }],
-  })
+  api.respond('GET', '/api/courses', [{ ...replacementCourse, course_code: 'HUM103', title: 'Synthetic replacement' }])
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
   await expect(page.getByText('Allocated: 2 of 2 classes.', { exact: true })).toHaveCount(2)
   await page.getByRole('button', { name: 'swap →', exact: true }).first().click()
+  const updated = semesters.map((semester, i) => ({ ...semester,
+    courses: semester.courses.map((course) => ({ ...course, course_code: i === 0 ? 'HUM103' : 'HUM102' })),
+  }))
+  api.respond('POST', '/api/plan/generate', { ...planResponse, semesters: updated })
   await page.getByRole('button', { name: 'HUM103 Synthetic replacement' }).click()
-  await expect(page.getByText('Allocation is unverified. Regenerate after confirming the requirement.', { exact: true })).toHaveCount(2)
-  await expect(page.getByText('Allocated: 2 of 2 classes.', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(api.requests('POST', '/api/plan/generate')[1].postDataJSON().preferences.requirement_choices)
+    .toEqual({ 'req-writing': ['HUM103', 'HUM102'] })
+  await expect(page.getByText('Allocated: 2 of 2 classes.', { exact: true })).toHaveCount(2)
   await page.reload()
-  await expect(page.getByText('Allocation is unverified. Regenerate after confirming the requirement.', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Allocated: 2 of 2 classes.', { exact: true })).toHaveCount(2)
 })

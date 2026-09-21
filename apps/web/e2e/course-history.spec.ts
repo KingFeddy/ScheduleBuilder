@@ -16,7 +16,7 @@ test('preserves repeated grades and terms through upload, saved state, reload an
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
   expect(api.requests('POST', '/api/plan/generate')[0].postDataJSON().parsed_degree.course_attempts).toEqual(history)
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-parsed') || '{}').course_attempts)).toEqual(history)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-parsed') || '{}').parsed.course_attempts)).toEqual(history)
   await page.reload()
   await expect(page.getByText('Loaded from your last session.', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Regenerate', exact: true }).click()

@@ -3,6 +3,7 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
 import { UploadCloud } from 'lucide-react'
 import { getApiErrorMessage, parsePlan, type ParsedDegreeValidated } from '@/lib/api'
+import { encodeSavedAudit, isCurrentAudit } from '@/lib/planner-audit'
 
 interface UploadZoneProps {
   onParsed: (parsed: ParsedDegreeValidated) => void
@@ -54,8 +55,12 @@ export function UploadZone({ onParsed }: UploadZoneProps) {
         fileToHash(file),
       ])
       const res = await parsePlan(pdfBase64, clientPdfHash)
+      if (!isCurrentAudit(res.parsed)) {
+        setError('The planner returned incomplete audit data. Please try uploading your DegreeWorks PDF again.')
+        return
+      }
       try {
-        localStorage.setItem('njit-dw-parsed', JSON.stringify(res.parsed))
+        localStorage.setItem('njit-dw-parsed', encodeSavedAudit(res.parsed))
         localStorage.setItem('njit-dw-hash', res.server_hash)
       } catch { /* Safari private mode */ }
       onParsed(res.parsed)

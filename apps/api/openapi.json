@@ -1161,6 +1161,39 @@
             "minimum": 3.0,
             "title": "Credits Per Semester",
             "type": "integer"
+          },
+          "requirement_choices": {
+            "description": "Concrete choices keyed by audit requirement ID. Replaces automatic choices for those requirements; unselected amounts remain unresolved. At most 200 courses total.",
+            "maxProperties": 200,
+            "patternProperties": {
+              "^[A-Za-z0-9][A-Za-z0-9._:-]*$": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 128,
+              "minLength": 1
+            },
+            "title": "Requirement Choices",
+            "type": "object"
+          },
+          "start_term": {
+            "anyOf": [
+              {
+                "pattern": "^(19|20|21)[0-9]{2}(10|90)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spring or fall planning start (1900\u20132199). Null uses the configured default; no collected sections are required.",
+            "title": "Start Term"
           }
         },
         "title": "PlanPreferences",

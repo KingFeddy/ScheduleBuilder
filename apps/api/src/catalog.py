@@ -1,14 +1,17 @@
 """Catalog scope defaults, not a registry of valid NJIT courses or degrees.
 
-Retain the original collection subjects and cover the subjects referenced by
-our existing synthetic parser/planner fixtures and elective browsers. Aliases
-such as PSY/PSYC remain distinct; Banner subject discovery is a separate concern.
+Include the supported subjects checked in the September 2026 Banner refresh,
+while retaining historical collection subjects. Aliases such as PSY/PSYC remain
+distinct; this default list does not establish offerings or degree eligibility.
 """
 import re
 
 DEFAULT_CATALOG_SUBJECTS = (
-    "ACCT,ARH,CHEM,COM,CS,ECE,ENG,FIN,FRSC,HIST,HSS,HUM,IS,IT,LIB,LIT,"
-    "MATH,MUS,PHIL,PHYS,PSY,PSYC,SDET,SOC,SSC,STS,THTR,YWCC"
+    "ACCT,AD,ARCH,ARH,AS,BDS,BIOL,BME,BMET,BNFO,CE,CET,CHE,CHEM,CIM,CMT,COM,CS,"
+    "DD,DS,ECE,ECET,ECON,EM,ENE,ENG,ENGL,ENGR,ENTR,EPS,ESC,ET,EVSC,FED,FIN,FRSC,"
+    "FYS,GEN,HIST,HRM,HSS,HUM,ID,IE,IET,INT,INTD,IS,IT,LIB,LIT,MARC,MATH,ME,MECH,"
+    "MET,MGMT,MIS,MNE,MNET,MR,MRKT,MTEN,MTSE,MUS,OM,OPSE,PE,PHEN,PHIL,PHYS,PSY,"
+    "PSYC,PTC,RBHS,RBTS,SDET,SET,SOC,SSC,STS,THTR,TRAN,TUTR,USYS,YWCC"
 )
 # Broad browsing categories only. Membership does not establish GER eligibility.
 DEFAULT_GER_SUBJECTS = "COM,ENG,HUM,HIST,PHIL,PSYC,SOC,STS,ARH,MUS,LIB,SSC"

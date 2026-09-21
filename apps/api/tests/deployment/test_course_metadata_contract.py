@@ -54,3 +54,19 @@ def test_ger_titles_report_legacy_uncertainty(api):
     response = client.get("/api/plan/ger-courses")
     assert response.status_code == 200
     assert response.json()["groups"][0]["courses"][0]["title_status"] == "unverified"
+
+
+def test_catalog_title_ignores_banner_topic_conflict_but_retains_other_problems(api):
+    client, result = api
+    result.mappings.return_value.all.return_value = [{
+        "course_code": "PHYS485", "title": "Modeling", "credits": 3,
+        "title_source": {"source_kind": "njit_catalog", "value": "Modeling", "catalog_year": 2026},
+        "credits_source": {"value": {"kind": "fixed", "minimum": 3, "maximum": 3}},
+        "metadata_latest_attempt": {"title_error": "Conflicting section title.",
+                                    "credits_error": "Conflicting section credits.",
+                                    "save_error": "Could not save course metadata."},
+    }]
+    body = client.get("/api/courses").json()[0]
+    assert body["title"] == "Modeling" and body["title_status"] == "verified"
+    assert body["metadata_warnings"] == ["Credits refresh: Conflicting section credits.",
+                                         "Could not save course metadata."]

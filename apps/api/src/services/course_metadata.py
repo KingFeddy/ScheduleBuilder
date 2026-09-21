@@ -22,6 +22,7 @@ def course_response(row) -> CourseResponse:
     value = source.get("value", {})
     kind = value.get("kind")
     attempt = _object(row.get("metadata_latest_attempt"))
+    catalog_title = _object(row.get("title_source")).get("source_kind") == "njit_catalog"
     catalog_status, catalog_note = course_coverage(row["course_code"], exists=True)
     return CourseResponse(
         course_code=row["course_code"], title=row["title"], credits=row["credits"],
@@ -33,7 +34,8 @@ def course_response(row) -> CourseResponse:
         credits_min=value.get("minimum"), credits_max=value.get("maximum"),
         credits_options=[value["minimum"], value["maximum"]] if kind == "options" else [],
         metadata_warnings=([f"{field.capitalize()} refresh: {attempt[field + '_error']}"
-                            for field in ("title", "credits") if attempt.get(field + "_error")]
+                            for field in ("title", "credits") if attempt.get(field + "_error")
+                            and not (field == "title" and catalog_title)]
                            + ([attempt["save_error"]] if attempt.get("save_error") else [])),
     )
 

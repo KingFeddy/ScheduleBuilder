@@ -55,7 +55,7 @@ test('closing GER search cancels its request without showing an application erro
     await page.goto('/planner')
     await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
     await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
-    await page.getByRole('button', { name: 'swap →', exact: true }).click()
+    await page.getByRole('button', { name: 'View available GER Humanities courses →', exact: true }).click()
     await expect.poll(() => api.requests('GET', '/api/plan/ger-courses').length).toBe(1)
     const request = api.requests('GET', '/api/plan/ger-courses')[0]
     await page.keyboard.press('Escape')
@@ -64,7 +64,7 @@ test('closing GER search cancels its request without showing an application erro
     release()
   }
   api.respond('GET', '/api/plan/ger-courses', { ...gerCoverage, groups: [{ prefix: 'HUM', courses: [{ ...presentCatalog, code: 'HUM101', title: 'Synthetic GER', title_status: 'verified' }] }] })
-  await page.getByRole('button', { name: 'swap →', exact: true }).click()
+  await page.getByRole('button', { name: 'View available GER Humanities courses →', exact: true }).click()
   await expect(page.getByText('Synthetic GER', { exact: true })).toBeVisible()
   await expect(page.getByText('Failed to load GER courses.', { exact: true })).toHaveCount(0)
 })

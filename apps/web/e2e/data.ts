@@ -78,7 +78,7 @@ export const parsedDegree: ParsedDegreeValidated = {
   still_needed: [
     { requirement_id: 'req-programming', requirement: 'Programming languages', options: ['CS280'],
       remaining_quantity: 1, quantity_unit: 'classes', quantity_status: 'known', source: null },
-    { requirement_id: 'req-writing', requirement: 'Writing elective', options: ['HUM101'],
+    { requirement_id: 'req-writing', requirement: 'Writing elective', options: ['HUM101', 'HUM201'],
       remaining_quantity: 1, quantity_unit: 'classes', quantity_status: 'known', source: null },
   ],
 }
@@ -106,4 +106,12 @@ export const syntheticPdf = {
   name: 'synthetic-degree-audit.pdf',
   mimeType: 'application/pdf',
   buffer: Buffer.from(`%PDF-1.4\n${'% Synthetic browser upload fixture only.\n'.repeat(160)}%%EOF\n`),
+}
+
+// Recalculated replacement fixture, with a changed credit amount and last term.
+export const replacementCourse: CourseResponse = { ...courses[1], course_code: 'HUM201', title: 'Replacement', credits: 4 }
+export const replacementPlan: GenerateResponse = { ...planResponse,
+  projected_graduation: 'Fall 2027', warnings: ['Synthetic replacement warning.'],
+  semesters: [planResponse.semesters[0], { ...planResponse.semesters[1], term: '202790', term_label: 'Fall 2027', total_credits: 4,
+    courses: [{ ...planResponse.semesters[1].courses[0], course_code: 'HUM201', title: 'Replacement', credits: 4 }] }],
 }

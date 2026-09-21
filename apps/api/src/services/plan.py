@@ -30,6 +30,10 @@ from src.scheduler.time_utils import (
 )
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
+from src.services.corequisite_groups import corequisite_groups
+from src.services.flexible_prerequisites import flexible_course_ordering, prepare_flexible_groups
+from src.services.mixed_prerequisite_choices import choose_rule_paths
+from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering
 from src.catalog import course_subject
 from src.config import settings
 from src.schemas.catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
@@ -38,7 +42,6 @@ from src.services.catalog import course_coverage
 logger = logging.getLogger(__name__)
 
 CREDIT_CONSISTENCY_TOLERANCE = 6
-FULL_TIME_CREDITS = 12
 MAX_QUANTITY_ALLOCATION_SLOTS = 200
 
 
@@ -293,20 +296,73 @@ class GeneratedPlan:
     warnings:             list[str]
 
 
-# ── Last-semester requirement detection ───────────────────────────────────
+def _credit_reconciliation_warnings(
+    audit: ParsedDegreeValidated, semesters: list[SemesterCard],
+) -> list[str]:
+    """Explain scheduled amounts, without certifying degree fulfillment.
 
-_LAST_SEMESTER_KEYWORDS = ("senior", "capstone")
-
-
-def _is_last_semester_requirement(requirement: str) -> bool:
+    Count course rows once, not repeated per-requirement allocation summaries.
+    The audit's remaining total already reflects its own history accounting.
     """
-    True if the requirement's own label (DegreeWorks' text, not the course
-    code) signals a senior-standing/capstone requirement — e.g. "Senior
-    Project", "Senior Seminar", "Capstone Design". Generalizes across any
-    major without a hardcoded course-code list.
-    """
-    lowered = requirement.lower()
-    return any(keyword in lowered for keyword in _LAST_SEMESTER_KEYWORDS)
+    selected = unresolved_slots = extras = fillers = estimated = Decimal(0)
+    active = {item.requirement_id for item in audit.still_needed
+              if item.quantity_status != "known" or item.remaining_quantity != 0}
+    represented: set[str] = set()
+    unresolved: set[str] = set()
+    for semester in semesters:
+        for course in semester.courses:
+            credits = Decimal(str(course.credits))
+            if course.credits_estimated:
+                estimated += credits
+            if course.requirement is not None:
+                identity = course.requirement.requirement_id
+                represented.add(identity)
+                if (course.requirement.quantity_status != "known" or course.allocation is None
+                        or course.allocation.status != "allocated"):
+                    unresolved.add(identity)
+                if course.course_code == "TBD":
+                    unresolved_slots += credits
+                    unresolved.add(identity)
+                else:
+                    selected += credits
+            elif course.course_code == "FREE":
+                fillers += credits
+            else:
+                extras += credits
+    unresolved.update(active - represented)
+    linked = selected + unresolved_slots
+    total = linked + extras + fillers
+    difference = None if audit.credits_remaining is None else linked - Decimal(audit.credits_remaining)
+    warnings = []
+    if unresolved:
+        count = len(unresolved)
+        warnings.append(
+            f"Partial plan: {count} audit {'requirement has' if count == 1 else 'requirements have'} "
+            "unresolved allocation. Matching credit totals would not confirm completion."
+        )
+    if difference == 0 and not (unresolved or estimated or extras or fillers):
+        return warnings
+
+    def amount(value: Decimal) -> str:
+        return format(value.normalize(), "f")
+
+    audit_note = ("Audit remaining credits are unknown." if difference is None else
+                  f"audit lists {audit.credits_remaining} remaining credits.")
+    message = (
+        f"Credit review: {audit_note} {amount(total)} scheduled credits: "
+        f"{amount(selected)} selected for requirements, {amount(unresolved_slots)} unresolved slot credits, "
+        f"{amount(extras)} additional elective credits, {amount(fillers)} course-load filler credits."
+    )
+    if estimated:
+        message += f" The schedule includes {amount(estimated)} estimated credits; confirm their amounts."
+    if difference:
+        message += (
+            f" Requirement-linked credits are {amount(abs(difference))} "
+            f"{'above' if difference > 0 else 'below'} the audit figure (including unresolved slot estimates). "
+            "Confirm the requirement list and any permitted sharing with your advisor."
+        )
+    warnings.append(message)
+    return warnings
 
 
 # ── Internal resolved-item type ───────────────────────────────────────────────
@@ -319,7 +375,6 @@ class _ResolvedItem:
     title:       str | None = None
     badge:       str = "Required"   # "Required" | "Elective" | "TBD"
     reason:      str = ""
-    must_be_last: bool = False
     credits_estimated: bool = True
     credits_note: str = "Credit estimate for an unresolved course."
     title_status: Literal["verified", "unverified", "missing"] = "unverified"
@@ -394,6 +449,7 @@ def _compute_prerequisite_dependencies(
     completed: set[str],
     in_progress: set[str],
     prerequisites_by_code: dict[str, list[str]],
+    verified_history: dict[str, set[str]] | None = None,
 ) -> tuple[list[set[int]], list[str]]:
     """
     Returns (depends_on, warnings).
@@ -413,11 +469,10 @@ def _compute_prerequisite_dependencies(
     and a static-bound version of this function let the dependent get
     bundled into the same semester as its just-placed prerequisite.)
 
-    A prerequisite already in `completed` or `in_progress` imposes no
-    constraint. A prerequisite not found in `completed`, `in_progress`, or
-    as another resolved item's course_code is assumed already satisfied
-    (real DegreeWorks data is known to be incomplete) and is named in the
-    returned warning instead of creating a dependency.
+    For supported structured rules, only verified_history discharges a
+    prerequisite. Other courses retain the legacy completed/in-progress
+    compatibility behavior. Missing prerequisites cannot create an edge;
+    they are named for review, with structured gaps marked partial by the caller.
 
     A genuine cycle in the prerequisite data is broken by dropping the
     back-edge that would close the loop, and the affected courses are
@@ -446,7 +501,9 @@ def _compute_prerequisite_dependencies(
         for prereq_code in prerequisites_by_code.get(code, []):
             if prereq_code == code:
                 continue
-            if prereq_code in completed or prereq_code in in_progress:
+            history = (verified_history[code] if verified_history is not None and code in verified_history
+                       else completed | in_progress)
+            if prereq_code in history:
                 continue
             dep_idx = code_to_index.get(prereq_code)
             if dep_idx is None:
@@ -487,36 +544,39 @@ def _pack_semesters(
     credit_target: int,
     planning_terms: list[str],
     placed_at: dict[int, int],
-    start_term_idx: int = 0,
-    initial_card: SemesterCard | None = None,
+    concurrent_groups: dict[int, frozenset[int]] | None = None,
+    same_or_before: list[set[int]] | None = None,
 ) -> list[SemesterCard]:
-    """
-    Packs items_pool into semester cards term-by-term, starting at
-    start_term_idx, respecting depends_on and the ACTUAL (not
-    precomputed) placement of every dependency via placed_at — see ADR-27
-    for why this must be dynamic. Mutates placed_at in place with every
-    item this call places, so a second call packing a different item pool
-    (e.g. senior/capstone courses, packed after everything else — see
-    ADR-28) sees accurate prior placements from this call. Mutates
-    planning_terms in place too (appending further-out terms) if the plan
-    runs past the initially pre-computed window.
+    """Pack every course using its actual prerequisite placements and credits.
 
-    If initial_card is given, the very first term processed
-    (start_term_idx) tops it up in place — adding courses/credits to that
-    existing card rather than creating a new one — instead of starting a
-    fresh semester. initial_card is never included in this function's
-    return value; the caller already holds a reference to it. The
-    force-add fallback (a single oversized course gets its own semester
-    rather than blocking all progress) is skipped specifically on a
-    topping-up pass: initial_card is guaranteed already non-empty (the
-    caller only ever passes the last semester from a prior packing call,
-    and a prior call's `if placed:` guard means every card it produced
-    has at least one course), so placing nothing new there this term
-    isn't a stuck state — leftover items simply proceed to the next,
-    fresh term, where force-add resumes normally.
+    Concurrent groups are atomic. Strict dependencies require an earlier term;
+    same_or_before permits the current term. Retry newly eligible courses before
+    advancing. The caller rejects contradictory groups and supplies a DAG after
+    contraction, so dependency waiting always permits eventual progress.
+    Mutate placed_at and extend planning_terms as needed. An oversized eligible
+    course/group gets its own semester, preserving existing target notices.
     """
+    concurrent_groups = concurrent_groups or {}
+    same_or_before = same_or_before or [set() for _ in depends_on]
+
+    def group_for(item, pool_by_index):
+        index = index_by_item[id(item)]
+        members = concurrent_groups.get(index, frozenset({index}))
+        if not members <= pool_by_index.keys():
+            raise ValueError("Concurrent group is missing an unplaced member")
+        return [pool_by_index[i] for i in sorted(members)]
+
+    def planned(item):
+        return PlannedCourse(
+            slot_id=item.slot_id, requirement=item.source_requirement, allocation=item.allocation,
+            course_code=item.course_code or "TBD", title=item.title, credits=item.credits,
+            badge=item.badge, reason=item.reason, credits_estimated=item.credits_estimated,
+            credits_note=item.credits_note, title_status=item.title_status,
+            catalog_status=item.catalog_status, catalog_note=item.catalog_note,
+        )
+
     semesters: list[SemesterCard] = []
-    term_idx = start_term_idx
+    term_idx = 0
 
     while items_pool:
         if term_idx >= len(planning_terms):
@@ -527,136 +587,68 @@ def _pack_semesters(
                     planning_terms.append(last)
 
         term = planning_terms[term_idx]
-        topping_up = term_idx == start_term_idx and initial_card is not None
-        credits_used = initial_card.total_credits if topping_up else 0
+        credits_used = 0
         remaining: list[_ResolvedItem] = []
         blocked:   list[_ResolvedItem] = []
         placed:    list[PlannedCourse] = []
 
-        for item in items_pool:
-            idx = index_by_item[id(item)]
-            deps = depends_on[idx]
-            if any(d not in placed_at or placed_at[d] >= term_idx for d in deps):
-                blocked.append(item)
-            elif credits_used + item.credits <= credit_target:
-                placed.append(PlannedCourse(
-                    slot_id=item.slot_id, requirement=item.source_requirement, allocation=item.allocation,
-                    course_code=item.course_code or "TBD",
-                    title=item.title,
-                    credits=item.credits,
-                    badge=item.badge,
-                    reason=item.reason,
-                    credits_estimated=item.credits_estimated,
-                    credits_note=item.credits_note,
-                    title_status=item.title_status,
-                    catalog_status=item.catalog_status,
-                    catalog_note=item.catalog_note,
-                ))
-                placed_at[idx] = term_idx
-                credits_used = round(credits_used + item.credits, 2)
-            else:
-                remaining.append(item)
+        pool_by_index = {index_by_item[id(item)]: item for item in items_pool}
+        pending = items_pool
+        while pending:
+            visited = set()
+            blocked = []
+            progressed = False
+            for item in pending:
+                idx = index_by_item[id(item)]
+                if idx in visited:
+                    continue
+                group = group_for(item, pool_by_index)
+                indices = {index_by_item[id(member)] for member in group}
+                visited.update(indices)
+                deps = set().union(*(depends_on[index] for index in indices))
+                flexible_deps = set().union(*(same_or_before[index] for index in indices)) - indices
+                group_credits = round(sum(member.credits for member in group), 2)
+                if (any(d not in placed_at or placed_at[d] >= term_idx for d in deps)
+                        or any(d not in placed_at or placed_at[d] > term_idx for d in flexible_deps)):
+                    blocked.extend(group)
+                elif credits_used + group_credits <= credit_target:
+                    placed.extend(planned(member) for member in group)
+                    placed_at.update({index: term_idx for index in indices})
+                    credits_used = round(credits_used + group_credits, 2)
+                    progressed = True
+                else:
+                    remaining.extend(group)
+            # A newly placed predecessor can unlock same-term coursework that
+            # appeared earlier in the pool. Strict prior edges still wait. Each
+            # retry must place something, so this loop cannot spin without progress.
+            if not progressed:
+                break
+            pending = blocked
 
-        # Force-add if nothing fit (single course exceeds credit_target) —
-        # only from `remaining` (eligible but over budget), never from
-        # `blocked` (prerequisite not yet satisfied), and never on a
-        # topping-up pass (see docstring).
-        if not placed and remaining and not topping_up:
-            forced = remaining[0]
-            forced_idx = index_by_item[id(forced)]
-            placed.append(PlannedCourse(
-                slot_id=forced.slot_id, requirement=forced.source_requirement, allocation=forced.allocation,
-                course_code=forced.course_code or "TBD",
-                title=forced.title,
-                credits=forced.credits,
-                badge=forced.badge,
-                reason=forced.reason,
-                credits_estimated=forced.credits_estimated,
-                credits_note=forced.credits_note,
-                title_status=forced.title_status,
-                catalog_status=forced.catalog_status,
-                catalog_note=forced.catalog_note,
-            ))
-            placed_at[forced_idx] = term_idx
-            credits_used = forced.credits
-            remaining = remaining[1:]
+        # An oversized eligible group gets its own semester, with an explicit
+        # target-conflict notice supplied by group construction. Never split it,
+        # take blocked members, or partially fill a semester with a group.
+        if not placed and remaining:
+            group = group_for(remaining[0], pool_by_index)
+            indices = {index_by_item[id(member)] for member in group}
+            placed.extend(planned(member) for member in group)
+            placed_at.update({index: term_idx for index in indices})
+            credits_used = round(sum(member.credits for member in group), 2)
+            remaining = [member for member in remaining if index_by_item[id(member)] not in indices]
 
         # A semester where everything left is prerequisite-blocked (nothing
         # placed) must not appear as an empty card — skip it and let the
         # blocked items retry at the next term.
         if placed:
-            if topping_up:
-                initial_card.courses.extend(placed)
-                initial_card.total_credits = credits_used
-            else:
-                card = SemesterCard(term=term, term_label=term_to_label(term))
-                card.courses = placed
-                card.total_credits = credits_used
-                semesters.append(card)
+            card = SemesterCard(term=term, term_label=term_to_label(term))
+            card.courses = placed
+            card.total_credits = credits_used
+            semesters.append(card)
 
         items_pool = remaining + blocked
         term_idx  += 1
 
     return semesters
-
-
-def _synchronized_capstone_start(
-    capstone_items: list[_ResolvedItem],
-    depends_on: list[set[int]],
-    index_by_item: dict[int, int],
-    placed_at: dict[int, int],
-) -> int:
-    """
-    Earliest term_idx at which EVERY senior/capstone item could possibly be
-    scheduled, ignoring credit-budget constraints — the natural floor
-    imposed by prerequisite depth alone. Used only to pick Phase 2's
-    starting term_idx; the actual packing that follows still uses
-    _pack_semesters' fully dynamic, placed_at-based eligibility check (see
-    ADR-27/ADR-28) — this function never gates an individual item's
-    placement, only where the whole second phase begins.
-
-    Without this, a capstone item with no prerequisite of its own (e.g. a
-    Senior Seminar) becomes individually eligible immediately and jumps
-    into whatever room Phase 1 left behind, while a sibling capstone item
-    genuinely delayed by a real prerequisite chain (e.g. a Senior Project
-    depending on an earlier course) keeps waiting — scattering "must be
-    last" courses across multiple non-adjacent trailing semesters instead
-    of clustering them at the true end of the plan. Confirmed live: a real
-    user's plan placed a prerequisite-free Senior Seminar in the semester
-    right after normal packing ended, while their Senior Project (delayed
-    by a real prerequisite) landed two semesters later — exactly this bug.
-
-    Safe to compute from Phase 1's `placed_at` values for normal-item
-    dependencies because Phase 1 is fully complete and its placements are
-    fixed by the time this runs — unlike the earlier, rejected "precompute
-    an earliest bound" design for ADR-27, which failed specifically because
-    it tried to predict placements that were STILL being decided.
-    """
-    if not capstone_items:
-        return 0
-
-    capstone_indices = {index_by_item[id(item)] for item in capstone_items}
-    natural_term: dict[int, int] = {}
-    visiting: set[int] = set()
-
-    def resolve(idx: int) -> int:
-        if idx in natural_term:
-            return natural_term[idx]
-        if idx in visiting:
-            return 0  # cycle guard — real cycles are already broken upstream
-        visiting.add(idx)
-        max_dep = -1
-        for dep_idx in depends_on[idx]:
-            if dep_idx in capstone_indices:
-                max_dep = max(max_dep, resolve(dep_idx) + 1)
-            elif dep_idx in placed_at:
-                max_dep = max(max_dep, placed_at[dep_idx] + 1)
-        visiting.discard(idx)
-        result = max(0, max_dep)
-        natural_term[idx] = result
-        return result
-
-    return max(resolve(idx) for idx in capstone_indices)
 
 
 def _apply_course_data(item, course_data, warnings, prerequisites_by_code):
@@ -685,21 +677,24 @@ def _allocated_amount(rows: list[_ResolvedItem], unit: str) -> Decimal:
 
 async def _allocate_requirement_quantities(
     resolved, course_data, completed, in_progress, target_term, credit_target,
-    session, warnings, prerequisites_by_code, requested_codes,
+    session, warnings, prerequisites_by_code, requested_codes, requirement_choices=None,
 ) -> list[_ResolvedItem]:
     """Allocate each concrete course once, without inferring sharing permission.
 
     Credits are counted only from verified fixed metadata. Uncertain courses
     remain planned suggestions, with their requirement remainder still explicit.
     """
+    requirement_choices = requirement_choices or {}
+    reserved = {code for codes in requirement_choices.values() for code in codes}
     linked = [row for row in resolved if row.source_requirement is not None]
     extras = [row for row in resolved if row.source_requirement is None]
     requested_rows = {row.course_code: row for row in resolved if row.course_code in requested_codes}
     allocated_to: dict[str, StillNeededItem] = {}
     excluded = completed | in_progress
-    # Protect narrow requirements before flexible choices. Equal constraints
-    # retain audit order; unknown quantities never displace known requirements.
+    # Explicit ownership comes first, then protect narrow requirements before
+    # flexible automatic choices. Equal constraints retain audit order.
     linked.sort(key=lambda row: (
+        row.source_requirement.requirement_id not in requirement_choices,
         row.source_requirement.quantity_status != "known",
         any(WILDCARD_PATTERN.search(code) for code in row.source_requirement.options),
         len({code for code in row.source_requirement.options
@@ -716,11 +711,17 @@ async def _allocate_requirement_quantities(
         course_data.update(await get_course_data(session, additional_codes))
 
     remaining_slots = max(0, MAX_QUANTITY_ALLOCATION_SLOTS - len(resolved))
+    # Reserve every explicit selection before placeholders consume the budget.
+    extra_choice_slots = sum(len(codes) - 1 for codes in requirement_choices.values())
+    if extra_choice_slots > remaining_slots:
+        raise ParseValidationError("preferences.requirement_choices", "Selected courses exceed the plan allocation limit.")
+    remaining_slots -= extra_choice_slots
     expanded = []
     for base in linked:
         requirement = base.source_requirement
         unit = requirement.quantity_unit
-        unavailable = excluded | allocated_to.keys()
+        choices = requirement_choices.get(requirement.requirement_id)
+        unavailable = excluded | allocated_to.keys() | (reserved - set(choices or []))
         if base.course_code is None or base.course_code in unavailable:
             requested = next((code for code in requested_rows if code not in unavailable
                               and any(matches_wildcard(code, option) for option in requirement.options)), None)
@@ -774,9 +775,15 @@ async def _allocate_requirement_quantities(
                                reason=f"Course with verified credits allocated toward '{requirement.requirement}'")
                 _apply_course_data(base, course_data, [], prerequisites_by_code)
         rows = [base] if base.course_code else []
+        if choices:
+            for code in choices[1:]:
+                candidate = replace(base, course_code=code,
+                                    reason=f"Your chosen course {code} is allocated toward '{requirement.requirement}'")
+                _apply_course_data(candidate, course_data, [], prerequisites_by_code)
+                rows.append(candidate)
         used_codes = {row.course_code for row in rows}
         limit_reached = False
-        while _allocated_amount(rows, unit) < target:
+        while not choices and _allocated_amount(rows, unit) < target:
             # Do not pile extra courses/placeholders beside an uncertain-credit
             # selection and pretend the missing credit amount is known.
             if unit == "credits" and any(row.credits_estimated for row in rows):
@@ -794,7 +801,6 @@ async def _allocate_requirement_quantities(
                     remaining_slots -= 1
                 candidate = replace(extra, requirement=requirement.requirement,
                                     source_requirement=requirement.model_copy(deep=True),
-                                    must_be_last=base.must_be_last,
                                     reason=f"Your elective {extra.course_code} is allocated toward '{requirement.requirement}'")
             else:
                 if rows and remaining_slots == 0:
@@ -812,7 +818,7 @@ async def _allocate_requirement_quantities(
                     break
                 candidate = _ResolvedItem(
                     requirement=requirement.requirement, course_code=code,
-                    source_requirement=requirement.model_copy(deep=True), must_be_last=base.must_be_last,
+                    source_requirement=requirement.model_copy(deep=True),
                     badge="Elective" if count > 1 else "Required",
                     reason=f"Additional course allocated toward '{requirement.requirement}'",
                 )
@@ -877,6 +883,7 @@ async def generate_plan(
 
     Validated preferences:
       courses (list[str])        — student-chosen electives
+      requirement_choices       — concrete choices owned by audit requirement ID
       credits_per_semester (int) — MIN_CREDITS_PER_SEMESTER..MAX_CREDITS_PER_SEMESTER
     """
     warnings: list[str] = []
@@ -887,6 +894,41 @@ async def generate_plan(
     completed   = set(validated.completed_courses)
     in_progress = set(validated.in_progress_courses)
     all_excluded = completed | in_progress
+
+    requirement_choices = preferences.requirement_choices
+    requirements_by_id = {item.requirement_id: item for item in validated.still_needed}
+    chosen_codes = {code for codes in requirement_choices.values() for code in codes}
+    for requirement_id, codes in requirement_choices.items():
+        field = f"preferences.requirement_choices.{requirement_id}"
+        requirement = requirements_by_id.get(requirement_id)
+        if requirement is None:
+            raise ParseValidationError(field, "This requirement is not in the submitted audit. Regenerate from the current audit.")
+        if requirement.quantity_status == "known":
+            if requirement.remaining_quantity == 0:
+                raise ParseValidationError(field, "This requirement has no remaining quantity.")
+            if requirement.quantity_unit == "classes" and len(codes) > requirement.remaining_quantity:
+                raise ParseValidationError(field, "More courses selected than the remaining class count.")
+        elif len(codes) > 1:
+            raise ParseValidationError(field, "Select only one course while the requirement quantity is unknown.")
+        for code in codes:
+            if code in all_excluded:
+                raise ParseValidationError(field, f"{code} is already completed or in progress.")
+            if not any(
+                (option == "@" or (option.isascii() and re.fullmatch(r"[A-Z]{2,5}[0-9X]{3}[A-Z]?", option)))
+                and matches_wildcard(code, option) for option in requirement.options
+            ):
+                raise ParseValidationError(field, f"{code} does not match this requirement's parsed course options.")
+    if chosen_codes:
+        # Scope status combines presence and refresh coverage, so it cannot
+        # establish existence. Check actual records, including excluded subjects.
+        result = await session.execute(text("SELECT course_code FROM courses WHERE course_code = ANY(:codes)"),
+                                       {"codes": sorted(chosen_codes)})
+        present = {row["course_code"] for row in result.mappings()}
+        for requirement_id, codes in requirement_choices.items():
+            missing = sorted(set(codes) - present)
+            if missing:
+                raise ParseValidationError(f"preferences.requirement_choices.{requirement_id}",
+                                           f"Courses not found in the collected catalog: {', '.join(missing)}. Choose a collected course.")
 
     # ── 1. Early exit: already graduated ─────────────────────────────────────
 
@@ -901,6 +943,8 @@ async def generate_plan(
 
     electives_to_place: list[str] = []
     for code in student_electives:
+        if code in chosen_codes:
+            continue
         if code in all_excluded:
             warnings.append(
                 f"{code} is already completed or in progress — removed from elective list."
@@ -917,15 +961,17 @@ async def generate_plan(
     excluded_subjects = sorted(required_subjects - set(settings.catalog_subjects))
     if excluded_subjects:
         warnings.append(
-            f"Requirement options include subjects outside collection scope: {', '.join(excluded_subjects)}. "
+            f"Requirement options include subjects outside the configured automatic refresh scope: {', '.join(excluded_subjects)}. "
             "Options in those subjects need confirmation with NJIT."
         )
 
-    planning_terms = get_planning_terms(n=10, start_term=settings.CURRENT_TERM)
+    planning_terms = get_planning_terms(n=10, start_term=preferences.start_term or settings.CURRENT_TERM)
     current_term   = planning_terms[0]
 
     resolved: list[_ResolvedItem] = []
-    satisfied_indices: set[int] = set()
+    satisfied_indices: set[int] = {
+        i for i, item in enumerate(validated.still_needed) if item.requirement_id in requirement_choices
+    }
 
     # Match student electives to requirements (exact first, then wildcard)
     elective_to_req: dict[str, int] = {}   # elective code → still_needed index
@@ -947,16 +993,15 @@ async def generate_plan(
             warnings.append(unreadable_options_note)
         if item.quantity_status == "unresolved":
             warnings.append(f"Remaining quantity for '{item.requirement}' is unknown. Confirm the required amount with your advisor.")
-        must_be_last = _is_last_semester_requirement(item.requirement)
         if i in satisfied_indices:
-            code = next(e for e, idx in elective_to_req.items() if idx == i)
+            choices = requirement_choices.get(item.requirement_id)
+            code = choices[0] if choices else next(e for e, idx in elective_to_req.items() if idx == i)
             resolved.append(_ResolvedItem(
                 slot_id=stable_identity("slot", item.requirement_id, 1), source_requirement=item.model_copy(deep=True),
                 requirement=item.requirement,
                 course_code=code,
                 badge="Elective",
                 reason=f"Your elective {code} is allocated toward '{item.requirement}'",
-                must_be_last=must_be_last,
             ))
         else:
             best, num_available = await select_best_option(
@@ -982,7 +1027,6 @@ async def generate_plan(
                     else unreadable_options_note if not item.options
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
-                must_be_last=must_be_last,
                 catalog_note=catalog_note,
             ))
 
@@ -1001,7 +1045,7 @@ async def generate_plan(
 
     # ── 4. Fetch credits + titles + prerequisites in one batched query ───────
 
-    all_codes = [r.course_code for r in resolved if r.course_code]
+    all_codes = list(dict.fromkeys([r.course_code for r in resolved if r.course_code] + sorted(chosen_codes)))
     course_data = await get_course_data(session, all_codes)
 
     prerequisites_by_code: dict[str, list[str]] = {}
@@ -1010,7 +1054,7 @@ async def generate_plan(
 
     resolved = await _allocate_requirement_quantities(
         resolved, course_data, completed, in_progress, current_term, credit_target,
-        session, warnings, prerequisites_by_code, set(student_electives),
+        session, warnings, prerequisites_by_code, set(student_electives) | chosen_codes, requirement_choices,
     )
     # Automatic choices can change during quantity allocation. Publish metadata
     # warnings and dependencies only for the final selections.
@@ -1020,140 +1064,78 @@ async def generate_plan(
         if r.allocation_note:
             r.reason = f"{r.reason} {r.allocation_note}"
 
-    if any(r.credits_estimated for r in resolved):
-        warnings.append("Some planned credits are estimates. Confirm the credits for those courses before registering.")
-
-    # ── 5. Detect credit overflow ─────────────────────────────────────────────
-
-    total_planned = round(sum(r.credits for r in resolved), 2)
-    available_credits = validated.credits_remaining or 0
-
-    if total_planned > available_credits + 6:
-        warnings.append(
-            f"Your plan requires approximately {total_planned} credits, "
-            f"but your remaining credits are listed as {available_credits}. "
-            f"Some requirements may double-count. Verify with your advisor."
-        )
-
     # ── 6. Compute prerequisite ordering, then sort within it ────────────────
 
+    rule_rows = await load_prerequisite_rows(session, prerequisites_by_code)
+    ordering_rows, choice_warnings = choose_rule_paths(
+        rule_rows, validated, prerequisites_by_code, current_term,
+        {item.course_code: item.credits for item in resolved if item.course_code}, credit_target,
+    )
+    warnings.extend(choice_warnings)
+    prerequisites_by_code, flexible_history, flexible, concurrent, flexible_warnings = flexible_course_ordering(
+        ordering_rows, validated, prerequisites_by_code, current_term,
+    )
+    warnings.extend(flexible_warnings)
+    prerequisites_by_code, verified_history, ordering_warnings = prior_course_ordering(
+        ordering_rows, validated, prerequisites_by_code, current_term, fixed_history=flexible_history,
+    )
+    warnings.extend(ordering_warnings)
     depends_on, prereq_warnings = _compute_prerequisite_dependencies(
-        resolved, completed, in_progress, prerequisites_by_code,
+        resolved, completed, in_progress, prerequisites_by_code, verified_history,
     )
     warnings.extend(prereq_warnings)
 
-    # A normal item's prerequisite may resolve to a senior/capstone-flagged
-    # item (ADR-28). Phase 1 packing never places capstone items, so
-    # placed_at would never gain an entry for that index and the normal
-    # item would stay permanently blocked — an infinite loop in
-    # _pack_semesters' `while items_pool:` with no `await` inside it,
-    # hanging the whole event loop, not just one request. Treat this the
-    # same way ADR-27 already treats an unverifiable prerequisite: drop
-    # the edge so it can't block anything, and surface it in a warning
-    # instead of silently ignoring it.
-    capstone_indices = {i for i, r in enumerate(resolved) if r.must_be_last}
-    cross_phase_flagged: set[str] = set()
-    for i, deps in enumerate(depends_on):
-        if resolved[i].must_be_last:
-            continue
-        conflicting = deps & capstone_indices
-        if conflicting:
-            depends_on[i] = deps - capstone_indices
-            if resolved[i].course_code:
-                cross_phase_flagged.add(resolved[i].course_code)
-
-    if cross_phase_flagged:
-        codes = ", ".join(sorted(cross_phase_flagged))
+    index_by_code = {r.course_code: i for i, r in enumerate(resolved) if r.course_code}
+    unresolved_ordering = {
+        code for code, history in verified_history.items()
+        if any(prereq not in history and (prereq not in index_by_code
+               or index_by_code[prereq] not in depends_on[index_by_code[code]])
+               for prereq in prerequisites_by_code[code])
+    }
+    if unresolved_ordering:
         warnings.append(
-            f"Prerequisites for {codes} depend on a senior/capstone course that's "
-            f"scheduled in your final semester — this ordering could not be fully "
-            f"honored. Confirm you meet the actual prerequisite before registering."
+            "Partial plan: prerequisite ordering for " + ", ".join(sorted(unresolved_ordering))
+            + " could not be established from the available history and selected courses. "
+            "Review missing prerequisites, grades, or circular requirements."
         )
 
-    index_by_item: dict[int, int] = {id(item): i for i, item in enumerate(resolved)}
+    concurrent_groups, group_warnings = corequisite_groups(
+        ordering_rows, resolved, depends_on, credit_target, mandatory_concurrent=concurrent,
+    )
+    warnings.extend(group_warnings)
+    same_or_before, concurrent_groups, flexible_warnings = prepare_flexible_groups(
+        resolved, depends_on, flexible, concurrent_groups, credit_target,
+    )
+    warnings.extend(flexible_warnings)
 
-    normal_items   = [r for r in resolved if not r.must_be_last]
-    capstone_items = [r for r in resolved if r.must_be_last]
-
-    def _sorted_pool(items: list[_ResolvedItem]) -> list[_ResolvedItem]:
-        concrete = [r for r in items if r.course_code is not None]
-        tbd      = [r for r in items if r.course_code is None]
-        concrete.sort(key=lambda r: -r.credits)
-        return concrete + tbd
-
-    # ── 7. Assign to semesters — normal courses first, then senior/capstone ──
-    #
-    # Senior Seminar/Senior Project-type requirements (ADR-28) must land in
-    # the student's actual final semester, independent of whatever their own
-    # prerequisite chain would otherwise allow. Packed in a second phase,
-    # continuing from wherever normal packing left off — topping up the last
-    # normal semester if there's room, or starting a fresh trailing semester
-    # otherwise — never mixed into earlier, non-final semesters.
-    #
-    # resolved-index -> the term_idx it was ACTUALLY scheduled in, shared
-    # across both phases. Eligibility is checked against this, never a
-    # precomputed "earliest possible" bound — see ADR-27 for why.
-    placed_at: dict[int, int] = {}
-
+    # ── 7. Pack one course pool using recorded dependencies ────────────────
+    # Requirement labels remain descriptive. They do not establish a final-term
+    # restriction or justify dropping an edge into a separate packing phase.
+    index_by_item = {id(item): index for index, item in enumerate(resolved)}
+    concrete = sorted((item for item in resolved if item.course_code is not None), key=lambda item: -item.credits)
+    unresolved = [item for item in resolved if item.course_code is None]
     semesters = _pack_semesters(
-        _sorted_pool(normal_items), depends_on, index_by_item,
-        credit_target, planning_terms, placed_at,
+        concrete + unresolved, depends_on, index_by_item, credit_target, planning_terms, {},
+        concurrent_groups=concurrent_groups, same_or_before=same_or_before,
     )
 
-    if capstone_items:
-        natural_start = _synchronized_capstone_start(
-            capstone_items, depends_on, index_by_item, placed_at,
-        )
-        start_term_idx = max(len(semesters) - 1, natural_start)
-        # Only top up the last normal semester's card when the synchronized
-        # floor lands exactly there — if a real prerequisite chain pushes
-        # capstone packing later, merging into a semester that's
-        # chronologically "in the past" relative to that floor would be wrong.
-        initial_card = (
-            semesters[-1]
-            if semesters and start_term_idx == len(semesters) - 1
-            else None
-        )
-        capstone_semesters = _pack_semesters(
-            _sorted_pool(capstone_items), depends_on, index_by_item,
-            credit_target, planning_terms, placed_at,
-            start_term_idx=start_term_idx, initial_card=initial_card,
-        )
-        semesters.extend(capstone_semesters)
+    # Credit targets guide packing; a lighter final semester needs no filler.
+    # Additional courses must come from the student's explicit elective choices.
 
-        # Clustering every senior/capstone requirement into the true final
-        # semester (above) can leave that semester thin — e.g. a single
-        # 3-credit capstone with nothing else left to pack alongside it.
-        # Pad it to a full-time load with one placeholder rather than
-        # showing the student a near-empty final semester. Never pad past
-        # the student's own credit_target — that's a hard ceiling the rest
-        # of the planner already respects everywhere else.
-        last = semesters[-1]
-        pad_target = min(FULL_TIME_CREDITS, credit_target)
-        if last.total_credits < pad_target:
-            gap = round(pad_target - last.total_credits, 2)
-            last.courses.append(PlannedCourse(
-                slot_id=stable_identity("slot", "final-load-filler"),
-                course_code="FREE",
-                catalog_status="unresolved",
-                catalog_note="No specific catalog course has been selected for this slot.",
-                title="Free Elective",
-                credits=gap,
-                badge="Elective",
-                reason=(
-                    f"Added to reach a full-time course load "
-                    f"({FULL_TIME_CREDITS} credits) — pick any elective "
-                    f"that interests you."
-                ),
-            ))
-            last.total_credits = pad_target
+    # Reconcile the final schedule, including requested extras.
+    # Keep these diagnostics first so a partial allocation is visible immediately.
+    warnings = _credit_reconciliation_warnings(validated, semesters) + warnings
 
-    # ── 8. Prerequisite disclaimer ────────────────────────────────────────────
+    # ── 8. Check structured rules against the actual proposed semesters ───────
+    warnings.extend(await check_plan_prerequisites(session, validated, {
+        course.course_code: semester.term for semester in semesters for course in semester.courses
+        if re.fullmatch(COURSE_CODE_PATTERN, course.course_code)
+    }, rows=rule_rows))
 
     warnings.append(
-        "This plan orders courses using scraped prerequisite data, which "
-        "may be incomplete for some courses. Verify with your advisor if a "
-        "semester's course list looks unexpected."
+        "Review prerequisite and corequisite issues before using this proposed schedule. "
+        "Supported prerequisite chains and mandatory corequisite groups guide scheduling; flagged issues still need review. "
+        "Requirements may differ by section. Confirm registration eligibility with NJIT."
     )
 
     return GeneratedPlan(

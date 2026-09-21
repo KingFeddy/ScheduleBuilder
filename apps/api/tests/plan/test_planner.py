@@ -28,6 +28,15 @@ from src.schemas.plan import ParsedDegreeValidated, ParseValidationError, PlanPr
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def isolate_rule_diagnostics(monkeypatch):
+    # These packing regressions own fixed availability/metadata query sequences.
+    # The independent post-check and its real generation integration are exercised
+    # in test_prerequisite_checks.py, including the additional batched rule read.
+    from src.services import plan
+    monkeypatch.setattr(plan, "check_plan_prerequisites", AsyncMock(return_value=[]))
+    monkeypatch.setattr(plan, "load_prerequisite_rows", AsyncMock(return_value={}))
+
 def _make_mock_session(course_rows=None, section_rows=None):
     """
     Returns a mock AsyncSession whose execute() calls return empty mappings by
@@ -476,55 +485,10 @@ def test_total_credits_matches_course_sum():
         )
 
 
-# ── Last-semester requirement detection ────────────────────────────────────
+# ── Requirement labels and dependency placement ──────────────────────────
 
-class TestIsLastSemesterRequirement:
-
-    def test_senior_project_matches(self):
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("Senior Project") is True
-
-    def test_senior_seminar_matches(self):
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("Senior Seminar") is True
-
-    def test_capstone_design_matches(self):
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("Capstone Design") is True
-
-    def test_case_insensitive(self):
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("SENIOR SEMINAR") is True
-        assert _is_last_semester_requirement("capstone project") is True
-
-    def test_unrelated_requirement_does_not_match(self):
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("GER Humanities") is False
-        assert _is_last_semester_requirement("Systems") is False
-        assert _is_last_semester_requirement("Tech Elective") is False
-
-    def test_substring_match_not_exact_match(self):
-        """A requirement label doesn't need to equal a keyword exactly —
-        containing one anywhere is enough, matching real DegreeWorks
-        phrasing variety."""
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("Senior Design Project I") is True
-
-    def test_bare_seminar_without_senior_or_capstone_does_not_match(self):
-        """'seminar' alone was removed from the keyword list — it caught
-        nothing 'senior'/'capstone' didn't already catch, and it falsely
-        matched non-terminal requirements like First Year Seminar."""
-        from src.services.plan import _is_last_semester_requirement
-        assert _is_last_semester_requirement("First Year Seminar") is False
-        assert _is_last_semester_requirement("Freshman Seminar") is False
-
-
-class TestCapstoneLastSemester:
-    """
-    Integration-level tests through the real generate_plan(). Every
-    expected value was verified by actually running this code during
-    design, not hand-derived.
-    """
+class TestRequirementLabelsAndDependencies:
+    """Recorded ordering and credit behavior remain independent of labels."""
 
     def _mock_session(self, still_needed_count, course_rows):
         def _make_result(rows):
@@ -540,7 +504,7 @@ class TestCapstoneLastSemester:
         )
         return session
 
-    def test_capstone_merges_into_last_normal_semester_when_room_exists(self):
+    def test_senior_course_shares_semester_when_credits_fit(self):
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -557,8 +521,8 @@ class TestCapstoneLastSemester:
         ))
 
         assert len(plan.semesters) == 1
-        assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "HSS404", "FREE"}
-        assert plan.semesters[0].total_credits == 12
+        assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "HSS404"}
+        assert plan.semesters[0].total_credits == 6
 
     def test_capstone_spills_to_new_semester_when_no_room(self):
         from src.services.plan import generate_plan
@@ -580,11 +544,8 @@ class TestCapstoneLastSemester:
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS100"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["HSS404"]
 
-    def test_capstone_with_its_own_prerequisite_still_deferred_correctly(self):
-        """A flagged course that also has a real prerequisite must still
-        wait for that prerequisite's actual placement — being flagged
-        doesn't let it skip ADR-27's dependency check, it only adds an
-        additional constraint on top."""
+    def test_senior_course_waits_for_its_actual_prerequisite(self):
+        """A senior label does not let a course bypass its recorded prerequisite."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -602,8 +563,8 @@ class TestCapstoneLastSemester:
 
         assert len(plan.semesters) == 2
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS490"]
-        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491", "FREE"]
-        assert plan.semesters[1].total_credits == 12
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
+        assert plan.semesters[1].total_credits == 3
 
     def test_multiple_capstone_courses_overflow_into_extra_semester_not_over_budget(self):
         from src.services.plan import generate_plan
@@ -625,16 +586,13 @@ class TestCapstoneLastSemester:
         assert len(plan.semesters) == 2
         assert plan.semesters[0].total_credits == 12
         assert len(plan.semesters[0].courses) == 4
-        assert plan.semesters[1].total_credits == 12
-        assert len(plan.semesters[1].courses) == 2
-        assert plan.semesters[1].courses[-1].course_code == "FREE"
+        assert plan.semesters[1].total_credits == 3
+        assert len(plan.semesters[1].courses) == 1
         all_placed = {c.course_code for sem in plan.semesters for c in sem.courses}
-        assert all_placed == {f"HSS40{i}" for i in range(1, 6)} | {"FREE"}
+        assert all_placed == {f"HSS40{i}" for i in range(1, 6)}
 
-    def test_no_capstone_courses_is_byte_identical_to_adr27_behavior(self):
-        """Regression: zero flagged courses must produce the exact same
-        output as before this feature existed — confirms this is purely
-        additive."""
+    def test_independent_courses_still_share_available_capacity(self):
+        """Independent courses retain ordinary credit-aware packing."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -654,17 +612,8 @@ class TestCapstoneLastSemester:
         assert {c.course_code for c in plan.semesters[0].courses} == {"CS100", "CS435"}
         assert plan.semesters[0].total_credits == 6
 
-    def test_normal_item_depending_on_capstone_item_drops_edge_and_warns_instead_of_hanging(self):
-        """
-        A normal item's prerequisite resolving to a capstone-flagged item
-        must not create an unsatisfiable cross-phase dependency. Phase 1
-        packing never places capstone items, so placed_at would never gain
-        an entry for that index and the normal item would stay permanently
-        blocked — an infinite loop in _pack_semesters' `while items_pool:`
-        with no `await` inside it, hanging the whole event loop, not just
-        one request. The edge must be dropped and surfaced as a warning
-        instead of silently ignored or left to hang.
-        """
+    def test_dependency_on_senior_course_is_honored_without_dropping_edge(self):
+        """All requirements share one pool, so this dependency remains enforceable."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -680,29 +629,17 @@ class TestCapstoneLastSemester:
             validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
         ))
 
-        assert {c.course_code for sem in plan.semesters for c in sem.courses} == {"CS500", "CS491", "FREE"}
+        assert {c.course_code for sem in plan.semesters for c in sem.courses} == {"CS500", "CS491"}
         placed_terms = {
             c.course_code: sem_idx
             for sem_idx, sem in enumerate(plan.semesters)
             for c in sem.courses
         }
-        assert placed_terms["CS500"] <= placed_terms["CS491"], (
-            "CS500 must not be deferred to wait for CS491 — the cross-phase "
-            "edge must be dropped, not honored"
-        )
-        assert any("CS500" in w for w in plan.warnings), (
-            "Dropping the cross-phase edge must be surfaced in a warning naming CS500"
-        )
+        assert placed_terms["CS491"] < placed_terms["CS500"]
+        assert not any("ordering could not be fully honored" in warning for warning in plan.warnings)
 
-    def test_capstone_listed_first_and_bigger_still_lands_after_normal_course(self):
-        """
-        Old single-phase code sorts by credits-descending, so a bigger capstone
-        course listed first in still_needed would get packed into semester 0
-        ahead of a smaller normal course — reproducing the exact bug this
-        feature exists to fix. This is a discriminating regression test: it
-        only passes if the two-phase split is genuinely running, not just if
-        must_be_last is tagged but unused.
-        """
+    def test_senior_label_does_not_override_credit_order_without_dependencies(self):
+        """A label alone cannot establish a final-semester restriction."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -719,22 +656,11 @@ class TestCapstoneLastSemester:
         ))
 
         assert len(plan.semesters) == 2
-        assert [c.course_code for c in plan.semesters[0].courses] == ["CS435"]
-        assert [c.course_code for c in plan.semesters[1].courses] == ["CS491"]
+        assert [c.course_code for c in plan.semesters[0].courses] == ["CS491"]
+        assert [c.course_code for c in plan.semesters[1].courses] == ["CS435"]
 
-    def test_capstone_items_with_different_prerequisite_depth_still_cluster_together(self):
-        """
-        Real user-reported bug: a capstone item with no prerequisite of its
-        own (HSS404) and a sibling capstone item genuinely delayed by a real
-        prerequisite chain on a NORMAL item (CS491 <- CS490 <- CS380) must
-        still land in the SAME final semester. Before the fix, HSS404 —
-        having no dependency — was individually eligible the moment Phase 2
-        started and got topped into whatever normal semester packing left
-        behind (here, CS490's semester), while CS491 kept waiting on its own
-        chain and landed in a later, separate semester — scattering the two
-        "must be last" courses instead of clustering them at the true end.
-        Verified against the real algorithm during design (see dev-log).
-        """
+    def test_independent_senior_seminar_does_not_wait_for_unrelated_chain(self):
+        """A seminar can fit earlier while the project follows its recorded chain."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -755,21 +681,13 @@ class TestCapstoneLastSemester:
         ))
 
         assert len(plan.semesters) == 3
-        assert [c.course_code for c in plan.semesters[0].courses] == ["CS380"]
+        assert {c.course_code for c in plan.semesters[0].courses} == {"CS380", "HSS404"}
         assert [c.course_code for c in plan.semesters[1].courses] == ["CS490"]
-        assert {c.course_code for c in plan.semesters[2].courses} == {"HSS404", "CS491", "FREE"}, (
-            "HSS404 and CS491 are both flagged must-be-last and must land "
-            "together in the true final semester, not scattered across two"
-        )
+        assert [c.course_code for c in plan.semesters[2].courses] == ["CS491"]
 
-    def test_thin_final_capstone_semester_is_padded_to_full_time_with_a_free_elective(self):
-        """
-        User's original request: if clustering senior/capstone requirements
-        together (this ADR) leaves the actual final semester under a
-        full-time course load, pad it out rather than showing the student a
-        3-credit last semester. A single lone capstone course with nothing
-        else eligible to pack alongside it is exactly that scenario.
-        """
+    @pytest.mark.parametrize("credit_target", [3, 6, 12, 15, 24])
+    def test_thin_final_capstone_semester_preserves_only_required_credits(self, credit_target):
+        """A credit target is a packing ceiling, not a minimum course load."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -778,20 +696,15 @@ class TestCapstoneLastSemester:
         session = self._mock_session(1, [
             {"course_code": "HSS404", "credits": 3, "title": "Seminar", "prerequisites": []},
         ])
-
         plan = asyncio.run(generate_plan(
-            validated, PlanPreferences.model_validate({"courses": [], "credits_per_semester": 15}), session,
+            validated, PlanPreferences(credits_per_semester=credit_target), session,
         ))
 
         assert len(plan.semesters) == 1
         last = plan.semesters[0]
-        assert last.total_credits == 12
-        codes = [c.course_code for c in last.courses]
-        assert codes == ["HSS404", "FREE"]
-        free = last.courses[1]
-        assert free.credits == 9
-        assert free.badge == "Elective"
-        assert "full-time" in free.reason.lower()
+        assert last.total_credits == 3
+        assert [course.course_code for course in last.courses] == ["HSS404"]
+        assert plan.projected_graduation == last.term_label
 
     def test_final_capstone_semester_already_full_time_is_not_padded(self):
         from src.services.plan import generate_plan
@@ -814,15 +727,8 @@ class TestCapstoneLastSemester:
         assert plan.semesters[0].total_credits == 12
         assert "FREE" not in {c.course_code for c in plan.semesters[0].courses}
 
-    def test_capstone_chain_serializes_across_consecutive_trailing_semesters(self):
-        """
-        A capstone item depending on another capstone item must still be
-        serialized across separate semesters, even with generous credit
-        headroom — this is the one code path unique to Phase 2 (checking
-        dependencies among items in its own pool, not inherited via
-        placed_at from Phase 1). Verified by the final review by actually
-        running this exact scenario.
-        """
+    def test_senior_course_chain_serializes_from_first_available_semester(self):
+        """A chain stays ordered without an artificial starting delay."""
         from src.services.plan import generate_plan
 
         validated = make_validated(still_needed=[
@@ -843,7 +749,7 @@ class TestCapstoneLastSemester:
         assert len(plan.semesters) == 3
         assert [c.course_code for c in plan.semesters[0].courses] == ["HSS400"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["HSS401"]
-        assert [c.course_code for c in plan.semesters[2].courses] == ["HSS402", "FREE"]
+        assert [c.course_code for c in plan.semesters[2].courses] == ["HSS402"]
 
 
 # ── Prerequisite dependency graph ───────────────────────────────────────────
@@ -1102,7 +1008,7 @@ class TestPrerequisiteAwarePlanning:
         assert len(plan.semesters) == 3
         assert [c.course_code for c in plan.semesters[0].courses] == ["CS288"]
         assert [c.course_code for c in plan.semesters[1].courses] == ["CS490"]
-        assert [c.course_code for c in plan.semesters[2].courses] == ["CS491", "FREE"]
+        assert [c.course_code for c in plan.semesters[2].courses] == ["CS491"]
 
     def test_credit_contention_delays_prerequisite_and_dependent_still_waits(self):
         """
@@ -1174,7 +1080,7 @@ class TestPrerequisiteAwarePlanning:
         ))
 
         assert (
-            "orders courses using scraped prerequisite data" in " ".join(plan.warnings)
+            "Review prerequisite and corequisite issues" in " ".join(plan.warnings)
         )
         assert not any("does not verify course prerequisites" in w for w in plan.warnings)
 

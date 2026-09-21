@@ -23,3 +23,29 @@ def test_generated_plan_uses_the_configured_default(monkeypatch, default, first)
     monkeypatch.setattr(settings, "CURRENT_TERM", default)
     plan = plan_for("CS999", [])
     assert plan.semesters[0].term == first
+
+
+@pytest.mark.parametrize("start", ["202510", "202690", "203190"])
+def test_explicit_start_overrides_server_default_without_collected_sections(monkeypatch, start):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from src.schemas.plan import PlanPreferences
+    from src.services.plan import generate_plan
+    from tests.plan.test_planner import make_validated
+
+    monkeypatch.setattr(settings, "CURRENT_TERM", "202510")
+    result = MagicMock()
+    result.mappings.return_value = []
+    session = AsyncMock()
+    session.execute.return_value = result
+    generated = asyncio.run(generate_plan(make_validated(), PlanPreferences(start_term=start), session))
+    assert generated.semesters[0].term == start
+    assert all(s.term >= start for s in generated.semesters)
+
+
+@pytest.mark.parametrize("start", ["", "2026", "202650", "202699", "000010", "999990", 202690, True])
+def test_invalid_or_unsupported_start_is_rejected(start):
+    from pydantic import ValidationError
+    from src.schemas.plan import PlanPreferences
+    with pytest.raises(ValidationError):
+        PlanPreferences(start_term=start)

@@ -1,135 +1,170 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { UploadZone } from '@/components/plan/upload-zone'
 import { DegreeSummary } from '@/components/plan/degree-summary'
 import { PreferencesForm } from '@/components/plan/preferences-form'
 import { SemesterPlan } from '@/components/plan/semester-plan'
 import { GerModal } from '@/components/plan/ger-modal'
+import { replacementChoices, validChoices, type RequirementChoices } from '@/lib/planner-choices'
+import type { PlannerPreferences } from '@/lib/planner-preferences'
+import { usePlannerTerms } from '@/hooks/usePlannerTerms'
+import { usePlannerPreferences } from '@/hooks/usePlannerPreferences'
+import { encodeSavedAudit, restoreSavedAudit } from '@/lib/planner-audit'
+import { encodeSavedPlan, restoreSavedPlan, isPlanForAudit, sameAudit, SAVED_PLAN_NOTICE, type PlanState } from '@/lib/planner-plan'
 import {
   generatePlan,
+  getApiErrorMessage,
   type ParsedDegreeValidated,
-  type SemesterPlan as SemesterPlanType,
 } from '@/lib/api'
 
-interface PlanState {
-  semesters: SemesterPlanType[]
-  graduation: string
-  warnings: string[]
-}
-
-interface GerModalState {
-  semesterTerm: string
-  courseCode: string
+function savePlan(plan: PlanState, audit: ParsedDegreeValidated) {
+  try {
+    localStorage.setItem('njit-dw-plan', encodeSavedPlan(plan, audit))
+  } catch { /* Keep the current plan usable when browser storage is unavailable. */ }
 }
 
 export default function PlannerPage() {
+  const plannerPreferences = usePlannerPreferences()
+  const plannerTerms = usePlannerTerms()
+  const startTerm = plannerPreferences.preferences?.startTerm || plannerTerms.defaultTerm
   const [parsed, setParsed] = useState<ParsedDegreeValidated | null>(null)
   const [loadedFromCache, setLoadedFromCache] = useState(false)
+  const [auditNotice, setAuditNotice] = useState<string | null>(null)
+  const [planNotice, setPlanNotice] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [plan, setPlan] = useState<PlanState | null>(null)
   const [generating, setGenerating] = useState(false)
-  const [gerModal, setGerModal] = useState<GerModalState | null>(null)
+  const [gerModal, setGerModal] = useState<string | null>(null)
+  const currentAudit = useRef<ParsedDegreeValidated | null>(null)
+
+  const request = useRef<AbortController | null>(null)
+  const modalCourse = plan?.semesters.flatMap((semester) => semester.courses).find((course) => course.slot_id === gerModal)
+
+  useEffect(() => () => { currentAudit.current = null; request.current?.abort() }, [])
+
+  function cancelGeneration() {
+    request.current?.abort()
+    request.current = null
+    setGenerating(false)
+  }
+
+  function closeModal() {
+    if (request.current) cancelGeneration()
+    setGerModal(null)
+    setPlanNotice(null)
+  }
 
   useEffect(() => {
+    let restored: ParsedDegreeValidated | null = null
     try {
       const raw = localStorage.getItem('njit-dw-parsed')
       if (raw) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setParsed(JSON.parse(raw) as ParsedDegreeValidated)
+        restored = restoreSavedAudit(raw)
+        if (!restored) {
+          // Browser storage is restored after hydration, never during SSR.
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setAuditNotice('Your saved audit is incomplete or uses an unsupported format. Upload your DegreeWorks PDF again to refresh the requirements.')
+          return
+        }
+        setParsed(restored)
+        currentAudit.current = restored
         setLoadedFromCache(true)
+        localStorage.setItem('njit-dw-parsed', encodeSavedAudit(restored))
       }
     } catch { /* ignore */ }
 
+    // A generated plan cannot be restored without a usable source audit.
+    if (!restored) return
     try {
       const rawPlan = localStorage.getItem('njit-dw-plan')
       if (rawPlan) {
-        const p = JSON.parse(rawPlan) as { semesters: SemesterPlanType[]; graduation: string }
-        setPlan({ semesters: p.semesters, graduation: p.graduation, warnings: [] })
+        const saved = restoreSavedPlan(rawPlan, restored)
+        if (saved) setPlan(saved)
+        else setPlanNotice(SAVED_PLAN_NOTICE)
       }
     } catch { /* ignore */ }
   }, [])
 
   function handleParsed(newParsed: ParsedDegreeValidated) {
+    cancelGeneration()
+    setGerModal(null)
+    currentAudit.current = newParsed
     setParsed(newParsed)
+    setAuditNotice(null)
+    setPlanNotice(null)
+    setGenerating(false)
     setLoadedFromCache(false)
     setShowUpload(false)
     setPlan(null)
     try { localStorage.removeItem('njit-dw-plan') } catch { /* ignore */ }
   }
 
-  function handlePlanGenerated(
-    semesters: SemesterPlanType[],
-    graduation: string,
-    warnings: string[],
-  ) {
-    setPlan({ semesters, graduation, warnings })
-  }
-
-  async function handleRegenerate() {
-    if (!parsed || generating) return
+  async function runGeneration(
+    preferences: PlannerPreferences,
+    choices: RequirementChoices = plan?.requirementChoices || {},
+    fallback = 'Failed to generate plan. Please try again.',
+  ): Promise<boolean> {
+    const submittedStartTerm = preferences.startTerm || plannerTerms.defaultTerm
+    if (!parsed || !submittedStartTerm || request.current) return false
+    const sourceAudit = parsed
+    const controller = new AbortController()
+    request.current = controller
     setGenerating(true)
+    setPlanNotice(null)
     try {
-      let courses: string[] = []
-      let credits_per_semester = 15
-      try {
-        const raw = localStorage.getItem('njit-dw-preferences')
-        if (raw) {
-          const prefs = JSON.parse(raw) as { courses: string[]; creditsPerSemester: number }
-          courses = prefs.courses || []
-          credits_per_semester = prefs.creditsPerSemester || 15
-        }
-      } catch { /* ignore */ }
-
-      const res = await generatePlan(parsed, { courses, credits_per_semester })
-      const newPlan: PlanState = {
-        semesters: res.semesters,
-        graduation: res.projected_graduation,
-        warnings: res.warnings,
+      if (!validChoices(choices, sourceAudit)) {
+        setPlanNotice('Your course choices no longer match this audit. Reset course choices and try again.')
+        return false
+      }
+      const res = await generatePlan(sourceAudit, {
+        courses: preferences.courses, credits_per_semester: preferences.creditsPerSemester,
+        start_term: submittedStartTerm,
+        ...(Object.keys(choices).length ? { requirement_choices: choices } : {}),
+      }, { signal: controller.signal })
+      if (request.current !== controller || controller.signal.aborted
+        || !currentAudit.current || !sameAudit(currentAudit.current, sourceAudit)) return false
+      const newPlan: PlanState = { semesters: res.semesters, graduation: res.projected_graduation,
+        warnings: res.warnings, startTerm: submittedStartTerm,
+        ...(Object.keys(choices).length ? { requirementChoices: choices } : {}) }
+      if (!isPlanForAudit(newPlan, sourceAudit)) {
+        setPlanNotice('The generated plan did not preserve your selected requirements. Your previous plan has been kept.')
+        return false
       }
       setPlan(newPlan)
-      try {
-        localStorage.setItem(
-          'njit-dw-plan',
-          JSON.stringify({ semesters: res.semesters, graduation: res.projected_graduation }),
-        )
-      } catch { /* ignore */ }
-    } catch { /* errors shown inline in SemesterPlan */ } finally {
-      setGenerating(false)
+      savePlan(newPlan, sourceAudit)
+      return true
+    } catch (error) {
+      if (request.current === controller && !controller.signal.aborted) setPlanNotice(getApiErrorMessage(error, fallback))
+      return false
+    } finally {
+      if (request.current === controller) {
+        request.current = null
+        setGenerating(false)
+      }
     }
   }
 
-  function handleSwap(newCode: string) {
-    if (!plan || !gerModal?.courseCode) return
-    const affectedRequirements = new Set(plan.semesters
-      .filter((sem) => sem.term === gerModal.semesterTerm)
-      .flatMap((sem) => sem.courses)
-      .filter((course) => course.course_code === gerModal.courseCode && course.requirement)
-      .map((course) => course.requirement!.requirement_id))
-    const updated = plan.semesters.map((sem) => ({
-      ...sem,
-      courses: sem.courses.map((course) => {
-        let updatedCourse = course
-        if (sem.term === gerModal.semesterTerm && course.course_code === gerModal.courseCode) {
-          updatedCourse = { ...course, course_code: newCode, title: null, title_status: 'missing',
-            catalog_status: 'unknown', catalog_note: 'Catalog coverage for this replacement has not been checked. Regenerate the plan to check it.',
-            credits_estimated: true, credits_note: 'Credits for this replacement are unverified; this amount is an estimate.' }
-        }
-        if (course.requirement && course.allocation && affectedRequirements.has(course.requirement.requirement_id)) {
-          updatedCourse = { ...updatedCourse, allocation: { ...course.allocation,
-            allocated_quantity: null, unresolved_quantity: null, status: 'unknown' } }
-        }
-        return updatedCourse
-      }),
-    }))
-    const newPlan = { ...plan, semesters: updated }
-    setPlan(newPlan)
+  async function handleRegenerate() {
+    if (!plannerPreferences.preferences || !startTerm) return
+    const preferences = { ...plannerPreferences.preferences, startTerm }
+    plannerPreferences.update(preferences)
+    await runGeneration(preferences, plan?.requirementChoices || {}, 'Could not regenerate the plan. Please try again.')
+  }
+
+  async function handleSwap(newCode: string) {
+    if (!plan || !parsed || !modalCourse || !plannerPreferences.preferences || request.current) return
     try {
-      localStorage.setItem(
-        'njit-dw-plan',
-        JSON.stringify({ semesters: updated, graduation: plan.graduation }),
-      )
-    } catch { /* ignore */ }
+      const choices = replacementChoices(plan.semesters, plan.requirementChoices || {}, modalCourse.slot_id, newCode)
+      const preferences = { ...plannerPreferences.preferences, startTerm,
+        courses: [...new Set(plannerPreferences.preferences.courses.map((code) => code === modalCourse.course_code ? newCode : code))] }
+      if (await runGeneration(preferences, choices, 'Could not replace this course. Your previous plan has been kept.')) {
+        plannerPreferences.update(preferences)
+        setGerModal(null)
+      }
+    } catch (error) {
+      setPlanNotice(getApiErrorMessage(error, 'Could not replace this course. Your previous plan has been kept.'))
+    }
   }
 
   // No degree data yet — full-page upload prompt
@@ -141,6 +176,7 @@ export default function PlannerPage() {
           <p className="text-sm text-muted mb-8">
             Upload your DegreeWorks PDF to generate a semester-by-semester graduation plan.
           </p>
+          {auditNotice && <p role="status" className="text-sm text-muted mb-6">{auditNotice}</p>}
           <UploadZone onParsed={handleParsed} />
           {showUpload && (
             <button
@@ -167,7 +203,7 @@ export default function PlannerPage() {
           <div className="mt-6 flex items-center justify-between rounded-lg border border-border bg-surface-2 px-4 py-2.5">
             <p className="text-xs text-muted">Loaded from your last session.</p>
             <button
-              onClick={() => setShowUpload(true)}
+              onClick={() => { cancelGeneration(); setShowUpload(true) }}
               className="text-xs text-muted underline underline-offset-2 hover:text-text transition-colors duration-150"
             >
               Upload new PDF
@@ -179,25 +215,38 @@ export default function PlannerPage() {
           {/* Left column */}
           <div className="space-y-6">
             <DegreeSummary parsed={parsed} />
-            <PreferencesForm
-              parsed={parsed}
-              onPlanGenerated={handlePlanGenerated}
-              onBrowseGer={() => setGerModal({ semesterTerm: '', courseCode: '' })}
-            />
+            {plannerPreferences.notice && <p role="status" className="text-sm text-muted">{plannerPreferences.notice}</p>}
+            {plannerPreferences.preferences ? <PreferencesForm
+              generating={generating}
+              preferences={plannerPreferences.preferences}
+              defaultStartTerm={plannerTerms.defaultTerm}
+              startTermError={plannerTerms.error}
+              onRetryStartTerm={plannerTerms.retry}
+              onPreferencesChange={plannerPreferences.update}
+              onGenerate={runGeneration}
+              onBrowseGer={() => setGerModal('browse')}
+            /> : <p className="text-sm text-muted">Loading preferences…</p>}
           </div>
 
           {/* Right column */}
           <div className="min-w-0">
+            {planNotice && !gerModal && <p role="status" className="text-sm text-muted mb-4">{planNotice}</p>}
+            {!!plan?.requirementChoices && <button disabled={generating} onClick={() => {
+              if (plannerPreferences.preferences) void runGeneration(plannerPreferences.preferences, {})
+            }} className="mb-3 text-xs text-muted underline underline-offset-2 disabled:opacity-40">Reset course choices</button>}
             {plan ? (
               <SemesterPlan
                 semesters={plan.semesters}
                 graduation={plan.graduation}
                 warnings={plan.warnings}
                 generating={generating}
+                regenerateDisabled={!plannerPreferences.preferences || !startTerm}
+                startTerm={plan.startTerm}
                 onRegenerate={handleRegenerate}
-                onSwapCourse={(semesterTerm, courseCode) =>
-                  setGerModal({ semesterTerm, courseCode })
-                }
+                onSwapCourse={!generating && plannerPreferences.preferences && startTerm ? (slotId) => {
+                  setPlanNotice(null)
+                  setGerModal(slotId)
+                } : undefined}
               />
             ) : (
               <div className="flex items-center justify-center h-64 rounded-xl border border-border bg-surface">
@@ -212,9 +261,15 @@ export default function PlannerPage() {
 
       <GerModal
         isOpen={gerModal !== null}
-        courseCode={gerModal?.courseCode ?? ''}
-        onClose={() => setGerModal(null)}
-        onSwap={handleSwap}
+        courseCode={modalCourse?.course_code || ''}
+        requirement={modalCourse?.requirement || undefined}
+        unavailable={[...parsed.completed_courses, ...parsed.in_progress_courses,
+          ...(plan?.semesters.flatMap((semester) => semester.courses).filter((course) => course.slot_id !== gerModal)
+            .map((course) => course.course_code) || [])]}
+        submitting={generating}
+        submitError={planNotice}
+        onClose={closeModal}
+        onSwap={modalCourse ? handleSwap : undefined}
       />
     </>
   )

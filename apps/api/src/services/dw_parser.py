@@ -27,6 +27,10 @@ _OPTION_TOKEN_RE = re.compile(
 # Otherwise malformed "CS @ @" could become CSXXX plus unrestricted @.
 _OPTION_SEPARATOR_RE = re.compile(r"\s*(?i:or)\b\s*|\s*,\s*|[ \t]*\n\s*")
 
+# These expression words can resemble departments before an inherited number
+# on a wrapped line (e.g. "AND 491"). They must never become course subjects.
+_OPTION_RESERVED_WORDS = {"AND", "OR", "WITH", "ONLY", "GRADE", "FROM"}
+
 # Preserve the existing exclusion, but retain its context so subsequent bare
 # numbers cannot accidentally inherit the preceding NJIT department.
 _RUTGERS_DEPTS = {"R510", "R512"}
@@ -114,7 +118,7 @@ def _extract_course_codes(text: str) -> list[str]:
     pos = 0
     while pos < len(text):
         match = _OPTION_TOKEN_RE.match(text, pos)
-        if match is None:
+        if match is None or match["dept"] in _OPTION_RESERVED_WORDS:
             return []
         code = None
         if match["universal"]:

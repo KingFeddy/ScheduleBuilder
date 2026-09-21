@@ -56,7 +56,7 @@ test('reports incomplete elective coverage and marks retained course rows', asyn
   await page.goto('/planner')
   await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
   await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
-  await page.getByRole('button', { name: 'swap →', exact: true }).click()
+  await page.getByRole('button', { name: 'View available GER Humanities courses →', exact: true }).click()
   await expect(page.getByText('Subjects outside collection scope: HUM. Data in these subjects is not refreshed.', { exact: true })).toBeVisible()
   await expect(page.getByText('Subject outside collection scope.', { exact: true })).toBeVisible()
   await expect(page.getByText('Browsing a subject does not confirm that a course satisfies this requirement.', { exact: true })).toBeVisible()

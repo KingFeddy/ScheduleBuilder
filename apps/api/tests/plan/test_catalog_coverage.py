@@ -100,3 +100,27 @@ def test_present_course_does_not_claim_eligibility(monkeypatch):
     assert course.catalog_status == "present"
     assert course.catalog_note == ""
     assert course.credits_estimated is True
+
+
+@pytest.mark.parametrize("code", ["BME301", "ECON201", "EVSC101", "OPSE301"])
+def test_default_scope_includes_subjects_from_the_expanded_refresh(monkeypatch, code):
+    from src.catalog import DEFAULT_CATALOG_SUBJECTS
+    monkeypatch.setattr(settings, "CATALOG_SUBJECTS", DEFAULT_CATALOG_SUBJECTS)
+    generated = plan_for(code, [{"course_code": code, "title": "Synthetic title", "credits": 3, "prerequisites": []}])
+    course = generated.semesters[0].courses[0]
+    assert course.catalog_status == "present"
+    assert not any("outside" in warning for warning in generated.warnings)
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_explicit_scope_override_does_not_claim_whether_a_course_was_refreshed(monkeypatch, exists):
+    from src.services.catalog import course_coverage, scope_warnings
+    monkeypatch.setattr(settings, "CATALOG_SUBJECTS", "CS")
+    status, note = course_coverage("BME301", exists=exists)
+    assert status == "subject_not_configured"
+    assert ("present" if exists else "missing") in note
+    assert "automatic refresh scope" in note
+    assert "not refreshed" not in note
+    warnings = scope_warnings(["CS", "BME"], {"CS", "BME"} if exists else {"CS"})
+    assert any("automatic refresh scope" in warning for warning in warnings)
+    assert all("not refreshed" not in warning for warning in warnings)

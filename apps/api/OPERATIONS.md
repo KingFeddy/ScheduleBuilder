@@ -1,8 +1,148 @@
 # API operations
 
-Return to the [project README](../../README.md) for local setup, or see
-[README.md](../../README.md#running-checks) for tests and API contract generation.
+Setup, testing, and deployment instructions for developers.
+Return to the [project README](../../README.md) for an overview of the app.
+
+- [Local setup](#local-setup)
+- [Running checks](#running-checks)
+- [Deployment](#deployment)
+- [Database migrations](#database-migrations)
+
 Run Python commands from `apps/api` unless a section says otherwise.
+
+## Local setup
+
+### Prerequisites
+
+- Node.js **20.9+** and **pnpm 9.15.0**
+- Python **3.12+** and **uv** (CI uses 0.11.8)
+- Docker for the local PostgreSQL database, or your own PostgreSQL 16 instance
+
+### 1. Install
+
+```bash
+git clone https://github.com/KingFeddy/ScheduleBuilder.git
+cd ScheduleBuilder
+pnpm install --frozen-lockfile
+(cd apps/api && uv sync --locked)
+cp apps/api/.env.example apps/api/.env
+```
+
+### 2. Start PostgreSQL
+
+```bash
+docker run --name njit-dev -d \
+  -e POSTGRES_DB=njit_dev -e POSTGRES_PASSWORD=password \
+  -p 127.0.0.1:5432:5432 \
+  -v njit-dev-data:/var/lib/postgresql/data postgres:16
+
+docker exec njit-dev pg_isready -U postgres -d njit_dev
+```
+
+Wait for “accepting connections” before continuing. These credentials are local
+only. On later visits, restart the container with `docker start njit-dev`.
+
+### 3. Set up the API and collect courses
+
+The copied `apps/api/.env` already matches this database. Its Supabase placeholders
+can stay for local use; the backend connects directly to PostgreSQL.
+Set `CURRENT_TERM` to a semester available in Banner. For a smaller development
+catalog, add `CATALOG_SUBJECTS=CS,MATH` to `.env`.
+
+From the repository root:
+
+```bash
+cd apps/api
+export MIGRATION_DATABASE_URL='postgresql+asyncpg://postgres:password@localhost:5432/njit_dev'
+uv run --no-sync python -m scripts.migrate apply
+DATABASE_URL="$MIGRATION_DATABASE_URL" uv run --no-sync python -m scripts.verify_migrations
+```
+
+For another database, update both `.env`'s `DATABASE_URL` and the URL above.
+The migration command requires an explicit URL; it does not load `.env`.
+See [migration notes](#database-migrations) for existing databases.
+
+A fresh database has no courses. Still in `apps/api`, install Chromium and fetch
+live Banner/RMP data. On Linux, first run
+`uv run --no-sync playwright install-deps chromium`.
+
+```bash
+uv run --no-sync playwright install chromium
+uv run --no-sync python -m src.scrapers.cron
+```
+
+Collection needs network access and may take several minutes. Check the scraper
+output before trying to generate schedules.
+
+### 4. Run
+
+Start the API from `apps/api`:
+
+```bash
+uv run --no-sync uvicorn main:app --reload --port 8000
+```
+
+In a second terminal at the repository root:
+
+```bash
+pnpm --filter web dev
+```
+
+Open the [scheduler](http://localhost:3000/scheduler) or
+[planner](http://localhost:3000/planner). The frontend proxies API requests to port
+8000, so leave `NEXT_PUBLIC_API_URL` unset. Explore endpoints in
+[Swagger UI](http://localhost:8000/docs).
+
+## Running checks
+
+From the repository root:
+
+```bash
+pnpm --filter web typecheck
+pnpm --filter web lint
+pnpm --filter web test:unit
+(cd apps/api && uv run --no-sync pytest tests/ -m "not database" -q)
+```
+
+Run only the checks relevant to your change, using focused existing tests where
+possible. CI runs backend tests, frontend type checks, unit tests, and linting;
+changes limited to the README, agent instructions, `docs/`, or `assets/` skip it.
+
+For browser tests using synthetic API responses:
+
+```bash
+pnpm --filter web exec playwright install chromium
+pnpm --filter web test:e2e
+# Run one browser test file when only that workflow changed:
+pnpm --filter web test:e2e e2e/scheduler.spec.ts
+```
+
+For database tests, start the disposable test service with Docker running:
+
+```bash
+docker compose -f compose.test.yml up -d --wait
+(cd apps/api && \
+  MIGRATION_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
+    uv run --no-sync python -m scripts.migrate apply && \
+  APP_ENV=test \
+  TEST_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
+    uv run --no-sync pytest tests/ -q)
+docker compose -f compose.test.yml down --volumes
+```
+
+Tests verify the disposable database before running and never use the application
+database or `.env`. Its data is discarded when stopped; reapply migrations after
+restarting it. The credentials above are for this test service only.
+
+After changing API request or response models, regenerate the API contract:
+
+```bash
+(cd apps/api && uv run --no-sync python -m scripts.export_openapi)
+pnpm --filter web api:generate
+pnpm --filter web typecheck
+```
+
+Include the generated OpenAPI snapshot and frontend types with the model changes.
 
 ## Deployment
 

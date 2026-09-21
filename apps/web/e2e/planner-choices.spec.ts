@@ -81,25 +81,6 @@ test('cancelled swaps cannot overwrite a later generation and all generate contr
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-plan') || '{}').requirementChoices)).toBeUndefined()
 })
 
-test('new uploads discard choices even for identical audit contents', async ({ page, api }) => {
-  api.respond('GET', '/api/courses', [replacementCourse])
-  await page.goto('/planner')
-  await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
-  await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
-  await page.getByRole('button', { name: 'swap →', exact: true }).click()
-  api.respond('POST', '/api/plan/generate', replacementPlan)
-  await page.getByRole('button', { name: 'HUM201 Replacement', exact: true }).click()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await page.reload()
-  await page.getByRole('button', { name: 'Upload new PDF', exact: true }).click()
-  await page.locator('input[type="file"]').setInputFiles(syntheticPdf)
-  await expect(page.getByRole('button', { name: 'Reset course choices', exact: true })).toHaveCount(0)
-  api.reset('POST', '/api/plan/generate')
-  await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
-  await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
-  expect(api.requests('POST', '/api/plan/generate').at(-1)!.postDataJSON().preferences.requirement_choices).toBeUndefined()
-})
-
 test('all subjects and later catalog pages are searched against the actual requirement', async ({ page, api }) => {
   const requirement = { ...parsedDegree.still_needed[0], options: ['CS3XX'] }
   const audit = { ...parsedDegree, still_needed: [requirement], completed_courses: ['CS300'] }

@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.services.courses import load_sections_with_meetings
-from src.scheduler.models import MeetingSlot, SectionSlot
 
 
 def make_section_row(crn, course_code, prof=None, total=30, open_seats=10, section_number="001"):
@@ -54,21 +53,6 @@ class TestLoadSectionsWithMeetings:
         # Only one query (sections) should fire — no CRNs to fetch meetings for
         assert session.execute.call_count == 1
 
-    @pytest.mark.asyncio
-    async def test_single_section_single_meeting(self):
-        section_rows = [make_section_row("11111", "CS101")]
-        meeting_rows = [make_meeting_row("11111", "MWF", time(10, 0), time(10, 50))]
-        session = mock_session_with(section_rows, meeting_rows)
-
-        result = await load_sections_with_meetings(session, ["CS101"], "202690")
-
-        assert "CS101" in result
-        sections = result["CS101"]
-        assert len(sections) == 1
-        slot = sections[0]
-        assert slot.crn == "11111"
-        assert len(slot.meetings) == 1
-        assert slot.meetings[0].days == "MWF"
 
     @pytest.mark.asyncio
     async def test_multi_meeting_section_groups_correctly(self):

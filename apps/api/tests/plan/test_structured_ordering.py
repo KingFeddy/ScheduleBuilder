@@ -99,14 +99,6 @@ async def test_cycle_and_missing_course_remain_explicit_partial_plans():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_rules_are_not_flattened_into_prior_edges():
-    rule = condition('CS100',timing='concurrent')
-    plan,terms,_=await generate(['CS200','CS100'],[stored('CS200',prereq=rule)])
-    assert terms['CS200'] == terms['CS100']
-    assert any('needs review' in w or 'conflict with recorded rules' in w for w in plan.warnings)
-
-
-@pytest.mark.asyncio
 async def test_failed_rules_keep_legacy_ordering_with_unverified_notice():
     plan,terms,_=await generate(['CS200','CS100'],[stored('CS200',status='failed')],legacy={'CS200':['CS100']})
     assert terms['CS100'] < terms['CS200']

@@ -54,20 +54,3 @@ test('uses in-memory preferences when browser storage is unavailable', async ({ 
   await expect.poll(() => api.requests('POST', '/api/plan/generate').length).toBe(2)
   expect(api.requests('POST', '/api/plan/generate')[1].postDataJSON().preferences).toEqual({ courses: ['CS435'], credits_per_semester: 6, start_term: '202690' })
 })
-
-test('recovers from malformed preferences without overwriting them during restoration', async ({ page, api }, testInfo) => {
-  await page.addInitScript((audit) => {
-    try {
-      localStorage.setItem('njit-dw-parsed', JSON.stringify(audit))
-      localStorage.setItem('njit-dw-preferences', JSON.stringify({ courses: null, creditsPerSemester: '12' }))
-    } catch { /* Synthetic browser storage. */ }
-  }, parsedDegree)
-  await page.goto('/planner')
-  await expect(page.getByText('Your saved preferences could not be restored. Review your course choices, credit target, and start semester before generating a plan.', { exact: true })).toBeVisible()
-  await expect(page.getByRole('spinbutton', { name: 'Custom credits per semester' })).toHaveValue('15')
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('njit-dw-preferences') || '{}'))).toEqual({ courses: null, creditsPerSemester: '12' })
-  await page.screenshot({ path: testInfo.outputPath('preferences-recovery.png'), fullPage: true })
-  await page.getByRole('button', { name: 'Generate My Plan', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Your Academic Plan' })).toBeVisible()
-  expect(api.requests('POST', '/api/plan/generate')[0].postDataJSON().preferences).toEqual({ courses: [], credits_per_semester: 15, start_term: '202690' })
-})

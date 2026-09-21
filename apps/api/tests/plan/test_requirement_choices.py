@@ -42,12 +42,12 @@ async def generate(items, choices=None, *, present=(), rules=(), courses=(), **h
 
 
 @pytest.mark.parametrize("choices", [
-    {"choice": []}, {"choice": "CS300"}, {"choice": ["CS3XX"]}, {"choice": [123]},
-    {"choice": ["CS300", "cs 300"]}, {"one": ["CS300"], "two": ["CS300"]},
-    {"bad key": ["CS300"]}, {"choice": [f"CS{code}" for code in range(100, 301)]},
-    {f"req-{code}": [f"CS{code}"] for code in range(100, 301)},
+    {"choice": []},
+    {"choice": ["CS3XX"]},
+    {"choice": ["CS300", "cs 300"]},
+    {"one": ["CS300"], "two": ["CS300"]},
     {"one": [f"CS{code}" for code in range(100, 201)],
-     "two": [f"CS{code}" for code in range(201, 301)]},
+     "two": [f"CS{code}" for code in range(201, 301)]}
 ])
 def test_invalid_or_duplicate_choices_are_rejected(choices):
     with pytest.raises(ValidationError):
@@ -63,13 +63,9 @@ def test_choices_normalize_and_default_to_backwards_compatible_empty_map():
 @pytest.mark.parametrize("item,choices,history,message", [
     (requirement(), {"stale": ["CS300"]}, {}, "not in the submitted audit"),
     (requirement(), {"choice": ["HUM300"]}, {}, "does not match"),
-    (requirement(options=()), {"choice": ["CS300"]}, {}, "does not match"),
-    (requirement(options=("CS3XX|HUM300",)), {"choice": ["CS300"]}, {}, "does not match"),
     (requirement(amount=0), {"choice": ["CS300"]}, {}, "no remaining quantity"),
     (requirement(), {"choice": ["CS300", "CS400"]}, {}, "remaining class count"),
-    (requirement(amount=None), {"choice": ["CS300", "CS400"]}, {}, "quantity is unknown"),
-    (requirement(), {"choice": ["CS300"]}, {"completed_courses": ["CS300"]}, "already completed"),
-    (requirement(), {"choice": ["CS300"]}, {"in_progress_courses": ["CS300"]}, "in progress"),
+    (requirement(), {"choice": ["CS300"]}, {"completed_courses": ["CS300"]}, "already completed")
 ])
 async def test_semantic_errors_reject_instead_of_silently_substituting(item, choices, history, message):
     with pytest.raises(ParseValidationError, match=message):

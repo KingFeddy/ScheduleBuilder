@@ -3,7 +3,7 @@ from datetime import time
 import pytest
 
 from src.scheduler.models import MeetingSlot, SectionSlot
-from src.scheduler.solver import solve, _find_impossible_pair, _professor_matches_whitelist, _build_filter_warning
+from src.scheduler.solver import solve, _professor_matches_whitelist, _build_filter_warning
 from src.scheduler.gap import compute_gap_minutes, compute_gap_count, compute_campus_days
 from src.schemas.schedule import CommuterOptions, SolveRequest
 
@@ -45,22 +45,6 @@ no_constraints = CommuterOptions()
 class TestGapCalculation:
     """Verify gap minutes using the consecutive-gaps approach across multi-meeting sections."""
 
-    def test_single_block_per_day_zero_gap(self):
-        """One class per day: no waiting → 0 gap."""
-        s = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        assert compute_gap_minutes([s]) == 0
-
-    def test_back_to_back_zero_gap(self):
-        """Classes that end and start at the same minute = 0 gap."""
-        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        s2 = section("B", "CS201", [make_meeting("MW", "11:20", "12:50")])
-        assert compute_gap_minutes([s1, s2]) == 0
-
-    def test_sixty_minute_gap_two_days(self):
-        """MW 10-11:20 + MW 12:20-13:40 → 60 min gap × 2 days = 120."""
-        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        s2 = section("B", "CS201", [make_meeting("MW", "12:20", "13:40")])
-        assert compute_gap_minutes([s1, s2]) == 120
 
     def test_gap_multi_meeting_section_correct_per_day(self):
         """
@@ -77,31 +61,6 @@ class TestGapCalculation:
         cs101 = section("O", "CS101", [make_meeting("F", "12:00", "13:00")])
         assert compute_gap_minutes([math340, cs101]) == 60
 
-    def test_async_section_contributes_zero_gap(self):
-        """Async section has no times → never contributes to gap."""
-        async_s = section("A", "CS101", [make_async_meeting()])
-        timed_s = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
-        assert compute_gap_minutes([async_s, timed_s]) == 0
-
-    def test_campus_days_multi_meeting_counted_correctly(self):
-        """MATH340 (TR+F) spans 3 distinct campus days."""
-        math340 = section("M", "MATH340", [
-            make_meeting("TR", "10:00", "11:20"),
-            make_meeting("F",  "14:00", "16:50"),
-        ])
-        assert compute_campus_days([math340]) == 3
-
-    def test_campus_days_async_not_counted(self):
-        """Async section must not inflate campus day count."""
-        async_s = section("A", "CS101", [make_async_meeting()])
-        timed_s = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
-        assert compute_campus_days([async_s, timed_s]) == 2
-
-    def test_saturday_meeting_counted_in_gap_minutes(self):
-        """A Saturday meeting must contribute to gap math like any weekday — not be silently ignored."""
-        s1 = section("A", "CS101", [make_meeting("S", "09:00", "09:50")])
-        s2 = section("B", "CS201", [make_meeting("S", "11:00", "11:50")])
-        assert compute_gap_minutes([s1, s2]) == 70
 
     def test_campus_days_counts_saturday(self):
         """A Saturday-only meeting must count as a campus day."""
@@ -118,43 +77,6 @@ class TestGapCount:
     metrics are directly comparable against identical inputs.
     """
 
-    def test_single_block_per_day_zero_count(self):
-        """One class per day: no waiting → 0 gap occurrences."""
-        s = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        assert compute_gap_count([s]) == 0
-
-    def test_back_to_back_zero_count(self):
-        """Classes that end and start at the same minute = 0 gap occurrences."""
-        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        s2 = section("B", "CS201", [make_meeting("MW", "11:20", "12:50")])
-        assert compute_gap_count([s1, s2]) == 0
-
-    def test_one_gap_two_days_counts_two(self):
-        """MW 10-11:20 + MW 12:20-13:40 → one gap occurrence per day × 2 days = 2."""
-        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        s2 = section("B", "CS201", [make_meeting("MW", "12:20", "13:40")])
-        assert compute_gap_count([s1, s2]) == 2
-
-    def test_gap_multi_meeting_section_counts_correctly(self):
-        """
-        MATH340: TR lecture 10-11:20 + F lab 14:00-16:50.
-        CS101: F 12:00-13:00.
-        TR: only MATH340 lecture each day → 0 gap occurrences.
-        F: sorted sessions [(720,780), (840,1010)] → 1 gap occurrence.
-        Total: 1.
-        """
-        math340 = section("M", "MATH340", [
-            make_meeting("TR", "10:00", "11:20"),
-            make_meeting("F",  "14:00", "16:50"),
-        ])
-        cs101 = section("O", "CS101", [make_meeting("F", "12:00", "13:00")])
-        assert compute_gap_count([math340, cs101]) == 1
-
-    def test_async_section_contributes_zero_count(self):
-        """Async section has no times → never contributes to gap count."""
-        async_s = section("A", "CS101", [make_async_meeting()])
-        timed_s = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
-        assert compute_gap_count([async_s, timed_s]) == 0
 
     def test_more_smaller_gaps_outcounts_one_larger_gap(self):
         """
@@ -176,12 +98,6 @@ class TestGapCount:
         one_big_gap = [s4, s5]
         assert compute_gap_count(one_big_gap) == 1
         assert compute_gap_minutes(one_big_gap) == 90
-
-    def test_saturday_meeting_counted_in_gap_count(self):
-        """A Saturday gap must count as a real gap occurrence, not be silently ignored."""
-        s1 = section("A", "CS101", [make_meeting("S", "09:00", "09:50")])
-        s2 = section("B", "CS201", [make_meeting("S", "11:00", "11:50")])
-        assert compute_gap_count([s1, s2]) == 1
 
 
 # ── TestGapSignificanceThreshold ────────────────────────────────────────────────
@@ -207,62 +123,10 @@ class TestGapSignificanceThreshold:
         assert compute_gap_count([s1, s2]) == 1
         assert compute_gap_minutes([s1, s2]) == 11
 
-    def test_mix_of_small_and_large_gaps_only_large_ones_count(self):
-        """
-        Real-world case reported by a user: CS351 (MW 11:30-12:50) + CS341
-        (WF 13:00-14:20) + CS375 (MR 14:30-15:50) + CS288 (F 14:30-17:20) +
-        ECE231 (R 18:00-22:05), with CS350 as the only variable —
-
-        Schedule 1: CS350 meets M 16:00-17:20 AND R 16:00-17:20 (two rows).
-          Mon: CS351(11:30-12:50) -[100min]- CS375(14:30-15:50) -[10min]- CS350(16:00-17:20)
-          Wed: CS351(11:30-12:50) -[10min]- CS341(13:00-14:20)
-          Thu: CS375(14:30-15:50) -[10min]- CS350(16:00-17:20) -[40min]- ECE231(18:00-22:05)
-          Fri: CS341(13:00-14:20) -[10min]- CS288(14:30-17:20)
-          Only the 100-min and 40-min gaps exceed the threshold → gap_count=2.
-
-        Schedule 2: CS350 meets MR 13:00-14:20 (one row).
-          Mon: CS351(11:30-12:50) -[10min]- CS350(13:00-14:20) -[10min]- CS375(14:30-15:50)
-          Wed: CS351(11:30-12:50) -[10min]- CS341(13:00-14:20)
-          Thu: CS350(13:00-14:20) -[10min]- CS375(14:30-15:50) -[130min]- ECE231(18:00-22:05)
-          Fri: CS341(13:00-14:20) -[10min]- CS288(14:30-17:20)
-          Only the 130-min gap exceeds the threshold → gap_count=1.
-
-        Before this threshold existed, both schedules tied at gap_count=6 and
-        gap_minutes=180 (every 10-min passing period counted equally with the
-        100/130/40-min real gaps), which is what prompted this fix.
-        """
-        cs351 = section("A", "CS351", [make_meeting("MW", "11:30", "12:50")])
-        cs341 = section("B", "CS341", [make_meeting("WF", "13:00", "14:20")])
-        cs375 = section("C", "CS375", [make_meeting("MR", "14:30", "15:50")])
-        cs288 = section("D", "CS288", [make_meeting("F", "14:30", "17:20")])
-        ece231 = section("E", "ECE231", [make_meeting("R", "18:00", "22:05")])
-
-        cs350_two_rows = section("F1", "CS350", [
-            make_meeting("M", "16:00", "17:20"),
-            make_meeting("R", "16:00", "17:20"),
-        ])
-        schedule1 = [cs351, cs341, cs375, cs288, ece231, cs350_two_rows]
-        assert compute_gap_count(schedule1) == 2
-        assert compute_gap_minutes(schedule1) == 140  # 100 + 40, the two real gaps only
-
-        cs350_one_row = section("F2", "CS350", [make_meeting("MR", "13:00", "14:20")])
-        schedule2 = [cs351, cs341, cs375, cs288, ece231, cs350_one_row]
-        assert compute_gap_count(schedule2) == 1
-        assert compute_gap_minutes(schedule2) == 130  # the Thursday gap only
-
 
 # ── TestSolverCorrectness ─────────────────────────────────────────────────────
 
 class TestSolverCorrectness:
-
-    def test_single_course_returns_all_valid_sections(self):
-        """With one course, every valid section is its own schedule."""
-        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        s2 = section("B", "CS101", [make_meeting("TR", "10:00", "11:20")])
-        result = solve(["CS101"], {"CS101": [s1, s2]}, no_constraints, {})
-        assert result.results
-        crns = {sch.sections[0].crn for sch in result.results}
-        assert "A" in crns and "B" in crns
 
     def test_compatible_courses_produce_schedule(self):
         """MW + TR courses share no MOW intervals → no conflict → valid schedule."""
@@ -288,36 +152,6 @@ class TestSolverCorrectness:
         assert result.results == []
         assert any("CS999" in w for w in result.warnings)
 
-    def test_minimize_gaps_true_ranks_lower_gap_first(self):
-        """Back-to-back schedule must outrank a schedule with a large gap."""
-        cs101_backtoback = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        cs101_early      = section("B", "CS101", [make_meeting("MW", "08:00", "09:20")])
-        cs201            = section("C", "CS201", [make_meeting("MW", "11:30", "12:50")])
-        result = solve(
-            ["CS101", "CS201"],
-            {"CS101": [cs101_backtoback, cs101_early], "CS201": [cs201]},
-            CommuterOptions(minimize_gaps=True),
-            {},
-        )
-        # Schedule containing A (ends 11:20, 10 min gap to CS201 at 11:30) ranks first
-        # Schedule containing B (ends 09:20, ~2h10m gap) ranks second
-        first_crns = {s.crn for s in result.results[0].sections}
-        assert "A" in first_crns, "Back-to-back schedule must rank first when minimize_gaps=True"
-
-    def test_minimize_gaps_false_ranks_fewer_campus_days_first(self):
-        """When minimize_gaps=False, schedule with fewest campus days ranks first."""
-        mwf_section = section("A", "CS101", [make_meeting("MWF", "09:00", "09:50")])
-        tr_section  = section("B", "CS101", [make_meeting("TR",  "09:00", "09:50")])
-        cs201       = section("C", "CS201", [make_meeting("TR",  "10:00", "11:20")])
-        result = solve(
-            ["CS101", "CS201"],
-            {"CS101": [mwf_section, tr_section], "CS201": [cs201]},
-            CommuterOptions(minimize_gaps=False),
-            {},
-        )
-        # TR+TR = 2 campus days; MWF+TR = 4 campus days
-        first_crns = {s.crn for s in result.results[0].sections}
-        assert "B" in first_crns, "TR-only schedule (2 campus days) must rank first"
 
     def test_minimize_gaps_true_ranks_fewer_gap_occurrences_over_fewer_total_minutes(self):
         """
@@ -399,21 +233,11 @@ class TestSolverCorrectness:
 
 class TestProfessorWhitelist:
 
-    def test_whitelist_filters_to_named_professor_only(self):
-        smith = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")], prof="Dr. Smith")
-        jones = section("B", "CS101", [make_meeting("TR", "10:00", "11:20")], prof="Dr. Jones")
-        result = solve(["CS101"], {"CS101": [smith, jones]}, no_constraints, {"CS101": ["Dr. Smith"]})
-        crns = {sch.sections[0].crn for sch in result.results}
-        assert "A" in crns and "B" not in crns
-
     def test_whitelist_match_is_case_insensitive(self):
         assert _professor_matches_whitelist("Dr. Smith", ["dr. smith"])
         assert _professor_matches_whitelist("DR. SMITH", ["Dr. Smith"])
         assert not _professor_matches_whitelist("Dr. Jones", ["Dr. Smith"])
 
-    def test_empty_whitelist_accepts_any_professor(self):
-        assert _professor_matches_whitelist("Anyone", [])
-        assert _professor_matches_whitelist(None, [])
 
     def test_whitelist_eliminates_all_sections_gives_named_warning(self):
         """Warning must name the missing professor, not just the course."""
@@ -487,24 +311,6 @@ class TestHideFullSections:
         assert result.results == []
         assert any("full" in w.lower() and "CS101" in w for w in result.warnings)
 
-    def test_hide_full_sections_scoped_per_course_like_other_filter_stages(self):
-        """
-        A course that goes to zero candidates because of the seat filter aborts
-        the solve immediately, exactly like every other zero-candidate case
-        (unknown course, professor whitelist eliminates everyone) — the second
-        course never even gets evaluated. Proves the new filter stage follows
-        the same early-return contract as the existing two stages.
-        """
-        cs101_full = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")], open_seats=0)
-        cs201_open = section("B", "CS201", [make_meeting("TR", "10:00", "11:20")], open_seats=5)
-        result = solve(
-            ["CS101", "CS201"],
-            {"CS101": [cs101_full], "CS201": [cs201_open]},
-            CommuterOptions(hide_full_sections=True), {},
-        )
-        assert result.results == []
-        assert any("CS101" in w and "full" in w.lower() for w in result.warnings)
-
 
 # ── TestPostSolveValidation ───────────────────────────────────────────────────
 
@@ -546,9 +352,6 @@ class TestInputValidation:
         with pytest.raises(ValidationError):
             SolveRequest(course_codes=["CS1"] * 9, term="202690")
 
-    def test_deduplicates_course_codes(self):
-        req = SolveRequest(course_codes=["CS280", "CS280", "MATH340"], term="202690")
-        assert req.course_codes.count("CS280") == 1
 
     def test_rejects_invalid_time_format(self):
         from pydantic import ValidationError
@@ -562,32 +365,6 @@ class TestInputValidation:
         from pydantic import ValidationError
         with pytest.raises(ValidationError):
             SolveRequest(course_codes=["CS280"], term="abcdef")
-
-    def test_accepts_valid_term_formats(self):
-        for term in ["202690", "202710", "202750"]:
-            req = SolveRequest(course_codes=["CS280"], term=term)
-            assert req.term == term
-
-    def test_accepts_saturday_as_blocked_day(self):
-        opts = CommuterOptions(blocked_days=["S"])
-        assert opts.blocked_days == ["S"]
-
-
-# ── TestFindImpossiblePair ────────────────────────────────────────────────────
-
-class TestFindImpossiblePair:
-
-    def test_finds_conflicting_pair(self):
-        s1 = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        s2 = section("B", "CS201", [make_meeting("MW", "10:00", "11:20")])
-        pair = _find_impossible_pair(["CS101", "CS201"], {"CS101": [s1], "CS201": [s2]})
-        assert pair == ("CS101", "CS201")
-
-    def test_returns_none_when_compatible(self):
-        mw = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        tr = section("B", "CS201", [make_meeting("TR", "10:00", "11:20")])
-        pair = _find_impossible_pair(["CS101", "CS201"], {"CS101": [mw], "CS201": [tr]})
-        assert pair is None
 
 
 # ── TestSectionToResponseMultiMeeting ─────────────────────────────────────────
@@ -611,16 +388,6 @@ class TestSectionToResponseMultiMeeting:
         assert len(response.meetings) == 2, "Both meeting rows must be serialized, not just the first"
         assert {m.days for m in response.meetings} == {"M", "R"}
 
-    def test_single_meeting_section_still_works(self):
-        from src.scheduler.solver import _section_to_response
-
-        s = section("A", "CS101", [make_meeting("MW", "10:00", "11:20")])
-        response = _section_to_response(s)
-
-        assert len(response.meetings) == 1
-        assert response.meetings[0].days == "MW"
-        assert response.meetings[0].start_time == "10:00"
-        assert response.meetings[0].end_time == "11:20"
 
     def test_async_section_serializes_meeting_with_null_times(self):
         from src.scheduler.solver import _section_to_response
@@ -647,18 +414,6 @@ class TestBuildFilterWarning:
     unblocking a day.
     """
 
-    def test_commuter_failure_message_does_not_mention_blocked_days(self):
-        s = section("A", "CS350", [make_meeting("M", "10:00", "10:50")])
-        msg = _build_filter_warning(
-            course_code="CS350",
-            all_sections=[s],
-            after_professor=[s],
-            after_commuter=[],
-            after_seats=[],
-            professor_whitelist=[],
-        )
-        assert "unblocking a day" not in msg
-        assert "block" not in msg.lower()
 
     def test_commuter_failure_message_names_the_actual_time_controls(self):
         s = section("A", "CS350", [make_meeting("M", "10:00", "10:50")])

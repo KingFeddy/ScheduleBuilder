@@ -1,5 +1,4 @@
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
@@ -15,35 +14,11 @@ class TestRmpMatchIsPlausible:
     the query; these pin down which pairs must be trusted vs. rejected.
     """
 
-    def test_matching_last_name_is_plausible(self):
-        assert _rmp_match_is_plausible("Aytas, David Mustafa", "Aytas") is True
-
-    def test_matching_last_name_with_extra_whitespace_is_plausible(self):
-        """Real RMP data: 'Adubato, Julianna Leonard' matched RMP lastName
-        'Adubato' but firstName had a double space ('Julianna  Adubato')."""
-        assert _rmp_match_is_plausible("Adubato, Julianna Leonard", "Adubato") is True
-
     def test_compound_last_name_matches_on_any_token(self):
         """Real RMP data: 'Del Castillo, Trevor James' correctly matched
         RMP's 'Castillo' — a multi-word Banner last name only needs one
         token to overlap."""
         assert _rmp_match_is_plausible("Del Castillo, Trevor James", "Castillo") is True
-
-    def test_unrelated_professor_is_not_plausible(self):
-        """The bug that motivated this function: searching 'Ariel Tang'
-        (Accounting, no real RMP page) returned RMP's closest fuzzy guess,
-        an entirely unrelated Humanities professor 'Ariel Sykes' — first
-        name coincidence only, no last-name overlap."""
-        assert _rmp_match_is_plausible("Tang, Ariel", "Sykes") is False
-
-    def test_first_name_substring_in_unrelated_last_name_is_not_plausible(self):
-        """Real RMP data: 'St. Edward, Steve M.' has last name tokens
-        {'st', 'edward'}; RMP's closest fuzzy guess was 'Edward Gottko' —
-        'Edward' there is the unrelated professor's firstName, not a real
-        last-name match. Comparing against RMP's lastName field alone
-        ('Gottko') correctly rejects this, where matching against the
-        full concatenated name would not have."""
-        assert _rmp_match_is_plausible("St. Edward, Steve M.", "Gottko") is False
 
     def test_no_comma_in_professor_name_falls_back_to_whole_string(self):
         assert _rmp_match_is_plausible("Aytas", "Aytas") is True

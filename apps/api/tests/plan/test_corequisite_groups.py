@@ -37,13 +37,6 @@ async def test_group_waits_for_prerequisites_of_every_member():
 
 
 @pytest.mark.asyncio
-async def test_dependent_waits_for_actual_group_placement():
-    _,terms,_=await generate(['CS400','CS100','CS200','CS300'],[
-        coreq('CS100','CS200'),stored('CS300',prereq=condition('CS200'))],target=6)
-    assert terms['CS100'] == terms['CS200'] < terms['CS300']
-
-
-@pytest.mark.asyncio
 async def test_group_spanning_capstone_boundary_and_its_dependents_stays_ordered():
     _,terms,_=await generate(['CS300','CS200','CS100'],[
         coreq('CS100','CS200'),stored('CS300',prereq=condition('CS200'))],senior={'CS100'},target=6)

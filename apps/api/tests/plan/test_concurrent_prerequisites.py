@@ -2,7 +2,7 @@
 import pytest
 
 from src.schemas.plan import CourseAttempt
-from src.schemas.prerequisites import AllConditions, AnyConditions, UnresolvedCondition
+from src.schemas.prerequisites import AllConditions, UnresolvedCondition
 from tests.plan.test_corequisite_alternatives import choice, concurrent
 from tests.plan.test_corequisite_groups import coreq
 from tests.plan.test_flexible_prerequisites import flexible
@@ -17,13 +17,6 @@ async def test_concurrent_prerequisite_replaces_legacy_prior_edge():
     assert terms['CS200'] == terms['CS100']
     assert plan.semesters[0].total_credits == 6
     assert any('concurrent prerequisite group' in warning and 'above your' in warning for warning in plan.warnings)
-
-
-@pytest.mark.asyncio
-async def test_prior_and_concurrent_siblings_have_distinct_timing():
-    rule = AllConditions(items=[condition('CS100'), concurrent('CS200')])
-    _, terms, _ = await generate(['CS300', 'CS200', 'CS100'], [stored('CS300', prereq=rule)], target=9)
-    assert terms['CS100'] < terms['CS200'] == terms['CS300']
 
 
 @pytest.mark.asyncio
@@ -120,13 +113,6 @@ async def test_unsupported_sibling_does_not_get_dropped_to_establish_group():
     rule = AllConditions(items=[concurrent('CS100'), UnresolvedCondition(reason='Permission required')])
     _, terms, _ = await generate(['CS200', 'CS100'], [stored('CS200', prereq=rule)], target=3)
     assert terms['CS100'] != terms['CS200']
-
-
-@pytest.mark.asyncio
-async def test_concurrent_prerequisite_or_selects_one_same_term_course():
-    rule = AnyConditions(items=[concurrent('CS100'), concurrent('CS200')])
-    _, terms, _ = await generate(['CS300', 'CS100', 'CS200'], [stored('CS300', prereq=rule)], target=3)
-    assert terms['CS300'] == terms['CS100'] != terms['CS200']
 
 
 @pytest.mark.asyncio

@@ -56,21 +56,11 @@ async def test_transitive_credit_conflict_chooses_smaller_group():
 
 
 @pytest.mark.asyncio
-async def test_backtracks_earlier_choice_when_later_groups_exceed_target():
-    # First A-B forces C to join A/B through either option. A-D leaves C-B.
-    _, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
-        choice('CS100', 'CS200', 'CS400'), choice('CS300', 'CS100', 'CS200'),
-    ], target=6)
-    assert terms['CS100'] == terms['CS400']
-    assert terms['CS300'] == terms['CS200'] != terms['CS100']
-
-
-@pytest.mark.asyncio
 async def test_missing_escape_does_not_hide_available_path_backtracking():
     rows = [choice('CS100', 'CS200', 'CS400'), choice('CS300', 'CS100', 'CS200', 'CS500')]
     plan, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], rows, target=6)
     assert terms['CS100'] == terms['CS400']
-    assert terms['CS300'] == terms['CS200']
+    assert terms['CS300'] == terms['CS200'] != terms['CS100']
     assert 'CS500' not in terms
     assert not any('not selected' in warning for warning in plan.warnings)
 

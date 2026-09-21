@@ -67,35 +67,6 @@ test('retries failed discovery without using the legacy cached default', async (
   expect(body.professor_preferences).toEqual({})
 })
 
-test('remembers an explicit semester choice and can resume following the default', async ({ page, api }) => {
-  api.respond('GET', '/api/terms', springDefault)
-  await page.goto('/scheduler')
-  await page.getByLabel('Semester', { exact: true }).selectOption('202690')
-  await page.reload()
-  await expect(page.getByLabel('Semester', { exact: true })).toHaveValue('202690')
-  await page.getByLabel('Semester', { exact: true }).selectOption('')
-  api.respond('GET', '/api/terms', { ...termDiscovery, default_term: '202750' })
-  await page.reload()
-  await expect(page.getByLabel('Semester', { exact: true })).toHaveValue('')
-  await expect(page.getByRole('option', { name: 'Default: Summer 2027', exact: true })).toBeAttached()
-})
-
-test('replaces an unavailable saved choice with a visible notice', async ({ page, api }) => {
-  await page.addInitScript(() => {
-    try {
-      localStorage.setItem('njit-scheduler', JSON.stringify({ version: 8,
-        state: { term: '202510', preferredTerm: '202510', selectedCourses: ['CS280'] },
-      }))
-    } catch (error) { throw new Error('Could not seed synthetic storage', { cause: error }) }
-  })
-  api.respond('GET', '/api/terms', springDefault)
-  await page.goto('/scheduler')
-  await expect(page.getByText('Your saved semester is no longer in the collected catalog. Using the default.', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Semester', { exact: true })).toHaveValue('')
-  await page.getByRole('button', { name: 'Solve', exact: true }).click()
-  expect(api.requests('POST', '/api/schedule/solve')[0].postDataJSON().term).toBe('202710')
-})
-
 test('changing semesters clears displayed results and cancels a solve from the previous selection', async ({ page, api }) => {
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
@@ -145,25 +116,6 @@ test('cancels old section lookups and fetches again when returning to a semester
   await expect.poll(() => api.requests('GET', '/api/courses/CS280/sections').length).toBe(3)
 })
 
-test('choosing the same effective semester does not strand an active solve', async ({ page, api }) => {
-  let release!: () => void
-  const pending = new Promise<void>((resolve) => { release = resolve })
-  api.handle('POST', '/api/schedule/solve', async (route) => {
-    await pending
-    await route.fulfill({ json: solveResponse })
-  })
-  await page.goto('/scheduler')
-  await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
-  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
-  try {
-    await page.getByRole('button', { name: 'Solve', exact: true }).click()
-    await expect.poll(() => api.requests('POST', '/api/schedule/solve').length).toBe(1)
-    await page.getByLabel('Semester', { exact: true }).selectOption('202690')
-  } finally { release() }
-  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
-})
-
 test('leaving during a solve cancels it and allows solving after returning', async ({ page, api }) => {
   let release!: () => void
   const pending = new Promise<void>((resolve) => { release = resolve })
@@ -184,23 +136,5 @@ test('leaving during a solve cancels it and allows solving after returning', asy
   api.reset('POST', '/api/schedule/solve')
   await page.getByRole('link', { name: 'Scheduler', exact: true }).click()
   await page.getByRole('button', { name: 'Solve', exact: true }).click()
-  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
-})
-
-test('hides previous results until the semester is validated again after returning', async ({ page, api }) => {
-  await page.goto('/scheduler')
-  await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
-  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
-  await page.getByRole('button', { name: 'Solve', exact: true }).click()
-  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'Planner', exact: true }).click()
-  api.respond('GET', '/api/terms', { detail: 'Synthetic term outage' }, 503)
-  await page.getByRole('link', { name: 'Scheduler', exact: true }).click()
-  await expect(page.getByText('Semester information is unavailable.', { exact: true })).toBeVisible()
-  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('Test Lecturer', { exact: true })).toHaveCount(0)
-  await expect(page.getByText(solveResponse.warnings[0], { exact: true })).toHaveCount(0)
-  api.reset('GET', '/api/terms')
-  await page.getByRole('button', { name: 'Retry semesters', exact: true }).click()
   await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
 })

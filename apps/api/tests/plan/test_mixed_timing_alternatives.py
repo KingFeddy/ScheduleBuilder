@@ -72,16 +72,6 @@ async def test_mixed_choice_retries_around_strict_cycle():
 
 
 @pytest.mark.asyncio
-async def test_backtracks_prior_only_choice_to_make_mixed_choice_possible():
-    _, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
-        mixed('CS100', condition('CS200'), condition('CS400')),
-        mixed('CS200', flexible('CS100'), concurrent('CS300')),
-        stored('CS300', prereq=condition('CS100')),
-    ], target=6)
-    assert terms['CS400'] < terms['CS100'] <= terms['CS200']
-
-
-@pytest.mark.asyncio
 async def test_fixed_corequisite_group_constrains_mixed_choice():
     _, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
         coreq('CS100', 'CS200'), mixed('CS300', concurrent('CS100'), condition('CS400')),

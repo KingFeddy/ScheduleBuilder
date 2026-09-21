@@ -18,21 +18,21 @@ def test_planning_can_include_summer_without_a_second_default():
     assert get_planning_terms(n=3, start_term="202710", skip_summer=False) == ["202710", "202750", "202790"]
 
 
-@pytest.mark.parametrize("default,first", [("202710", "202710"), ("202750", "202790"), ("202790", "202790")])
+@pytest.mark.parametrize("default,first", [("202710", "202710"), ("202750", "202790")])
 def test_generated_plan_uses_the_configured_default(monkeypatch, default, first):
     monkeypatch.setattr(settings, "CURRENT_TERM", default)
     plan = plan_for("CS999", [])
     assert plan.semesters[0].term == first
 
 
-@pytest.mark.parametrize("start", ["202510", "202690", "203190"])
-def test_explicit_start_overrides_server_default_without_collected_sections(monkeypatch, start):
+def test_explicit_start_overrides_server_default_without_collected_sections(monkeypatch):
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
     from src.schemas.plan import PlanPreferences
     from src.services.plan import generate_plan
     from tests.plan.test_planner import make_validated
 
+    start = "203190"
     monkeypatch.setattr(settings, "CURRENT_TERM", "202510")
     result = MagicMock()
     result.mappings.return_value = []

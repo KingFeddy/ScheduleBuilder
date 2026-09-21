@@ -69,7 +69,7 @@ def runtime_copy(tmp_path_factory):
     return project
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def production_runtime(runtime_copy):
     uv = shutil.which("uv")
     assert uv, "Install uv and run uv sync --locked before running this suite."

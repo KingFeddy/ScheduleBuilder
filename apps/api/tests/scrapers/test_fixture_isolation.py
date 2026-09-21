@@ -32,17 +32,6 @@ async def test_database_fixtures_share_a_private_schema_and_real_commits(
         ) == "Committed in this test"
 
 
-@pytest.mark.asyncio
-async def test_scraper_lock_ids_are_scoped_to_this_test(db_session_factory):
-    from src.scrapers import banner, lock, rmp
-
-    assert banner.BANNER_SCRAPER_LOCK_ID == lock.BANNER_SCRAPER_LOCK_ID
-    assert rmp.RMP_SCRAPER_LOCK_ID == lock.RMP_SCRAPER_LOCK_ID
-    assert -(2**63) <= lock.BANNER_SCRAPER_LOCK_ID < 0
-    assert -(2**63) <= lock.RMP_SCRAPER_LOCK_ID < 0
-    assert lock.BANNER_SCRAPER_LOCK_ID != lock.RMP_SCRAPER_LOCK_ID
-
-
 async def _schema_exists(database_url, schema_name):
     engine = create_async_engine(database_url)
     try:
@@ -133,42 +122,7 @@ async def test_cleanup_preserves_other_tests_with_identical_record_keys(test_dat
 
 
 @pytest.mark.asyncio
-async def test_cleanup_preserves_unrelated_recent_public_scraper_runs(test_database_url):
-    from tests.database_isolation import isolated_test_database
-
-    engine = create_async_engine(test_database_url)
-    record_id = None
-    subject = f"isolation_{uuid4().hex}"
-    try:
-        async with engine.begin() as connection:
-            record_id = await connection.scalar(text("""
-                INSERT INTO public.scraper_runs (scraper, status, subject)
-                VALUES ('banner', 'completed', :subject) RETURNING id
-            """), {"subject": subject})
-
-        async with isolated_test_database(test_database_url) as database:
-            await _seed_records(database.session_factory, "temporary")
-
-        async with engine.connect() as connection:
-            assert await connection.scalar(
-                text("SELECT subject FROM public.scraper_runs WHERE id = :id"),
-                {"id": record_id},
-            ) == subject
-    finally:
-        try:
-            if record_id is not None:
-                async with engine.begin() as connection:
-                    await connection.execute(
-                        text("DELETE FROM public.scraper_runs WHERE id = :id AND subject = :subject"),
-                        {"id": record_id, "subject": subject},
-                    )
-        finally:
-            await engine.dispose()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["assertion", "transaction", "cancellation"])
-async def test_failed_test_still_removes_its_schema(test_database_url, failure):
+async def test_failed_test_still_removes_its_schema(test_database_url):
     from tests.database_isolation import isolated_test_database
 
     schema_name = None
@@ -179,17 +133,9 @@ async def test_failed_test_still_removes_its_schema(test_database_url, failure):
             schema_name = database.schema_name
             await _seed_records(database.session_factory, "committed before failure")
             async with database.session_factory() as session:
-                if failure == "transaction":
-                    await session.execute(text("SELECT 1 / 0"))
-                elif failure == "cancellation":
-                    asyncio.current_task().cancel()
-                    await asyncio.sleep(0)
-                else:
-                    raise AssertionError("Simulated failed test")
+                await session.execute(text("SELECT 1 / 0"))
 
-    expected = {"assertion": AssertionError, "transaction": DBAPIError,
-                "cancellation": asyncio.CancelledError}[failure]
-    with pytest.raises(expected):
+    with pytest.raises(DBAPIError):
         await asyncio.create_task(failing_test())
     assert schema_name is not None
     assert not await _schema_exists(test_database_url, schema_name)

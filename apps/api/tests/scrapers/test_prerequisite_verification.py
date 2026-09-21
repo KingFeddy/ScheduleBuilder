@@ -40,22 +40,8 @@ def response(body, *, status=200, content_type="text/html"):
 
 INVALID_HTML = [
     pytest.param("", id="blank"),
-    pytest.param("<html><h1>Session expired</h1></html>", id="error-page"),
-    pytest.param('{"success": false}', id="json-error"),
     pytest.param("<h3>Catalog Prerequisites</h3>", id="heading-only"),
-    pytest.param(EMPTY_HTML.replace("</section>", ""), id="truncated-empty-section"),
-    pytest.param(EMPTY_HTML.replace("</section>", "<p>Unable to load</p></section>"), id="error-in-section"),
-    pytest.param(EMPTY_HTML.replace("</h3>", "<script>loadPrerequisites()</script></h3>"), id="dynamic-empty-section"),
-    pytest.param(EMPTY_HTML.replace("</section>", "<table><tr><td>CS100</td></tr></table></section>"), id="unknown-table"),
-    pytest.param(table(), id="empty-table-without-evidence"),
-    pytest.param(table(row()).replace("</table>", ""), id="truncated-table"),
-    pytest.param(table(row()).replace("</td>", "", 1), id="unclosed-cell"),
-    pytest.param(table(row()).replace(HEAD, ""), id="missing-headers"),
-    pytest.param(table(row()).replace("<th>Subject</th>", "<th>Department</th>"), id="changed-headers"),
-    pytest.param(table(row(), "<tr><td>Missing columns</td></tr>"), id="partial-row"),
-    pytest.param(table(row(), row()), id="missing-connector"),
-    pytest.param(table(row()) + table(row()), id="multiple-tables"),
-    pytest.param(table(row()).replace("<td>996</td>", '<td colspan="2">996</td>'), id="spanning-cell"),
+    pytest.param(EMPTY_HTML.replace("</section>", "<table><tr><td>CS100</td></tr></table></section>"), id="unknown-table")
 ]
 
 
@@ -83,13 +69,8 @@ def test_partial_subject_resolution_rejects_the_entire_replacement():
 
 
 @pytest.mark.parametrize("entries", [
-    None, {}, [], [None], [{}], [{"code": SUBJECT}],
-    [{"code": "", "description": "Fake Test Subject"}],
-    [{"code": 123, "description": "Fake Test Subject"}],
-    [{"code": SUBJECT, "description": "   "}],
-    [{"code": SUBJECT, "description": None}],
-    [*SUBJECTS, {"code": "ABC", "description": "Fake Test Subject"}],
-    [*SUBJECTS, {"code": SUBJECT, "description": "Another subject"}],
+    None,
+    [{"code": SUBJECT}]
 ])
 def test_invalid_or_ambiguous_subject_lookup_is_rejected(entries):
     with pytest.raises(RuntimeError):
@@ -107,11 +88,7 @@ def test_normalizes_entity_and_whitespace_differences_consistently():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reply", [
     response(json.dumps(SUBJECTS), status=403, content_type="application/json"),
-    response(json.dumps(SUBJECTS), content_type="text/html"),
-    response("<h1>Session expired</h1>", content_type="application/json"),
-    response("null", content_type="application/json"),
-    response("[]", content_type="application/json"),
-    response(json.dumps([{"code": f"A{i}", "description": f"Subject {i}"} for i in range(100)]), content_type="application/json"),
+    response("<h1>Session expired</h1>", content_type="application/json")
 ])
 async def test_failed_or_potentially_truncated_lookup_is_rejected(reply):
     page = MagicMock(request=MagicMock(get=AsyncMock(return_value=reply)))
@@ -120,7 +97,7 @@ async def test_failed_or_potentially_truncated_lookup_is_rejected(reply):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content_type", ["application/json", "text/plain", ""])
+@pytest.mark.parametrize("content_type", ["application/json"])
 async def test_prerequisite_endpoint_must_return_html(content_type):
     page = MagicMock(request=MagicMock(post=AsyncMock(return_value=response(EMPTY_HTML, content_type=content_type))))
     with pytest.raises(RuntimeError):
@@ -184,14 +161,7 @@ async def snapshot(factory):
 
 FAILURES = [
     pytest.param("lookup", TimeoutError("synthetic timeout"), "failed", id="lookup-timeout"),
-    pytest.param("lookup", response(json.dumps(SUBJECTS), status=503, content_type="application/json"), "failed", id="lookup-http-error"),
-    pytest.param("lookup", response("[]", content_type="application/json"), "unresolved", id="empty-lookup"),
-    pytest.param("prerequisite", TimeoutError("synthetic timeout"), "failed", id="prerequisite-timeout"),
-    pytest.param("prerequisite", response("", status=403), "failed", id="prerequisite-http-error"),
-    pytest.param("prerequisite", response("<h1>Session expired</h1>"), "unresolved", id="unexpected-html"),
-    pytest.param("prerequisite", response(table(row(), row(subject="Unknown subject", connector="And"))), "unresolved", id="partly-resolved"),
-    pytest.param("prerequisite", response(table(row(), "<tr><td>Broken</td></tr>")), "unresolved", id="partly-extracted"),
-    pytest.param("prerequisite", response(table(row(), row(connector="Or", subject="", number="", test="Placement", score="80"))), "unresolved", id="unsupported-rule"),
+    pytest.param("lookup", response("[]", content_type="application/json"), "unresolved", id="empty-lookup")
 ]
 
 

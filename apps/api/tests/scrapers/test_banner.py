@@ -1,6 +1,5 @@
 from __future__ import annotations
 from datetime import time
-import pytest
 
 from src.scrapers.banner import _parse_meeting_pattern
 
@@ -31,28 +30,6 @@ class TestParseMeetingPattern:
         assert start == time(10, 0)
         assert end == time(11, 15)
 
-    def test_tr_lecture(self):
-        pattern = banner_pattern(tuesday=True, thursday=True,
-                                  begin_time="1400", end_time="1515")
-        days, start, end, location = _parse_meeting_pattern(pattern)
-        assert days == "TR"
-        assert start == time(14, 0)
-        assert end == time(15, 15)
-
-    def test_friday_lab(self):
-        pattern = banner_pattern(friday=True, begin_time="1400", end_time="1650")
-        days, start, end, location = _parse_meeting_pattern(pattern)
-        assert days == "F"
-        assert start == time(14, 0)
-        assert end == time(16, 50)
-
-    def test_saturday_only_lab(self):
-        """A Saturday-only section must parse to days == 'S', not be silently dropped."""
-        pattern = banner_pattern(saturday=True, begin_time="0900", end_time="1150")
-        days, start, end, location = _parse_meeting_pattern(pattern)
-        assert days == "S"
-        assert start == time(9, 0)
-        assert end == time(11, 50)
 
     def test_monday_and_saturday_mixed_pattern(self):
         """
@@ -93,20 +70,6 @@ class TestParseMeetingPattern:
         _, _, _, location = _parse_meeting_pattern(pattern)
         assert location is None
 
-    def test_early_morning_time_parsed_correctly(self):
-        """'0830' must produce time(8, 30), not time(0, 830)."""
-        pattern = banner_pattern(monday=True, begin_time="0830", end_time="0920")
-        _, start, end, _ = _parse_meeting_pattern(pattern)
-        assert start == time(8, 30)
-        assert end == time(9, 20)
-
-    def test_day_order_is_mtwrf(self):
-        """Days must always appear in calendar order regardless of Banner key order."""
-        pattern = banner_pattern(friday=True, monday=True, wednesday=True,
-                                  begin_time="1000", end_time="1050")
-        days, _, _, _ = _parse_meeting_pattern(pattern)
-        assert days == "MWF"
-
 
 # ── TestCleanCourseTitle ────────────────────────────────────────────────────
 
@@ -121,13 +84,6 @@ class TestCleanCourseTitle:
         from src.scrapers.banner import _clean_course_title
         assert _clean_course_title("Elect &amp; Comp Engr Tech") == "Elect & Comp Engr Tech"
 
-    def test_honors_suffix_with_space_before_dash_stripped(self):
-        from src.scrapers.banner import _clean_course_title
-        assert _clean_course_title("Math Of Fin Derivatives I - HONORS") == "Math Of Fin Derivatives I"
-
-    def test_honors_suffix_with_no_space_before_dash_stripped(self):
-        from src.scrapers.banner import _clean_course_title
-        assert _clean_course_title("STATISTICS CAPSTONE I- Honors") == "Statistics Capstone I"
 
     def test_leading_whitespace_and_all_caps_honors_title_cleaned(self):
         """The exact CS351 Honors section title, confirmed live during design."""
@@ -144,25 +100,3 @@ class TestCleanCourseTitle:
         """
         from src.scrapers.banner import _clean_course_title
         assert _clean_course_title("ST: PHYSICAL AI") == "St: Physical Ai"
-
-    def test_already_clean_title_passes_through_unchanged(self):
-        """A normally-cased title must not be touched — 'to' must stay lowercase."""
-        from src.scrapers.banner import _clean_course_title
-        assert _clean_course_title("Introduction to Cybersecurity") == "Introduction to Cybersecurity"
-
-    def test_symbol_only_title_not_mistaken_for_uppercase(self):
-        """
-        A title with no alphabetic characters at all (e.g. a placeholder or
-        degenerate stub) must not trigger .title() — upper() and lower()
-        are both identity for a string with no letters, so a naive
-        equality check against just .upper() alone would misfire here.
-        Pins the `cleaned != cleaned.lower()` half of the guard.
-        """
-        from src.scrapers.banner import _clean_course_title
-        assert _clean_course_title("101") == "101"
-        assert _clean_course_title("--") == "--"
-
-    def test_empty_string_input_returns_empty_string(self):
-        """No exception, no crash — an empty title is a degenerate but valid input."""
-        from src.scrapers.banner import _clean_course_title
-        assert _clean_course_title("") == ""

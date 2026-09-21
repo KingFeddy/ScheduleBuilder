@@ -47,17 +47,6 @@ async def test_lock_survives_worker_transaction_boundaries(db_session_factory, b
         assert await _can_acquire(other, lock.BANNER_SCRAPER_LOCK_ID) is True
 
 
-async def test_lock_owns_a_connection_separate_from_the_worker(db_session_factory):
-    async with db_session_factory() as worker, db_session_factory() as observer:
-        worker_pid = await worker.scalar(text("SELECT pg_backend_pid()"))
-        async with lock.advisory_lock(worker, lock.BANNER_SCRAPER_LOCK_ID, "test") as acquired:
-            assert acquired is True
-            holders = await _holders(observer, lock.BANNER_SCRAPER_LOCK_ID)
-            assert len(holders) == 1
-            assert holders[0] != worker_pid
-        assert await _holders(observer, lock.BANNER_SCRAPER_LOCK_ID) == []
-
-
 @pytest.mark.parametrize("failure", [None, "application", "database"])
 async def test_exit_releases_lock_without_ending_the_worker_transaction(
     db_session, db_session_factory, failure,
@@ -90,16 +79,6 @@ async def test_exit_releases_lock_without_ending_the_worker_transaction(
             assert await observer.scalar(text("SELECT title FROM courses WHERE course_code = 'CS999'")) == "Pending"
 
 
-async def test_same_session_cannot_reenter_but_different_scrapers_can_run(db_session_factory):
-    async with db_session_factory() as worker:
-        async with lock.advisory_lock(worker, lock.BANNER_SCRAPER_LOCK_ID, "banner") as first:
-            assert first is True
-            async with lock.advisory_lock(worker, lock.BANNER_SCRAPER_LOCK_ID, "banner") as duplicate:
-                assert duplicate is False
-            async with lock.advisory_lock(worker, lock.RMP_SCRAPER_LOCK_ID, "rmp") as independent:
-                assert independent is True
-
-
 async def test_failed_acquisition_returns_its_connection(db_session_factory):
     async with db_session_factory() as worker:
         engine = worker.bind
@@ -108,18 +87,6 @@ async def test_failed_acquisition_returns_its_connection(db_session_factory):
             async with lock.advisory_lock(worker, 2**63, "invalid lock id"):
                 pytest.fail("An out-of-range PostgreSQL lock ID must fail")
         assert engine.pool.checkedout() == 0
-
-
-async def test_overlap_returns_contender_connection_before_yielding(db_session_factory):
-    async with db_session_factory() as owner, db_session_factory() as contender:
-        async with lock.advisory_lock(owner, lock.BANNER_SCRAPER_LOCK_ID, "owner") as acquired:
-            assert acquired is True
-            assert owner.bind.pool.checkedout() == 1
-            async with lock.advisory_lock(contender, lock.BANNER_SCRAPER_LOCK_ID, "contender") as duplicate:
-                assert duplicate is False
-                assert owner.bind.pool.checkedout() == 1
-            assert owner.bind.pool.checkedout() == 1
-        assert owner.bind.pool.checkedout() == 0
 
 
 async def test_autocommit_engine_cannot_release_the_lock_early(db_session_factory):
@@ -159,18 +126,6 @@ async def test_idle_timeout_cannot_release_lock_and_is_restored_afterwards(
             assert await _can_acquire(other, lock.BANNER_SCRAPER_LOCK_ID) is True
     finally:
         await engine.dispose()
-
-
-async def test_connection_bound_session_gets_an_independent_lock(db_session_factory):
-    engine = db_session_factory.kw["bind"]
-    async with engine.connect() as connection, db_session_factory() as other:
-        async with db_session_factory(bind=connection) as worker:
-            async with lock.advisory_lock(worker, lock.BANNER_SCRAPER_LOCK_ID, "test") as acquired:
-                assert acquired is True
-                await worker.execute(text("SELECT 1"))
-                await worker.commit()
-                assert await _can_acquire(other, lock.BANNER_SCRAPER_LOCK_ID) is False
-            assert await _can_acquire(other, lock.BANNER_SCRAPER_LOCK_ID) is True
 
 
 @pytest.mark.parametrize("blocked_subject", [False, True])

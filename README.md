@@ -159,14 +159,50 @@ pnpm --filter web test:unit
 (cd apps/api && uv run --no-sync pytest tests/ -m "not database" -q)
 ```
 
-For database tests, browser tests, and API type generation, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Run only the checks relevant to your change, using focused existing tests where
+possible. CI runs backend tests, frontend type checks, unit tests, and linting;
+changes limited to the README, agent instructions, `docs/`, or `assets/` skip it.
 
-## Help and contributing
+For browser tests using synthetic API responses:
+
+```bash
+pnpm --filter web exec playwright install chromium
+pnpm --filter web test:e2e
+# Run one browser test file when only that workflow changed:
+pnpm --filter web test:e2e e2e/scheduler.spec.ts
+```
+
+For database tests, start the disposable test service with Docker running:
+
+```bash
+docker compose -f compose.test.yml up -d --wait
+(cd apps/api && \
+  MIGRATION_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
+    uv run --no-sync python -m scripts.migrate apply && \
+  APP_ENV=test \
+  TEST_DATABASE_URL=postgresql+asyncpg://njit_test:test-only@127.0.0.1:55432/njit_test \
+    uv run --no-sync pytest tests/ -q)
+docker compose -f compose.test.yml down --volumes
+```
+
+Tests verify the disposable database before running and never use the application
+database or `.env`. Its data is discarded when stopped; reapply migrations after
+restarting it. The credentials above are for this test service only.
+
+After changing API request or response models, regenerate the API contract:
+
+```bash
+(cd apps/api && uv run --no-sync python -m scripts.export_openapi)
+pnpm --filter web api:generate
+pnpm --filter web typecheck
+```
+
+Include the generated OpenAPI snapshot and frontend types with the model changes.
+
+## Help
 
 Maintained by [KingFeddy](https://github.com/KingFeddy). Report bugs or ask questions
 in [GitHub Issues](https://github.com/KingFeddy/ScheduleBuilder/issues).
-Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
 Use synthetic examples instead of sharing personal DegreeWorks PDFs.
 
 No license file is currently included in this repository.

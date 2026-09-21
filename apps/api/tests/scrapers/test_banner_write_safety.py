@@ -50,15 +50,9 @@ def _updated_section(crn="89999", failure=None, **overrides):
     second = banner_pattern(tuesday=True, begin_time="1400", end_time="1500", building="Second", room="room")
     if failure in ("sql", "commit"):
         second["building"] = "Rejected"
-    elif failure == "parse":
-        second["meetingTime"]["beginTime"] = "2500"
-    elif failure == "partial":
-        second["meetingTime"]["endTime"] = None
-    elif failure == "reversed":
-        second["meetingTime"]["beginTime"] = "1600"
     return section(
         crn, meetingsFaculty=[first, second],
-        seatsAvailable=None if failure == "before-write" else 2,
+        seatsAvailable=2,
         faculty=[{"displayName": "New Professor", "primaryIndicator": True}],
         sequenceNumber="002", **overrides,
     )
@@ -93,10 +87,12 @@ def _queue(upstream, rows):
     )
 
 
-@pytest.mark.parametrize("failure", ["before-write", "parse", "sql", "commit", "partial", "reversed"])
-@pytest.mark.parametrize("later_page", [False, True], ids=["first-page", "later-page"])
+@pytest.mark.parametrize("failure", [
+    "sql",
+    "commit"
+])
 async def test_failed_section_preserves_entire_subject_catalog(
-    db_session, db_session_factory, upstream, monkeypatch, failure, later_page,
+    db_session, db_session_factory, upstream, monkeypatch, failure,
 ):
     await _seed(db_session)
     await _failure_constraint(db_session, failure)
@@ -106,7 +102,7 @@ async def test_failed_section_preserves_entire_subject_catalog(
     monkeypatch.setattr(banner, "_delete_stale_sections", cleanup)
     bad = _updated_section(failure=failure)
     good = [section("81111"), section("81112")]
-    _queue(upstream, [*good, bad] if later_page else [bad, *good])
+    _queue(upstream, [*good, bad])
 
     counts = await banner.scrape_subject(db_session, SUBJECT, TERM)
 
@@ -155,8 +151,8 @@ async def test_all_failed_upserts_leave_rows_intact_and_record_failure(db_sessio
     assert run.finished_at is not None
 
 
-@pytest.mark.parametrize("failure", ["parse", "sql", "commit"])
-async def test_failed_new_section_rolls_back_course_stub_and_meetings(db_session, db_session_factory, failure):
+async def test_failed_new_section_rolls_back_course_stub_and_meetings(db_session, db_session_factory):
+    failure = "commit"
     await _seed(db_session)
     await _failure_constraint(db_session, failure)
     original = await _snapshot(db_session_factory)

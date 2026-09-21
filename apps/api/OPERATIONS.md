@@ -1,7 +1,7 @@
 # API operations
 
 Return to the [project README](../../README.md) for local setup, or see
-[CONTRIBUTING.md](../../CONTRIBUTING.md) for tests and API contract generation.
+[README.md](../../README.md#running-checks) for tests and API contract generation.
 Run Python commands from `apps/api` unless a section says otherwise.
 
 ## Deployment

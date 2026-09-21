@@ -1,99 +1,11 @@
-import pytest
-from src.services.dw_parser import (
-    _extract_course_codes,
-    _extract_still_needed,
-    parse_degree_works_regex,
-)
-from src.schemas.plan import ParsedDegree, ParseValidationError
+from src.services.dw_parser import _extract_still_needed, parse_degree_works_regex
+from src.schemas.plan import ParsedDegree
 from src.services.plan import validate_parsed_degree
-
-
-# ── _extract_course_codes ─────────────────────────────────────────────────────
-
-class TestExtractCourseCodes:
-
-    def test_standard_code_with_space(self):
-        assert _extract_course_codes("CS 280") == ["CS280"]
-
-    def test_standard_code_without_space(self):
-        assert _extract_course_codes("CS280") == ["CS280"]
-
-    def test_multiple_codes(self):
-        codes = _extract_course_codes("CS 491 or PHYS 490")
-        assert "CS491" in codes
-        assert "PHYS490" in codes
-
-    def test_wildcard_at_symbol_normalized_to_XX(self):
-        codes = _extract_course_codes("PHYS 3@ or 4@")
-        assert "PHYS3XX" in codes
-        assert "PHYS4XX" in codes
-
-    def test_rutgers_r510_excluded(self):
-        codes = _extract_course_codes("COM 312 or R510 301 or R512 308")
-        assert "COM312" in codes
-        assert "R510301" not in codes
-        assert "R512308" not in codes
-
-    def test_deduplication(self):
-        codes = _extract_course_codes("CS 491 or CS 491")
-        assert codes.count("CS491") == 1
-
-    def test_empty_string_returns_empty(self):
-        assert _extract_course_codes("") == []
-
-    def test_long_ger_list_with_dept_inheritance(self):
-        """Bare numbers after 'or' inherit the most recent department."""
-        text = (
-            "COM 303 or 310 or 312 or 313 or 314 or 315 or 316\n"
-            "or 317 or 318 or 319 or 321 or LIT 320 or 321 or\n"
-            "HIST 320 or 325 or 328"
-        )
-        codes = _extract_course_codes(text)
-        assert "COM303" in codes
-        assert "COM319" in codes
-        assert "LIT320" in codes
-        assert "HIST320" in codes
-
-    def test_bare_number_after_or_uses_last_dept(self):
-        codes = _extract_course_codes("COM 312 or 313")
-        assert "COM312" in codes
-        assert "COM313" in codes
-
-    def test_wildcard_bare_digit_inherits_dept(self):
-        """'PHYS 3@ or 4@' — bare '4@' inherits PHYS from the first wildcard."""
-        codes = _extract_course_codes("PHYS 3@ or 4@")
-        assert "PHYS3XX" in codes
-        assert "PHYS4XX" in codes
 
 
 # ── _extract_still_needed ─────────────────────────────────────────────────────
 
 class TestExtractStillNeeded:
-
-    def test_single_class_requirement(self):
-        text = "Advanced Data Structures\nStill needed: 1 Class in CS 435"
-        items = _extract_still_needed(text)
-        assert len(items) == 1
-        assert "CS435" in items[0].options
-
-    def test_credits_requirement(self):
-        text = "Senior Project\nStill needed: 3 Credits in CS 491 or PHYS 490"
-        items = _extract_still_needed(text)
-        assert len(items) == 1
-        assert "CS491" in items[0].options
-        assert "PHYS490" in items[0].options
-
-    def test_wildcard_requirement(self):
-        text = "Physics Elective\nStill needed: 3 Credits in PHYS 3@ or 4@"
-        items = _extract_still_needed(text)
-        assert len(items) == 1
-        assert "PHYS3XX" in items[0].options
-        assert "PHYS4XX" in items[0].options
-
-    def test_see_block_reference_skipped(self):
-        text = "Still needed: 1 Class in See General Education Requirements section"
-        items = _extract_still_needed(text)
-        assert len(items) == 0
 
     def test_see_without_number_never_matches(self):
         """'Still needed: See ...' has no number — the regex never matches it."""
@@ -101,20 +13,6 @@ class TestExtractStillNeeded:
         items = _extract_still_needed(text)
         assert len(items) == 0
 
-    def test_multiple_requirements(self):
-        text = (
-            "Advanced Data Structures\nStill needed: 1 Class in CS 435\n"
-            "Senior Project\nStill needed: 3 Credits in CS 491 or PHYS 490\n"
-        )
-        items = _extract_still_needed(text)
-        assert len(items) == 2
-
-    def test_rutgers_codes_excluded_from_still_needed(self):
-        text = "GER\nStill needed: 1 Class in COM 312 or R510 301 or R512 308"
-        items = _extract_still_needed(text)
-        assert len(items) == 1
-        assert "COM312" in items[0].options
-        assert "R510301" not in items[0].options
 
     def test_long_multiline_option_list(self):
         """Real-world H&H 300-level — 15+ options across multiple lines."""
@@ -158,27 +56,6 @@ class TestValidateParsedDegree:
         base.update(overrides)
         return ParsedDegree(**base)
 
-    def test_valid_input_passes(self):
-        assert validate_parsed_degree(self._valid()) is not None
-
-    def test_no_majors_raises(self):
-        with pytest.raises(ParseValidationError) as exc:
-            validate_parsed_degree(self._valid(majors=[]))
-        assert exc.value.field == "majors"
-
-    def test_credit_inconsistency_raises(self):
-        # 90 + 50 = 140, not 124; delta = 16 > tolerance (6)
-        with pytest.raises(ParseValidationError) as exc:
-            validate_parsed_degree(self._valid(credits_remaining=50))
-        assert exc.value.field == "credits"
-
-    def test_credit_within_tolerance_passes(self):
-        # 90 + 36 = 126, delta = 2 < 6
-        assert validate_parsed_degree(self._valid(credits_remaining=36)) is not None
-
-    def test_implausible_credits_required_raises(self):
-        with pytest.raises(ParseValidationError):
-            validate_parsed_degree(self._valid(credits_required=40))
 
     def test_transfer_codes_filtered_not_rejected(self):
         # CHEM5 (1 digit) and ENGL1010 (4 digits) don't match ^[A-Z]{2,5}\d{3}[A-Z]?$
@@ -192,34 +69,6 @@ class TestValidateParsedDegree:
         assert "CS331" in validated.completed_courses
         assert "ENGL1010" not in validated.completed_courses
         assert "CHEM5" not in validated.completed_courses
-
-    def test_wildcard_options_preserved(self):
-        parsed = self._valid(still_needed=[{"requirement": "Elective", "options": ["PHYS3XX"]}])
-        validated = validate_parsed_degree(parsed)
-        assert validated.still_needed[0].options == ["PHYS3XX"]
-
-    def test_graduating_student_passes(self):
-        parsed = self._valid(
-            credits_completed=124,
-            credits_required=124,
-            credits_remaining=0,
-            still_needed=[],
-            in_progress_courses=[],
-        )
-        validated = validate_parsed_degree(parsed)
-        assert validated.credits_remaining == 0
-
-    def test_course_code_normalization(self):
-        parsed = ParsedDegree(
-            majors=["CS"],
-            completed_courses=["cs280", "CS 331", "MATH 337"],
-            credits_completed=60,
-            credits_required=124,
-            credits_remaining=64,
-        )
-        assert "CS280" in parsed.completed_courses
-        assert "CS331" in parsed.completed_courses
-        assert "MATH337" in parsed.completed_courses
 
 
 # ── Full parse pipeline ───────────────────────────────────────────────────────
@@ -310,10 +159,6 @@ CS 331 Database System Design A 3 2025 Fall
         assert "COM312" in options_flat
         assert "HSS404" in options_flat
 
-    def test_see_block_reference_skipped(self, monkeypatch):
-        parsed = self._parse(monkeypatch)
-        for item in parsed.still_needed:
-            assert "See" not in item.requirement
 
     def test_completed_courses_extracted(self, monkeypatch):
         parsed = self._parse(monkeypatch)

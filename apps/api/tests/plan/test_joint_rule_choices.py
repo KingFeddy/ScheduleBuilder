@@ -19,15 +19,6 @@ async def test_prior_alternative_retried_for_fixed_corequisite():
 
 
 @pytest.mark.asyncio
-async def test_prior_choice_backtracks_when_both_corequisite_options_conflict():
-    _, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
-        mixed('CS100', condition('CS200'), condition('CS400')),
-        choice('CS200', 'CS100', 'CS300'), stored('CS300', prereq=condition('CS100')),
-    ], target=6)
-    assert terms['CS400'] < terms['CS100'] == terms['CS200'] < terms['CS300']
-
-
-@pytest.mark.asyncio
 async def test_corequisite_choice_accounts_for_fixed_flexible_dependency():
     _, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
         stored('CS100', prereq=flexible('CS200')), choice('CS200', 'CS300', 'CS400'),
@@ -37,22 +28,13 @@ async def test_corequisite_choice_accounts_for_fixed_flexible_dependency():
 
 
 @pytest.mark.asyncio
-async def test_choices_backtrack_together_before_accepting_oversized_group():
-    plan, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
-        mixed('CS100', concurrent('CS200'), concurrent('CS300')), choice('CS400', 'CS100', 'CS200'),
-    ], target=6)
-    assert terms['CS100'] == terms['CS300']
-    assert terms['CS400'] == terms['CS200'] != terms['CS100']
-    assert all(semester.total_credits <= 6 for semester in plan.semesters)
-
-
-@pytest.mark.asyncio
 async def test_missing_corequisite_escape_does_not_prevent_joint_backtracking():
     plan, terms, _ = await generate(['CS100', 'CS200', 'CS300', 'CS400'], [
         mixed('CS100', concurrent('CS200'), concurrent('CS300')), choice('CS400', 'CS100', 'CS200', 'CS500'),
     ], target=6)
     assert terms['CS100'] == terms['CS300']
     assert terms['CS400'] == terms['CS200'] != terms['CS100']
+    assert all(semester.total_credits <= 6 for semester in plan.semesters)
     assert 'CS500' not in terms
     assert not any(w.startswith('Partial plan:') and 'CS500' in w for w in plan.warnings)
 

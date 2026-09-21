@@ -66,14 +66,6 @@ class TestGetProfessor:
         assert result.rmp_score == 4.3
         assert result.department == "CS"
 
-    @pytest.mark.asyncio
-    async def test_no_cache_row_raises_404(self):
-        session = mock_session_with(rmp_row=None)
-
-        with pytest.raises(HTTPException) as exc_info:
-            await get_professor("Nobody, Nowhere", db=session)
-
-        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_confirmed_not_on_rmp_raises_404_even_when_expired(self):

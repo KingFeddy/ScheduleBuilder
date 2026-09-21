@@ -1,6 +1,10 @@
 """Real PostgreSQL fixtures with a private schema and advisory locks per test."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
@@ -39,3 +43,16 @@ async def db_session(db_session_factory):
         yield session
         # The session context rolls back failed transactions and closes before
         # isolated_database drops only this test's schema, even on test failure.
+
+
+@pytest.fixture(autouse=True)
+def no_upstream_throttling(monkeypatch):
+    """Mocked upstream calls need no real production rate-limit/backoff waits.
+
+    Replace only scraper module references, never the shared asyncio module;
+    database concurrency tests must retain real event-loop scheduling.
+    """
+    from src.scrapers import banner, rmp
+
+    for scraper in (banner, rmp):
+        monkeypatch.setattr(scraper, "asyncio", SimpleNamespace(sleep=AsyncMock()))

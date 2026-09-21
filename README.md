@@ -8,6 +8,8 @@ remaining semesters. No account required.
 
 **[Try the app](https://njit-schedule-builder-web.vercel.app/scheduler)**
 
+![NJIT Schedule Builder](assets/screenshots/scheduleBuilderScreenshot.png)
+
 ## What it does
 
 - **Build schedules:** choose up to eight courses, set class hours, hide full

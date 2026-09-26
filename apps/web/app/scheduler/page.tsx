@@ -8,14 +8,13 @@ import { CourseSelector } from '@/components/scheduler/course-selector'
 import { CommuterToggles } from '@/components/scheduler/commuter-toggles'
 import { ResultNavigator } from '@/components/scheduler/result-navigator'
 import { ScheduleGrid } from '@/components/calendar/schedule-grid'
-import { TermSelector } from '@/components/scheduler/term-selector'
+import { CurrentTerm } from '@/components/scheduler/current-term'
 import { useSchedulerTerms } from '@/hooks/useSchedulerTerms'
 
 export default function SchedulerPage() {
   const {
     selectedCourses,
     term,
-    preferredTerm,
     termRevision,
     commuterOptions,
     professorPreferences,
@@ -97,11 +96,7 @@ export default function SchedulerPage() {
     <div className="flex h-screen overflow-hidden">
       {/* Left panel */}
       <div className="w-72 flex-shrink-0 border-r border-border flex flex-col gap-6 p-5 overflow-y-auto">
-        <TermSelector catalog={terms.catalog} term={term} preference={preferredTerm} error={terms.error}
-          notice={terms.notice} onRetry={terms.retry} onChange={(preference) => {
-            if ((preference || terms.catalog?.default_term) !== term) solveRequest.current?.abort()
-            terms.selectTerm(preference)
-          }} />
+        <CurrentTerm catalog={terms.catalog} error={terms.error} onRetry={terms.retry} />
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-muted mb-3">
             Add Courses

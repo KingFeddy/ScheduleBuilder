@@ -8,7 +8,7 @@ Plan your classes and remaining semesters at NJIT. No account needed.
 
 ## Build your schedule
 
-1. Choose a semester and add your courses.
+1. Add your courses for Fall 2026.
 2. Set your preferred class hours, days, and professors.
 3. Generate schedules and compare options without overlapping classes.
 

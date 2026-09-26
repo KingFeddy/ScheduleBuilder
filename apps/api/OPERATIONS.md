@@ -74,6 +74,29 @@ uv run --no-sync python -m src.scrapers.cron
 Collection needs network access and may take several minutes. Check the scraper
 output before trying to generate schedules.
 
+The scheduled scraper discovers Banner's current subject list and includes it
+alongside configured subjects, including Rutgers cross-registration codes.
+Scheduler course searches pass a term so catalog-only and other-term courses do
+not appear; full sections remain available unless the student hides them.
+
+To check complete section coverage for Fall 2026, from `apps/api` run:
+
+```bash
+uv run --no-sync python -m scripts.reconcile_term_sections --term 202690
+```
+
+This reads every Banner results page without a subject filter and compares CRNs
+with the database. To fill missing sections, add `--apply --backup-dir /path/to/private/backups`.
+Applying first verifies the schema, acquires the scraper writer lock, and creates
+and rereads a compressed JSON row backup of courses and the term's sections and
+meetings. This is a catalog data backup, not a full PostgreSQL schema/roles backup.
+The command retains existing sections and other-term courses, reports extra or
+mismatched records for review, and verifies the remaining missing CRNs afterward.
+It refreshes metadata for affected courses but does not claim to refresh all
+existing seat counts or verify prerequisites. Use the regular scraper for those
+updates. Banner entries without meeting details remain incomplete; the import
+does not invent times or mark them asynchronous.
+
 ### 4. Run
 
 Start the API from `apps/api`:

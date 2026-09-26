@@ -188,7 +188,7 @@ def _validate_section_schema(section: object) -> None:
 
 
 def _validate_results_page(
-    payload: object, *, subject: str, term: str, offset: int, page_size: int,
+    payload: object, *, subject: str | None, term: str, offset: int, page_size: int,
     expected_total: int | None, received_crns: set[str],
 ) -> tuple[list[dict], int]:
     """Require a complete, consistent page before it can contribute to cleanup.
@@ -233,7 +233,7 @@ def _validate_results_page(
     page_crns: set[str] = set()
     for section in sections:
         _validate_section_schema(section)
-        if section["subject"] != subject or ("term" in section and section["term"] != term):
+        if (subject is not None and section["subject"] != subject) or ("term" in section and section["term"] != term):
             raise BannerResponseError(f"Banner section does not match requested subject {subject} and term {term}")
         crn = section["courseReferenceNumber"]
         if crn in received_crns or crn in page_crns:

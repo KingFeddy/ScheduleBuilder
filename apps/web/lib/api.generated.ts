@@ -995,6 +995,7 @@ export interface operations {
                 page?: number;
                 q?: string | null;
                 subject?: string | null;
+                term?: string | null;
             };
             header?: never;
             path?: never;

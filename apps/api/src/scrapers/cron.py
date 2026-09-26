@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from .banner import run_banner_scrape
 from .rmp import run_rmp_scrape
+from .term_inventory import discover_banner_subjects
 from ..config import settings
 
 logging.basicConfig(
@@ -30,10 +31,14 @@ async def main() -> None:
         Session = async_sessionmaker(engine, expire_on_commit=False)
         logger.info("Scraper cron starting — term %s; subjects %s", settings.CURRENT_TERM, settings.CATALOG_SUBJECTS)
 
+        # The configured list may omit newly introduced or cross-registration
+        # subjects. Discovery failure must abort rather than claim full coverage.
+        subjects = sorted(set(settings.catalog_subjects) | set(await discover_banner_subjects(settings.CURRENT_TERM)))
+
         async with Session() as session:
             await run_banner_scrape(
                 session=session,
-                subjects=settings.catalog_subjects,
+                subjects=subjects,
                 term=settings.CURRENT_TERM,
             )
 

@@ -40,7 +40,7 @@ test('does not fall back to another semester when Fall 2026 has no data', async 
   await page.goto('/scheduler')
   await expect(page.getByText('No section data has been collected for Fall 2026. Please try again later.', { exact: true })).toBeVisible()
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
-  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
+  await expect(page.getByRole('button', { name: 'CS280 Programming Language Concepts' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeDisabled()
   expect(api.requests('GET', '/api/courses/CS280/sections')).toHaveLength(0)
   expect(api.requests('POST', '/api/schedule/solve')).toHaveLength(0)

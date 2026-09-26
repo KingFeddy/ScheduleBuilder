@@ -62,6 +62,7 @@ def _slot_to_response(section: SectionSlot) -> SectionResponse:
 async def search_courses(
     q: str | None = Query(None),
     subject: str | None = Query(None),
+    term: str | None = Query(None, pattern=TERM_CODE_PATTERN),
     page: int = Query(1, ge=1),
     limit: int = Query(24, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -79,6 +80,10 @@ async def search_courses(
     if subject:
         conditions.append("course_code ILIKE :subject_prefix")
         params["subject_prefix"] = f"{subject.upper()}%"
+
+    if term:
+        conditions.append("EXISTS (SELECT 1 FROM sections WHERE sections.course_code = courses.course_code AND sections.term = :term)")
+        params["term"] = term
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 

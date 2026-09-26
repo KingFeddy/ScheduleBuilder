@@ -35,24 +35,27 @@ export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
   // Debounced search — 300ms
   useEffect(() => {
     const trimmed = query.trim()
-    if (!trimmed) {
+    if (!trimmed || !term || !hasTermData) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([])
       setShowDropdown(false)
+      setSearchLoading(false)
       return
     }
+    const controller = new AbortController()
     setSearchLoading(true)
     const t = setTimeout(() => {
-      getCourses({ q: trimmed, limit: 8 })
+      getCourses({ q: trimmed, term, limit: 8 }, { signal: controller.signal })
         .then((res) => {
+          if (controller.signal.aborted) return
           setResults(res)
           setShowDropdown(res.length > 0)
         })
-        .catch(() => setResults([]))
-        .finally(() => setSearchLoading(false))
+        .catch(() => { if (!controller.signal.aborted) setResults([]) })
+        .finally(() => { if (!controller.signal.aborted) setSearchLoading(false) })
     }, 300)
-    return () => clearTimeout(t)
-  }, [query])
+    return () => { clearTimeout(t); controller.abort() }
+  }, [query, term, hasTermData])
 
   // Prefetch professor list + RMP for every selected course.
   // Fires on mount (picks up persisted courses) and whenever selectedCourses or term changes.

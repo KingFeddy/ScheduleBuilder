@@ -38,11 +38,11 @@ async def load_catalog_coverage(session: AsyncSession, term: str) -> CatalogCove
         SELECT subject, SUM(course_count)::int AS course_count,
                SUM(section_count)::int AS section_count
         FROM (
-            SELECT SUBSTRING(course_code FROM '^[A-Z]+') AS subject,
+            SELECT SUBSTRING(course_code FROM '^(R[0-9]{3}|[A-Z]+)') AS subject,
                    COUNT(*) AS course_count, 0 AS section_count
             FROM courses GROUP BY subject
             UNION ALL
-            SELECT SUBSTRING(course_code FROM '^[A-Z]+') AS subject,
+            SELECT SUBSTRING(course_code FROM '^(R[0-9]{3}|[A-Z]+)') AS subject,
                    0 AS course_count, COUNT(*) AS section_count
             FROM sections WHERE term = :term GROUP BY subject
         ) AS collected GROUP BY subject ORDER BY subject

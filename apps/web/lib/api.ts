@@ -84,12 +84,14 @@ export function getCatalogCoverage(term: string, options: ApiRequestOptions = {}
 export function getCourses(params: {
   q?: string
   subject?: string
+  term?: string
   page?: number
   limit?: number
 }, options: ApiRequestOptions = {}): Promise<CoursesResponse> {
   const qs = new URLSearchParams()
   if (params.q) qs.set('q', params.q)
   if (params.subject) qs.set('subject', params.subject)
+  if (params.term) qs.set('term', params.term)
   if (params.page != null) qs.set('page', String(params.page))
   if (params.limit != null) qs.set('limit', String(params.limit))
   return apiFetch(`/api/courses?${qs}`, { signal: options.signal })

@@ -60,7 +60,7 @@ def _build_filter_warning(
     """Produce a specific, actionable warning for a zero-candidate course."""
     if not all_sections:
         return (
-            f"{course_code}: no sections found for this term — verify the course code."
+            f"{course_code}: no sections found for this term"
         )
 
     if not after_professor and professor_whitelist:

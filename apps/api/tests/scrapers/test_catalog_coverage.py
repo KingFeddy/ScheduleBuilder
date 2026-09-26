@@ -39,7 +39,7 @@ async def test_catalog_counts_distinguish_configuration_data_and_term(db_session
 
 
 @pytest.mark.asyncio
-async def test_cron_uses_configured_subjects(monkeypatch):
+async def test_cron_includes_discovered_subjects_alongside_configured_subjects(monkeypatch):
     from src.scrapers import cron
     monkeypatch.setattr(settings, "CATALOG_SUBJECTS", "IS,HSS")
     monkeypatch.setattr(settings, "CURRENT_TERM", "202710")
@@ -49,7 +49,30 @@ async def test_cron_uses_configured_subjects(monkeypatch):
     banner, rmp = AsyncMock(), AsyncMock()
     monkeypatch.setattr(cron, "run_banner_scrape", banner)
     monkeypatch.setattr(cron, "run_rmp_scrape", rmp)
+    discovery = AsyncMock(return_value=["IS", "R120"])
+    monkeypatch.setattr(cron, "discover_banner_subjects", discovery)
     await cron.main()
-    assert banner.await_args.kwargs["subjects"] == ["IS", "HSS"]
+    discovery.assert_awaited_once_with("202710")
+    assert banner.await_args.kwargs["subjects"] == ["HSS", "IS", "R120"]
     assert banner.await_args.kwargs["term"] == "202710"
     engine.dispose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_term_search_excludes_catalog_only_and_other_terms_but_keeps_full_sections(db_session):
+    from src.routers.courses import search_courses
+
+    await db_session.execute(text("""
+        INSERT INTO courses(course_code, title, credits) VALUES
+        ('CS991', 'Current full course', 3), ('CS992', 'Catalog only', 3),
+        ('CS993', 'Another semester', 3)
+    """))
+    await db_session.execute(text("""
+        INSERT INTO sections(crn, term, course_code, open_seats) VALUES
+        ('99101', '202690', 'CS991', 0), ('99102', '202690', 'CS991', 0),
+        ('99301', '202710', 'CS993', 10)
+    """))
+    current = await search_courses(q=None, subject=None, term='202690', page=1, limit=100, db=db_session)
+    assert [course.course_code for course in current] == ['CS991']
+    catalog = await search_courses(q=None, subject=None, term=None, page=1, limit=100, db=db_session)
+    assert {course.course_code for course in catalog} == {'CS991', 'CS992', 'CS993'}

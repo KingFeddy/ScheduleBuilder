@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_subjects(cls, value: str) -> str:
         subjects = [subject.strip() for subject in value.split(",")]
-        if any(not re.fullmatch(r"[A-Za-z]{2,5}", subject) for subject in subjects):
-            raise ValueError("Use comma-separated subject codes of 2–5 ASCII letters; empty entries are not allowed.")
+        if any(not re.fullmatch(r"[A-Za-z]{2,5}|[Rr][0-9]{3}", subject) for subject in subjects):
+            raise ValueError("Use comma-separated subject codes of 2–5 ASCII letters or R followed by three digits; empty entries are not allowed.")
         return ",".join(dict.fromkeys(subject.upper() for subject in subjects))
 
     @property

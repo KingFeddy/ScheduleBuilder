@@ -14,8 +14,10 @@ from tests.plan.test_planner import make_validated
 
 
 def test_subject_configuration_normalizes_without_guessing_aliases():
-    configured = make_settings(CATALOG_SUBJECTS=" cs, MATH,cs, psy,psyc ")
-    assert configured.catalog_subjects == ["CS", "MATH", "PSY", "PSYC"]
+    from src.catalog import course_subject
+    configured = make_settings(CATALOG_SUBJECTS=" cs, MATH,cs, psy,psyc,r120 ")
+    assert configured.catalog_subjects == ["CS", "MATH", "PSY", "PSYC", "R120"]
+    assert course_subject('R120101') == 'R120'
     assert make_settings(CATALOG_SUBJECTS="IS").catalog_subjects == ["IS"]
 
 

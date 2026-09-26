@@ -22,8 +22,6 @@ export function CurrentTerm({ catalog, error, onRetry }: CurrentTermProps) {
           <p>{error}</p>
           <button onClick={onRetry} className="text-left underline underline-offset-2">Retry</button>
         </div>
-      ) : !catalog ? (
-        <p className="text-xs text-muted" role="status">Loading semester data…</p>
       ) : current && !current.has_data ? (
         <p className="text-xs text-yellow">No section data has been collected for {SCHEDULER_TERM.label}. Please try again later.</p>
       ) : null}

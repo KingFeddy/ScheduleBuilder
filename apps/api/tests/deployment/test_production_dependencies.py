@@ -144,7 +144,9 @@ def test_scraper_startup_keeps_production_packages(production_runtime, command):
     # Execute the configured cron entrypoint, replacing only its external scrape
     # calls. Real imports/SQLAlchemy session creation run; no DB or HTTP I/O does.
     (bootstrap / "sitecustomize.py").write_text('''
-from src.scrapers import banner, rmp
+from src.scrapers import banner, rmp, term_inventory
+async def fake_subjects(term):
+    return ["CS", "R120"]
 async def fake_banner(**kwargs):
     assert kwargs["term"] == "202690"
     print("SYNTHETIC_BANNER", flush=True)
@@ -153,6 +155,7 @@ async def fake_rmp(**kwargs):
     print("SYNTHETIC_RMP", flush=True)
 banner.run_banner_scrape = fake_banner
 rmp.run_rmp_scrape = fake_rmp
+term_inventory.discover_banner_subjects = fake_subjects
 ''')
     environment = {**runtime.environment, "PYTHONPATH": os.pathsep.join((str(bootstrap), str(runtime.project)))}
     output = runtime.run(command, environment=environment)

@@ -47,10 +47,3 @@ without being saved on the server.
   database safeguards that preserve existing records when updates fail.
 - **Deployment checks:** automated tests, type checks, and database schema
   verification run before backend deployment.
-
-## Feedback
-
-Found a bug or have a suggestion? [Open an issue](https://github.com/KingFeddy/ScheduleBuilder/issues).
-Please leave personal information out of reports.
-
-Maintained by [KingFeddy](https://github.com/KingFeddy).

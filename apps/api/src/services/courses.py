@@ -6,6 +6,11 @@ from ..scheduler.models import MeetingSlot, SectionSlot
 from .meeting_integrity import IncompleteMeetingData, meeting_kind
 
 
+# Banner FP records are administrative placeholders, not teaching sections.
+# Keep the source records for reconciliation, but never offer them for scheduling.
+PLACEHOLDER_SECTION_NUMBER = "FP"
+
+
 async def load_sections_with_meetings(
     session: AsyncSession,
     course_codes: list[str],
@@ -28,7 +33,10 @@ async def load_sections_with_meetings(
         """),
         {"codes": course_codes, "term": term},
     )
-    sections_rows = sections_result.mappings().all()
+    sections_rows = [
+        row for row in sections_result.mappings().all()
+        if (row["section_number"] or "").strip().upper() != PLACEHOLDER_SECTION_NUMBER
+    ]
 
     if not sections_rows:
         return {code: [] for code in course_codes}

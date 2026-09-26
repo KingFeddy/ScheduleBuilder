@@ -39,6 +39,28 @@ def mock_session_with(section_rows, meeting_rows):
 class TestLoadSectionsWithMeetings:
 
     @pytest.mark.asyncio
+    async def test_placeholders_excluded_across_courses_without_hiding_full_or_async_sections(self):
+        session = mock_session_with(
+            [
+                make_section_row("101", "CS280", total=0, open_seats=0, section_number="FP"),
+                make_section_row("102", "CS280", open_seats=0),
+                make_section_row("103", "CS280", section_number="OL1"),
+                make_section_row("201", "MATH111", total=0, open_seats=0, section_number=" fp "),
+            ],
+            [
+                make_meeting_row("102", "MW", time(10), time(11)),
+                make_meeting_row("103", None, None, None),
+            ],
+        )
+        result = await load_sections_with_meetings(session, ["CS280", "MATH111"], "202690")
+
+        assert [section.crn for section in result["CS280"]] == ["102", "103"]
+        assert result["CS280"][0].open_seats == 0
+        assert result["CS280"][1].is_async
+        assert result["MATH111"] == []
+        assert session.execute.call_args.args[1]["crns"] == ["102", "103"]
+
+    @pytest.mark.asyncio
     async def test_returns_empty_when_no_sections(self):
         """No sections → two queries not run, returns empty lists per course."""
         # When sections query returns nothing, meetings query is skipped.

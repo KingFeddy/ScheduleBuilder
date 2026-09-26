@@ -128,11 +128,9 @@ export function ProfessorPicker({ courseCode }: ProfessorPickerProps) {
         <span>{triggerLabel}</span>
       </button>
 
-      {open && (
+      {open && professors !== undefined && (
         <div className="absolute z-50 w-64 top-full mt-1 rounded-lg border border-border bg-surface overflow-hidden">
-          {professors === undefined ? (
-            <div className="px-3 py-2.5 text-xs text-muted">Loading professors…</div>
-          ) : professors.length === 0 ? (
+          {professors.length === 0 ? (
             <div className="px-3 py-2.5 text-xs text-muted">No sections found</div>
           ) : (
             <div className="overflow-y-auto max-h-52">

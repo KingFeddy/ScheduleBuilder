@@ -65,14 +65,19 @@ async def test_term_search_excludes_catalog_only_and_other_terms_but_keeps_full_
     await db_session.execute(text("""
         INSERT INTO courses(course_code, title, credits) VALUES
         ('CS991', 'Current full course', 3), ('CS992', 'Catalog only', 3),
-        ('CS993', 'Another semester', 3)
+        ('CS993', 'Another semester', 3), ('CS994', 'Placeholder only', 3)
     """))
     await db_session.execute(text("""
         INSERT INTO sections(crn, term, course_code, open_seats) VALUES
         ('99101', '202690', 'CS991', 0), ('99102', '202690', 'CS991', 0),
         ('99301', '202710', 'CS993', 10)
     """))
+    await db_session.execute(text("""
+        INSERT INTO sections(crn, term, course_code, section_number) VALUES
+        ('99401', '202690', 'CS994', ' fp '), ('99103', '202690', 'CS991', 'FP')
+    """))
     current = await search_courses(q=None, subject=None, term='202690', page=1, limit=100, db=db_session)
     assert [course.course_code for course in current] == ['CS991']
     catalog = await search_courses(q=None, subject=None, term=None, page=1, limit=100, db=db_session)
-    assert {course.course_code for course in catalog} == {'CS991', 'CS992', 'CS993'}
+    # Unfiltered catalog search also includes CS999, seeded by db_session.
+    assert {course.course_code for course in catalog} == {'CS991', 'CS992', 'CS993', 'CS994', 'CS999'}

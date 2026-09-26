@@ -13,7 +13,7 @@ from src.scheduler.models import SectionSlot
 from src.schemas.courses import CourseDetailResponse, CourseResponse, ProfessorResponse
 from src.schemas.catalog import CatalogCoverageResponse
 from src.schemas.schedule import MeetingResponse, SectionResponse
-from src.services.courses import load_sections_with_meetings
+from src.services.courses import PLACEHOLDER_SECTION_NUMBER, load_sections_with_meetings
 from src.services.course_metadata import course_response
 from src.services.catalog import load_catalog_coverage
 from src.schemas.terms import TermsResponse
@@ -82,8 +82,13 @@ async def search_courses(
         params["subject_prefix"] = f"{subject.upper()}%"
 
     if term:
-        conditions.append("EXISTS (SELECT 1 FROM sections WHERE sections.course_code = courses.course_code AND sections.term = :term)")
+        conditions.append("""EXISTS (
+            SELECT 1 FROM sections
+            WHERE sections.course_code = courses.course_code AND sections.term = :term
+              AND UPPER(TRIM(COALESCE(sections.section_number, ''))) != :placeholder_section
+        )""")
         params["term"] = term
+        params["placeholder_section"] = PLACEHOLDER_SECTION_NUMBER
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 

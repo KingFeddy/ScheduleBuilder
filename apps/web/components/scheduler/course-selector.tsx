@@ -166,9 +166,7 @@ export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {hasTermData ? <ProfessorPicker courseCode={code} /> : (
-                <p className="text-xs text-muted">Section data is unavailable for the selected semester.</p>
-              )}
+              {hasTermData && <ProfessorPicker courseCode={code} />}
             </li>
           ))}
         </ul>

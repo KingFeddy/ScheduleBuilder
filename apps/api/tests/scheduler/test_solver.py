@@ -40,6 +40,17 @@ def section(
 no_constraints = CommuterOptions()
 
 
+def test_returns_ninety_nine_distinct_schedules_when_more_combinations_exist():
+    candidates = {
+        code: [section(f"{code}-{i}", code, [make_meeting(day, "10:00", "11:00")])
+               for i in range(10)]
+        for code, day in [("CS101", "M"), ("CS201", "T")]
+    }
+    result = solve(list(candidates), candidates, no_constraints, {})
+    assert len(result.results) == 99
+    assert len({tuple(s.crn for s in schedule.sections) for schedule in result.results}) == 99
+
+
 # ── TestGapCalculation ────────────────────────────────────────────────────────
 
 class TestGapCalculation:

@@ -102,9 +102,9 @@ export default function SchedulerPage() {
   const activeResult = hasTermData ? results[activeResultIndex] ?? null : null
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    <div className="flex min-h-0 flex-1 gap-5 p-5 overflow-hidden">
       {/* Left panel */}
-      <div className="w-72 min-h-0 flex-shrink-0 border-r border-border flex flex-col gap-5 p-5 overflow-y-auto">
+      <div className="w-80 min-h-0 flex-shrink-0 rounded-xl border border-border flex flex-col gap-5 p-5 overflow-y-auto">
         <div className="min-h-48 flex-1 overflow-y-auto overscroll-contain">
           <TermStatus catalog={terms.catalog} error={terms.error} onRetry={terms.retry} />
           <p className="text-xs font-medium uppercase tracking-wider text-muted mb-3">
@@ -149,7 +149,7 @@ export default function SchedulerPage() {
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 flex flex-col p-5 gap-4 min-w-0">
+      <div className="flex-1 flex flex-col gap-4 min-w-0 min-h-0">
         {hasTermData && results.length > 0 && <ResultNavigator />}
         <ScheduleGrid result={activeResult} />
       </div>

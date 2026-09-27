@@ -4,6 +4,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field, field_validator
 
 from ..scheduler.config import MAX_COURSES
+from ..scheduler.time_utils import DAY_OFFSETS
 from src.terms import TermCode
 
 
@@ -17,10 +18,10 @@ class CommuterOptions(BaseModel):
     @field_validator("blocked_days")
     @classmethod
     def validate_blocked_days(cls, v: list[str]) -> list[str]:
-        valid = set("MTWRFS")
+        valid = DAY_OFFSETS.keys()
         for d in v:
             if d not in valid:
-                raise ValueError(f"Invalid day '{d}'. Must be one of M, T, W, R, F, S.")
+                raise ValueError(f"Invalid day '{d}'. Must be one of M, T, W, R, F, S, U.")
         return list(set(v))
 
     @field_validator("earliest_start", "latest_end", mode="before")

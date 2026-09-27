@@ -3,12 +3,13 @@ from collections import defaultdict
 
 from .config import MIN_SIGNIFICANT_GAP_MINUTES
 from .models import SectionSlot
+from .time_utils import DAY_OFFSETS
 
 
 def _timed_sessions_by_day(sections: list[SectionSlot]) -> dict[str, list[tuple[int, int]]]:
     """
     Group every timed meeting's (start, end) minute-of-day interval by
-    weekday. Shared by compute_gap_minutes and compute_gap_count so both
+    day. Shared by compute_gap_minutes and compute_gap_count so both
     walk the exact same per-day session list — only the reduction differs
     (sum of gap sizes vs. count of gap occurrences).
     """
@@ -20,7 +21,7 @@ def _timed_sessions_by_day(sections: list[SectionSlot]) -> dict[str, list[tuple[
             start = meeting.start_time.hour * 60 + meeting.start_time.minute
             end   = meeting.end_time.hour * 60 + meeting.end_time.minute
             for day in meeting.days:
-                if day in "MTWRFS":
+                if day in DAY_OFFSETS:
                     day_sessions[day].append((start, end))
     return day_sessions
 
@@ -76,10 +77,10 @@ def compute_gap_count(sections: list[SectionSlot]) -> int:
 
 
 def compute_campus_days(sections: list[SectionSlot]) -> int:
-    """Number of distinct weekdays with at least one in-person (timed) meeting."""
+    """Number of distinct days with at least one in-person (timed) meeting."""
     days_with_class: set[str] = set()
     for section in sections:
         for meeting in section.meetings:
             if meeting.start_time is not None and meeting.days:
-                days_with_class.update(c for c in meeting.days if c in "MTWRFS")
+                days_with_class.update(c for c in meeting.days if c in DAY_OFFSETS)
     return len(days_with_class)

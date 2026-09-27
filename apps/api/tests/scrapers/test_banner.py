@@ -6,13 +6,13 @@ from src.scrapers.banner import _parse_meeting_pattern
 
 def banner_pattern(
     monday=False, tuesday=False, wednesday=False, thursday=False, friday=False,
-    saturday=False,
+    saturday=False, sunday=False,
     begin_time=None, end_time=None, building="", room=""
 ) -> dict:
     return {
         "meetingTime": {
             "monday": monday, "tuesday": tuesday, "wednesday": wednesday,
-            "thursday": thursday, "friday": friday, "saturday": saturday,
+            "thursday": thursday, "friday": friday, "saturday": saturday, "sunday": sunday,
             "beginTime": begin_time, "endTime": end_time,
         },
         "building": building,
@@ -100,3 +100,9 @@ class TestCleanCourseTitle:
         """
         from src.scrapers.banner import _clean_course_title
         assert _clean_course_title("ST: PHYSICAL AI") == "St: Physical Ai"
+
+
+def test_sunday_meetings_are_preserved_alone_and_with_weekdays():
+    for flags, expected in [({"sunday": True}, "U"), ({"sunday": True, "monday": True, "saturday": True}, "UMS")]:
+        days, start, end, _ = _parse_meeting_pattern(banner_pattern(**flags, begin_time="1000", end_time="1115"))
+        assert (days, start, end) == (expected, time(10), time(11, 15))

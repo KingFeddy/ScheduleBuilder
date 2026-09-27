@@ -456,3 +456,17 @@ def test_topic_selection_is_required_and_never_falls_back_to_another_topic():
     assert not full.results and "all sections are full" in full.warnings[0]
     stale = solve(["CS485"], sections, no_constraints, {}, topic_preferences={"CS485": "Removed topic"})
     assert not stale.results and "selected topic is unavailable" in stale.warnings[0]
+
+
+def test_sunday_counts_for_conflicts_gaps_campus_days_and_blocking():
+    sunday = section("U1", "CS101", [make_meeting("U", "10:00", "11:00")])
+    overlapping = section("U2", "CS201", [make_meeting("U", "10:30", "11:30")])
+    later = section("U3", "CS301", [make_meeting("U", "12:00", "13:00")])
+    monday = section("M1", "CS401", [make_meeting("M", "10:00", "11:00")])
+    assert not solve(["CS101", "CS201"], {"CS101": [sunday], "CS201": [overlapping]}, no_constraints, {}).results
+    valid = solve(["CS101", "CS401"], {"CS101": [sunday], "CS401": [monday]}, no_constraints, {})
+    assert valid.results[0].campus_days == 2
+    assert compute_campus_days([sunday, later]) == 1
+    assert compute_gap_minutes([sunday, later]) == 60
+    assert compute_gap_count([sunday, later]) == 1
+    assert not solve(["CS101"], {"CS101": [sunday]}, CommuterOptions(blocked_days=["U"]), {}).results

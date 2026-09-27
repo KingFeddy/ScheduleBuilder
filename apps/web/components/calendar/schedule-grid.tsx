@@ -9,8 +9,8 @@ const TOTAL_HOURS = END_HOUR - START_HOUR // 15
 const GRID_HEIGHT = TOTAL_HOURS * PX_PER_HOUR // 720px — used for all position math
 const GRID_DISPLAY_HEIGHT = GRID_HEIGHT + PX_PER_HOUR / 2 // 744px — extends to 10:30pm closing line
 
-const DAY_MAP: Record<string, number> = { M: 0, T: 1, W: 2, R: 3, F: 4, S: 5 }
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_MAP: Record<string, number> = { U: 0, M: 1, T: 2, W: 3, R: 4, F: 5, S: 6 }
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // 16 hour labels: 7am through 10pm inclusive
 const HOUR_MARKS = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => START_HOUR + i)
@@ -40,7 +40,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
   // Monday-only row and a separate Thursday-only row at the same CRN)
   // produces a separate RenderedMeeting per row, so both actually render
   // instead of only the first one Banner happened to list.
-  const daySlots: RenderedMeeting[][] = [[], [], [], [], [], []]
+  const daySlots: RenderedMeeting[][] = DAY_LABELS.map(() => [])
   for (const slot of result.sections) {
     for (const meeting of slot.meetings) {
       if (!meeting.days || !meeting.start_time || !meeting.end_time) continue
@@ -71,7 +71,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
       {/* Day header — not sticky inside overflow:hidden, so pinned via flex-shrink-0 */}
       <div
         className="flex-shrink-0 grid border-b border-border bg-bg"
-        style={{ gridTemplateColumns: '48px repeat(6, 1fr)' }}
+        style={{ gridTemplateColumns: `48px repeat(${DAY_LABELS.length}, 1fr)` }}
       >
         <div />
         {DAY_LABELS.map((day) => (
@@ -88,7 +88,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
       <div className="overflow-y-auto flex-1 pt-3">
         <div
           className="grid"
-          style={{ gridTemplateColumns: '48px repeat(6, 1fr)', height: GRID_DISPLAY_HEIGHT }}
+          style={{ gridTemplateColumns: `48px repeat(${DAY_LABELS.length}, 1fr)`, height: GRID_DISPLAY_HEIGHT }}
         >
           {/* Time label column */}
           <div className="relative border-r border-border" style={{ height: GRID_DISPLAY_HEIGHT }}>
@@ -103,10 +103,12 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
             ))}
           </div>
 
-          {/* Six day columns */}
+          {/* Seven day columns */}
           {daySlots.map((slots, colIdx) => (
             <div
               key={colIdx}
+              role="group"
+              aria-label={`${DAY_LABELS[colIdx]} classes`}
               className="relative border-r border-border last:border-r-0"
               style={{ height: GRID_DISPLAY_HEIGHT }}
             >

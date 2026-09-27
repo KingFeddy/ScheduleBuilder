@@ -2,6 +2,12 @@ import { test, expect } from './fixtures'
 import { courses, presentCatalog, solveResponse } from './data'
 
 test('searches courses, submits filters, and renders timed and async meetings', async ({ page, api }) => {
+  api.respond('POST', '/api/schedule/solve', {
+    ...solveResponse,
+    results: [{ ...solveResponse.results[0], sections: solveResponse.results[0].sections.map((section, i) =>
+      i === 0 ? { ...section, meetings: section.meetings.map((meeting, j) => j === 0 ? { ...meeting, days: 'UM' } : meeting) } : section,
+    ) }],
+  })
   await page.goto('/')
   await expect(page).toHaveURL(/\/scheduler$/)
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeDisabled()
@@ -31,13 +37,17 @@ test('searches courses, submits filters, and renders timed and async meetings', 
     professor_preferences: {},
     topic_preferences: {},
   }])
-  // One selected-course label plus a block for each of the two meeting patterns.
-  await expect(page.getByText('CS280', { exact: true })).toHaveCount(3)
-  await expect(page.getByText('Test Lecturer', { exact: true })).toHaveCount(2)
-  await expect(page.getByText('12/30', { exact: true })).toHaveCount(2)
+  // One selected-course label plus Sunday, Monday, and Thursday blocks.
+  await expect(page.getByText('CS280', { exact: true })).toHaveCount(4)
+  await expect(page.getByText('Test Lecturer', { exact: true })).toHaveCount(3)
+  await expect(page.getByText('12/30', { exact: true })).toHaveCount(3)
   await expect(page.locator('p').filter({ hasText: /^CS280: Programming Language Concepts$/ })).toBeVisible()
-  await expect(page.getByText('Programming Language Concepts', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Programming Language Concepts', { exact: true })).toHaveCount(3)
   await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Sun classes' }).getByText('CS280', { exact: true })).toBeVisible()
+  const sundayHeader = await page.getByText('Sun', { exact: true }).boundingBox()
+  const mondayHeader = await page.getByText('Mon', { exact: true }).boundingBox()
+  expect(sundayHeader!.x).toBeLessThan(mondayHeader!.x)
   await expect(page.getByText('Async / TBA', { exact: true })).toBeVisible()
   await expect(page.getByText('Test Instructor', { exact: true })).toBeVisible()
   await expect(page.getByText(solveResponse.warnings[0], { exact: true })).toBeVisible()

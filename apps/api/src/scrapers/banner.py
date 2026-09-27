@@ -43,6 +43,7 @@ REQUIRED_SECTION_KEYS = {"courseReferenceNumber", "subject", "courseNumber", "me
 
 # Banner day keys in calendar order — order determines the output string.
 _DAY_MAP = [
+    ("sunday",    "U"),
     ("monday",    "M"),
     ("tuesday",   "T"),
     ("wednesday", "W"),
@@ -114,7 +115,7 @@ def _parse_meeting_pattern(
     """
     Extract (days, start_time, end_time, location) from one Banner meetingsFaculty entry.
     Returns None for any field Banner doesn't provide (async/TBA sections).
-    Day characters are always in MTWRFS calendar order.
+    Day characters are always in UMTWRFS calendar order.
     """
     meeting_time = pattern.get("meetingTime", {})
 

@@ -1,3 +1,4 @@
+import { formatTopicTitle, formatCourseTitle } from '@/lib/course-metadata'
 import type { SolveSectionResponse } from '@/lib/api'
 import { courseColor } from '@/lib/course-colors'
 import { seatColorClass } from '@/components/ui/seat-status'
@@ -17,6 +18,7 @@ function fullName(raw: string | null): string {
 
 export function AsyncBlock({ slot }: { slot: SolveSectionResponse }) {
   const bg = courseColor(slot.course_code)
+  const title = slot.topic ? formatTopicTitle(slot.topic) : formatCourseTitle(slot.section_title)
   const prof = fullName(slot.professor_name)
 
   return (
@@ -37,6 +39,7 @@ export function AsyncBlock({ slot }: { slot: SolveSectionResponse }) {
           {slot.open_seats}/{slot.total_seats}
         </p>
       </div>
+      {title && <p className="text-[11px] text-text truncate" title={title}>{title}</p>}
       <p className="font-mono text-[13px] text-text truncate">{prof}</p>
     </div>
   )

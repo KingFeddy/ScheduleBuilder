@@ -3,7 +3,7 @@
 import { Printer, RefreshCw } from 'lucide-react'
 import type { SemesterPlan as SemesterPlanType } from '@/lib/api'
 import { planningTermLabel } from '@/lib/planner-terms'
-import { formatCredits } from '@/lib/course-metadata'
+import { formatCredits, formatCourseTitle } from '@/lib/course-metadata'
 import { CatalogNote } from '@/components/ui/catalog-note'
 
 import { canChoose } from '@/lib/planner-choices'
@@ -37,7 +37,7 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
       <span className="font-mono text-sm text-text w-20 flex-shrink-0">{code}</span>
       <span className="flex-1 min-w-0">
         <span className="block text-sm text-muted group-hover:text-text transition-colors duration-150 truncate">
-          {title || 'Title unavailable'}
+          {formatCourseTitle(title) || 'Title unavailable'}
         </span>
         {title && titleStatus !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
         {estimated && <span className="block text-xs text-muted">{creditsNote || 'Credits are unverified; this amount is an estimate.'}</span>}

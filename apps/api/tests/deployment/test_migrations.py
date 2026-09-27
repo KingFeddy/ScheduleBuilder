@@ -17,7 +17,7 @@ from tests.database_isolation import isolated_test_database
 
 
 API_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_VERSIONS = ["000", "007", "009", "012", "013", "014", "015", "016", "017"]
+ACTIVE_VERSIONS = ["000", "007", "009", "012", "013", "014", "015", "016", "017", "018"]
 
 
 @pytest.mark.asyncio
@@ -29,7 +29,7 @@ async def test_scraper_scope_upgrade_preserves_history_without_inventing_coverag
         await session.execute(text("INSERT INTO scraper_runs(scraper,term,status,sections_failed) VALUES ('banner','202690','completed',1)"))
         if renamed_check:
             await session.execute(text("ALTER TABLE scraper_runs RENAME CONSTRAINT scraper_runs_status_check TO renamed_status_check"))
-    assert [m.version for m in await _apply(empty_database)] == ["017"]
+    assert [m.version for m in await _apply(empty_database)] == ["017", "018"]
     async with empty_database.session_factory.begin() as session:
         assert (await session.execute(text("SELECT status,sections_failed,subjects FROM scraper_runs"))).one() == ("completed", 1, None)
         await session.execute(text("INSERT INTO scraper_runs(scraper,term,status,subjects) VALUES ('banner','202690','partial',ARRAY['CS'])"))
@@ -110,7 +110,7 @@ async def test_database_fixtures_are_built_from_recorded_migrations(test_databas
                 SELECT column_name FROM information_schema.columns
                 WHERE table_schema = current_schema() AND table_name = 'sections'
             """))).scalars().all()
-            assert {"section_number", "days", "start_time", "end_time"} <= set(columns)
+            assert {"section_number", "section_title", "days", "start_time", "end_time"} <= set(columns)
 
 
 @pytest.mark.asyncio
@@ -328,3 +328,34 @@ def test_cli_requires_explicit_postgres_configuration_and_redacts_it(migration_u
     assert "MIGRATION_DATABASE_URL" in result.stderr
     assert "secret" not in result.stdout + result.stderr
     assert environment["DATABASE_URL"] not in result.stdout + result.stderr
+
+
+@pytest.mark.asyncio
+async def test_section_titles_backfill_only_matching_term_crn_and_course(empty_database):
+    from scripts.migrate import load_migrations
+    await _apply(empty_database, [m for m in load_migrations() if m.version < "018"])
+    evidence = {"term": "202690", "observations": [
+        {"crn": "91974", "courseTitle": "ST: Counter Hacking Techniques"},
+        {"crn": "96523", "courseTitle": "ST: PHYSICAL AI"},
+    ]}
+    async with empty_database.session_factory.begin() as session:
+        await session.execute(text("""
+            INSERT INTO courses(course_code, title, metadata_latest_attempt)
+            VALUES ('CS485', 'ST: PHYSICAL AI', CAST(:evidence AS jsonb)),
+                   ('CS486', 'Other course', NULL)
+        """), {"evidence": json.dumps(evidence)})
+        await session.execute(text("""
+            INSERT INTO sections(crn,term,course_code) VALUES
+            ('91974','202690','CS485'), ('96523','202690','CS485'),
+            ('91974','202610','CS485'), ('99999','202690','CS485'),
+            ('96524','202690','CS486')
+        """))
+    await _apply(empty_database)
+    async with empty_database.session_factory() as session:
+        rows = (await session.execute(text("SELECT crn,term,section_title FROM sections"))).all()
+        titles = {(crn,term): title for crn,term,title in rows}
+        assert titles == {
+            ('91974','202690'): 'ST: Counter Hacking Techniques',
+            ('96523','202690'): 'ST: PHYSICAL AI',
+            ('91974','202610'): None, ('99999','202690'): None, ('96524','202690'): None,
+        }

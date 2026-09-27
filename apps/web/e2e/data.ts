@@ -30,7 +30,7 @@ export const courses: CourseResponse[] = [
 
 export const sections: SolveSectionResponse[] = [
   {
-    crn: '99001', term: '202690', course_code: 'CS280', section_number: '001',
+    crn: '99001', term: '202690', course_code: 'CS280', section_number: '001', section_title: 'Programming Language Concepts',
     professor_name: 'Test Lecturer, Taylor', total_seats: 30, open_seats: 12,
     scraped_at: '2026-09-12T14:55:00Z',
     meetings: [
@@ -39,7 +39,7 @@ export const sections: SolveSectionResponse[] = [
     ],
   },
   {
-    crn: '99002', term: '202690', course_code: 'HUM101', section_number: '851',
+    crn: '99002', term: '202690', course_code: 'HUM101', section_number: '851', section_title: 'Writing and Communication',
     professor_name: 'Instructor, Test', total_seats: 20, open_seats: 5,
     scraped_at: '2026-09-12T14:55:00Z',
     meetings: [{ days: null, start_time: null, end_time: null, location: 'Online' }],
@@ -56,7 +56,7 @@ export const solveResponse: SolveResponse = {
 export const sectionList: SectionResponse[] = sections.map((section) => ({
   crn: section.crn, course_code: section.course_code, professor_name: section.professor_name,
   total_seats: section.total_seats, open_seats: section.open_seats,
-  scraped_at: section.scraped_at, meetings: section.meetings,
+  scraped_at: section.scraped_at, meetings: section.meetings, section_title: section.section_title,
 }))
 
 const completeRefresh = {

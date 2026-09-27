@@ -42,6 +42,7 @@ COLUMNS = {
         "location": Column("text", nullable=True),
         "scraped_at": Column("timestamp with time zone", nullable=True),
         "section_number": Column("text", nullable=True),
+        "section_title": Column("text", nullable=True),
     },
     "meetings": {
         "id": Column("bigint", default="sequence"),

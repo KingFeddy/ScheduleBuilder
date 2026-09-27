@@ -8,7 +8,7 @@ import { CourseSelector } from '@/components/scheduler/course-selector'
 import { CommuterToggles } from '@/components/scheduler/commuter-toggles'
 import { ResultNavigator } from '@/components/scheduler/result-navigator'
 import { ScheduleGrid } from '@/components/calendar/schedule-grid'
-import { CurrentTerm } from '@/components/scheduler/current-term'
+import { TermStatus } from '@/components/scheduler/term-status'
 import { useSchedulerTerms } from '@/hooks/useSchedulerTerms'
 
 export default function SchedulerPage() {
@@ -18,6 +18,8 @@ export default function SchedulerPage() {
     termRevision,
     commuterOptions,
     professorPreferences,
+    topicPreferences,
+    sectionsByCourse,
     results,
     activeResultIndex,
     isLoading,
@@ -30,6 +32,10 @@ export default function SchedulerPage() {
   const terms = useSchedulerTerms()
   const selectedTerm = terms.catalog?.terms.find((option) => option.code === term)
   const hasTermData = selectedTerm?.has_data === true
+  const needsTopic = selectedCourses.some((code) => {
+    const sections = sectionsByCourse[code] ?? []
+    return sections.some((s) => s.topic) && !sections.some((s) => s.topic === topicPreferences[code])
+  })
   const solveRequest = useRef<AbortController | null>(null)
 
   useEffect(() => () => {
@@ -40,7 +46,7 @@ export default function SchedulerPage() {
   }, [termRevision, setLoading])
 
   async function handleSolve() {
-    if (isLoading || selectedCourses.length === 0 || !hasTermData) return
+    if (isLoading || selectedCourses.length === 0 || !hasTermData || needsTopic) return
     const controller = new AbortController()
     solveRequest.current = controller
     const revision = termRevision
@@ -58,6 +64,9 @@ export default function SchedulerPage() {
           hide_full_sections: commuterOptions.hide_full_sections,
         },
         compact_week: commuterOptions.compact_week,
+        topic_preferences: Object.fromEntries(
+          Object.entries(topicPreferences).filter(([code, topic]) => selectedCourses.includes(code) && topic),
+        ),
         professor_preferences: Object.fromEntries(
           Object.entries(professorPreferences).filter(([, v]) => v.length > 0),
         ),
@@ -93,49 +102,49 @@ export default function SchedulerPage() {
   const activeResult = hasTermData ? results[activeResultIndex] ?? null : null
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Left panel */}
-      <div className="w-72 flex-shrink-0 border-r border-border flex flex-col gap-6 p-5 overflow-y-auto">
-        <CurrentTerm catalog={terms.catalog} error={terms.error} onRetry={terms.retry} />
-        <div>
+      <div className="w-72 min-h-0 flex-shrink-0 border-r border-border flex flex-col gap-5 p-5 overflow-y-auto">
+        <div className="min-h-48 flex-1 overflow-y-auto overscroll-contain">
+          <TermStatus catalog={terms.catalog} error={terms.error} onRetry={terms.retry} />
           <p className="text-xs font-medium uppercase tracking-wider text-muted mb-3">
             Add Courses
           </p>
           <CourseSelector hasTermData={hasTermData} />
         </div>
 
-        <div className="border-t border-border pt-5">
+        <div className="shrink-0 border-t border-border pt-5 flex flex-col gap-5">
           <CommuterToggles />
-        </div>
 
-        <div className="border-t border-border pt-5 mt-auto flex flex-col gap-3">
-          <button
-            onClick={handleSolve}
-            disabled={isLoading || selectedCourses.length === 0 || !hasTermData}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-njit-red text-white hover:opacity-90 disabled:opacity-40 transition-opacity duration-150"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Solving…
-              </>
-            ) : (
-              'Solve'
+          <div className="border-t border-border pt-5 flex flex-col gap-3">
+            <button
+              onClick={handleSolve}
+              disabled={isLoading || selectedCourses.length === 0 || !hasTermData || needsTopic}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium bg-njit-red text-white hover:opacity-90 disabled:opacity-40 transition-opacity duration-150"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Solving…
+                </>
+              ) : (
+                'Solve'
+              )}
+            </button>
+
+            {hasTermData && solveWarnings.length > 0 && (
+              <ul className="flex flex-col gap-1.5">
+                {solveWarnings.map((w, i) => (
+                  <li
+                    key={i}
+                    className="text-xs text-yellow px-2 py-1 rounded bg-surface-2 border border-border"
+                  >
+                    {w}
+                  </li>
+                ))}
+              </ul>
             )}
-          </button>
-
-          {hasTermData && solveWarnings.length > 0 && (
-            <ul className="flex flex-col gap-1.5">
-              {solveWarnings.map((w, i) => (
-                <li
-                  key={i}
-                  className="text-xs text-yellow px-2 py-1 rounded bg-surface-2 border border-border"
-                >
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
+          </div>
         </div>
       </div>
 

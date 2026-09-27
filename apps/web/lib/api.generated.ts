@@ -794,6 +794,12 @@ export interface components {
             professor_name: string | null;
             /** Scraped At */
             scraped_at: string | null;
+            /** Section Number */
+            section_number?: string | null;
+            /** Section Title */
+            section_title?: string | null;
+            /** Topic */
+            topic?: string | null;
             /** Total Seats */
             total_seats: number;
         };
@@ -827,6 +833,10 @@ export interface components {
             };
             /** Term */
             term: string;
+            /** Topic Preferences */
+            topic_preferences?: {
+                [key: string]: string;
+            };
         };
         /** SolveResponse */
         SolveResponse: {
@@ -853,8 +863,12 @@ export interface components {
             scraped_at: string | null;
             /** Section Number */
             section_number: string | null;
+            /** Section Title */
+            section_title?: string | null;
             /** Term */
             term: string;
+            /** Topic */
+            topic?: string | null;
             /** Total Seats */
             total_seats: number;
         };

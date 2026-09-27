@@ -1,5 +1,7 @@
 'use client'
 
+import { formatCourseTitle } from '@/lib/course-metadata'
+
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { getApiErrorMessage, getGerCourses, getCourses, type GerGroup, type StillNeededItem } from '@/lib/api'
@@ -220,7 +222,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap, requirement, una
                             {course.code}
                           </span>
                           <span className="text-sm text-muted">
-                            {course.title || 'Title unavailable'}
+                            {formatCourseTitle(course.title) || 'Title unavailable'}
                             {course.title && course.title_status !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
                             <CatalogNote status={course.catalog_status} note={course.catalog_note} />
                           </span>

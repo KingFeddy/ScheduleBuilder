@@ -439,3 +439,20 @@ class TestBuildFilterWarning:
         assert "CS350" in msg
         assert "Not before" in msg
         assert "Not after" in msg
+
+
+def test_topic_selection_is_required_and_never_falls_back_to_another_topic():
+    ai = section("96523", "CS485", [make_meeting("M", "10:00", "11:00")], open_seats=0)
+    ai.topic, ai.section_title = "PHYSICAL AI", "ST: PHYSICAL AI"
+    hacking = section("91974", "CS485", [make_meeting("T", "10:00", "11:00")])
+    hacking.topic = "Counter Hacking Techniques"
+    sections = {"CS485": [ai, hacking]}
+    missing = solve(["CS485"], sections, no_constraints, {})
+    assert not missing.results and "choose a topic" in missing.warnings[0]
+    selected = solve(["CS485"], sections, no_constraints, {}, topic_preferences={"CS485": "PHYSICAL AI"})
+    assert [s.crn for r in selected.results for s in r.sections] == ["96523"]
+    assert selected.results[0].sections[0].section_title == "ST: PHYSICAL AI"
+    full = solve(["CS485"], sections, CommuterOptions(hide_full_sections=True), {}, topic_preferences={"CS485": "PHYSICAL AI"})
+    assert not full.results and "all sections are full" in full.warnings[0]
+    stale = solve(["CS485"], sections, no_constraints, {}, topic_preferences={"CS485": "Removed topic"})
+    assert not stale.results and "selected topic is unavailable" in stale.warnings[0]

@@ -32,7 +32,7 @@ def api(monkeypatch):
 
 def test_section_lists_and_solved_sections_keep_distinct_shapes(api, monkeypatch):
     # CONTRACT: the picker receives list sections, while solved calendars also
-    # receive term/section_number. Truncation belongs on the search envelope.
+    # receive term. Both include section numbers and topic labels. Truncation belongs on the search envelope.
     from src.routers import courses, schedule
     from src.scheduler.models import MeetingSlot, SectionSlot
 
@@ -50,6 +50,7 @@ def test_section_lists_and_solved_sections_keep_distinct_shapes(api, monkeypatch
     expected = {
         "crn": "99001", "course_code": "CS280", "professor_name": None,
         "total_seats": 30, "open_seats": 0, "scraped_at": None,
+        "section_number": None, "section_title": None, "topic": None,
         "meetings": [{"days": None, "start_time": None, "end_time": None, "location": None}],
     }
     assert listed.json() == [expected]

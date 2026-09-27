@@ -1,3 +1,4 @@
+import { formatTopicTitle, formatCourseTitle } from '@/lib/course-metadata'
 import { courseColor } from '@/lib/course-colors'
 import { seatColorClass } from '@/components/ui/seat-status'
 
@@ -40,6 +41,8 @@ export interface RenderedMeeting {
   crn: string
   course_code: string
   section_number: string | null
+  topic?: string | null
+  section_title?: string | null
   professor_name: string | null
   open_seats: number
   total_seats: number
@@ -59,32 +62,31 @@ export function CourseBlock({ slot, hasConflict = false }: CourseBlockProps) {
   const topPx = minutesToPx(startMin)
   const heightPx = ((endMin - startMin) / 60) * PX_PER_HOUR
   const bg = courseColor(slot.course_code)
+  const title = slot.topic ? formatTopicTitle(slot.topic) : formatCourseTitle(slot.section_title)
   const prof = lastName(slot.professor_name)
 
   return (
     <div
       className={[
-        'absolute inset-x-0.5 rounded-md px-2 py-1 overflow-hidden',
+        '@container absolute inset-x-0.5 rounded-md px-2 py-1 overflow-hidden',
         hasConflict ? 'opacity-50 ring-2 ring-njit-red' : '',
       ]
         .join(' ')
         .trim()}
+      title={[slot.course_code, slot.section_number, title, prof].filter(Boolean).join(" · ")}
       style={{ top: topPx, height: heightPx, backgroundColor: bg, border: `1px solid ${bg}cc` }}
     >
-      <div className="flex items-baseline justify-between gap-1">
-        <div className="flex items-baseline gap-1.5 min-w-0">
-          <p className="font-mono font-bold text-[15px] text-text truncate">{slot.course_code}</p>
-          {slot.section_number && (
-            <p className="font-mono text-[11px] text-muted flex-shrink-0">{slot.section_number}</p>
-          )}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-1">
+        <p className="col-span-2 row-start-1 @[130px]:col-span-1 font-mono font-bold text-[12px] leading-4 text-text truncate">{slot.course_code}</p>
+        {title && <p className="col-span-2 row-start-2 text-[11px] leading-[14px] text-text truncate" title={title}>{title}</p>}
+        <p className="col-span-2 row-start-3 font-mono text-[11px] leading-[14px] text-text truncate">{prof}</p>
+        <div className="col-span-2 row-start-4 @[130px]:col-span-1 @[130px]:col-start-2 @[130px]:row-start-1 flex items-baseline justify-between gap-1 font-mono text-[10px] leading-3">
+          {slot.section_number && <p className="text-muted">{slot.section_number}</p>}
+          <p className={`tabular-nums ${seatColorClass(slot.open_seats)}`}>
+            {slot.open_seats}/{slot.total_seats}
+          </p>
         </div>
-        <p
-          className={`font-mono tabular-nums text-[12px] flex-shrink-0 ${seatColorClass(slot.open_seats)}`}
-        >
-          {slot.open_seats}/{slot.total_seats}
-        </p>
       </div>
-      <p className="font-mono text-[13px] text-text truncate">{prof}</p>
     </div>
   )
 }

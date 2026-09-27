@@ -157,6 +157,38 @@ Tests verify the disposable database before running and never use the applicatio
 database or `.env`. Its data is discarded when stopped; reapply migrations after
 restarting it. The credentials above are for this test service only.
 
+### Local load test
+
+With Docker Desktop running and API dependencies installed:
+
+```bash
+cd apps/api
+uv run --no-sync python -m scripts.load_test
+```
+
+This runs 30-second stages with 10, 25, 50, and 100 virtual students. Each student
+searches, adds 4–6 courses, fetches professor data, and solves, with pauses between
+actions. For a longer run, use `--users 10,25,50,100 --seconds 120`.
+
+The command starts a separate local API worker and an ephemeral Docker database
+containing 1,200 synthetic courses and 6,000 sections. It verifies the disposable
+database identity and never loads application `.env` credentials. The API and
+database use temporary loopback ports; the normal local preview can stay running.
+All containers and test data owned by the run are removed on completion or Ctrl+C.
+
+The printed report path contains JSON with request counts, median/p95/p99 latency,
+errors, and per-endpoint results. `p95` means 95% of requests finished within that
+time. HTTP errors and empty/invalid solve results count as failures.
+
+IP rate limits are disabled **only in the isolated test API**, since all virtual
+users originate from one machine. Do not deploy `scripts.load_test_app` as the
+application entry point. The normal API's rate limits stay enabled.
+
+This is a local API baseline, not a verified Railway user limit. Synthetic course
+combinations are relatively easy to solve. The test excludes browser rendering,
+the Vercel proxy, PDF uploads, degree planning, and production network latency.
+Check those workloads and real client-IP handling separately before a public launch.
+
 After changing API request or response models, regenerate the API contract:
 
 ```bash

@@ -48,6 +48,8 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
         crn: slot.crn,
         course_code: slot.course_code,
         section_number: slot.section_number,
+        topic: slot.topic,
+        section_title: slot.section_title,
         professor_name: slot.professor_name,
         open_seats: slot.open_seats,
         total_seats: slot.total_seats,

@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..scheduler.models import MeetingSlot, SectionSlot
+from .course_topics import is_topic_title, topic_label, topic_key
 from .meeting_integrity import IncompleteMeetingData, meeting_kind
 
 
@@ -26,10 +27,12 @@ async def load_sections_with_meetings(
     """
     sections_result = await session.execute(
         text("""
-            SELECT crn, term, course_code, professor_name,
-                   total_seats, open_seats, scraped_at, section_number
-            FROM sections
-            WHERE course_code = ANY(:codes) AND term = :term
+            SELECT s.crn, s.term, s.course_code, s.professor_name,
+                   s.total_seats, s.open_seats, s.scraped_at, s.section_number,
+                   s.section_title, c.title AS catalog_title
+            FROM sections s JOIN courses c ON c.course_code = s.course_code
+            WHERE s.course_code = ANY(:codes) AND s.term = :term
+            ORDER BY s.course_code, s.crn
         """),
         {"codes": course_codes, "term": term},
     )
@@ -68,11 +71,20 @@ async def load_sections_with_meetings(
             )
         )
 
+    topic_courses = {
+        row["course_code"] for row in sections_rows
+        if is_topic_title(row.get("section_title")) or is_topic_title(row.get("catalog_title"))
+    }
+    labels: dict[tuple[str, str], str] = {}
     result: dict[str, list[SectionSlot]] = {code: [] for code in course_codes}
     for row in sections_rows:
         if not meetings_by_crn.get(row["crn"]):
             # Absence may mean an unfinished migration/scrape, not an online class.
             raise IncompleteMeetingData()
+        topic = None
+        if row["course_code"] in topic_courses:
+            label = topic_label(row.get("section_title"), row["section_number"], row["crn"])
+            topic = labels.setdefault((row["course_code"], topic_key(label)), label)
         result[row["course_code"]].append(
             SectionSlot(
                 crn=row["crn"],
@@ -83,6 +95,8 @@ async def load_sections_with_meetings(
                 open_seats=row["open_seats"],
                 scraped_at=row["scraped_at"],
                 section_number=row["section_number"],
+                section_title=row.get("section_title"),
+                topic=topic,
                 meetings=meetings_by_crn.get(row["crn"], []),
             )
         )

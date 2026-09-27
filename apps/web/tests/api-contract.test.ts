@@ -61,7 +61,6 @@ export function verifyFieldLocations(response: SolveResponse) {
   void response.results[0].truncated
   // @ts-expect-error Section-list payloads do not include the solved section's term.
   void returnedSections[0].term
-  // @ts-expect-error Section numbers exist only on solved-section responses.
   void returnedSections[0].section_number
   return truncated
 }

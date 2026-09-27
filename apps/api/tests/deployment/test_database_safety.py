@@ -231,6 +231,20 @@ def test_safe_settings():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_load_test_entry_point_rejects_application_database_and_missing_run_token(monkeypatch):
+    from scripts.load_test_app import create_app
+
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("LOAD_TEST_TOKEN", "local-test")
+    monkeypatch.setenv("TEST_DATABASE_URL", "postgresql+asyncpg://user:password@production.example/app")
+    with pytest.raises(UnsafeTestDatabase):
+        create_app()
+    monkeypatch.setenv("TEST_DATABASE_URL", TEST_URL)
+    monkeypatch.delenv("LOAD_TEST_TOKEN")
+    with pytest.raises(RuntimeError, match="run token"):
+        create_app()
+
+
 def test_normal_application_startup_still_loads_dotenv(tmp_path):
     # COMPATIBILITY: the test safeguard must preserve normal local app configuration.
     (tmp_path / ".env").write_text(

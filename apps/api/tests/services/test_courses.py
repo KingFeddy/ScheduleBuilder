@@ -157,3 +157,24 @@ class TestLoadSectionsWithMeetings:
         result = await load_sections_with_meetings(session, ["CS101", "CS999"], "202690")
 
         assert result["CS999"] == []
+
+
+@pytest.mark.asyncio
+async def test_topics_keep_section_identity_without_splitting_ordinary_honors():
+    entries = [
+        ("1", "CS485", "ST: PHYSICAL AI"),
+        ("2", "CS485", "ST: Counter Hacking Techniques"),
+        ("3", "CS485", "ST: physical ai"),
+        ("4", "CS485", None),
+        ("5", "CS351", "Introduction to Cybersecurity"),
+        ("6", "CS351", "INTRODUCTION TO CYBERSECURITY - HONORS"),
+    ]
+    session = mock_session_with(
+        [{**make_section_row(crn, code), "section_title": title} for crn, code, title in entries],
+        [make_meeting_row(crn, "M", time(10), time(11)) for crn, _, _ in entries],
+    )
+    result = await load_sections_with_meetings(session, ["CS485", "CS351"], "202690")
+    assert [s.topic for s in result["CS485"][:3]] == ["PHYSICAL AI", "Counter Hacking Techniques", "PHYSICAL AI"]
+    assert result["CS485"][3].topic == "Topic not listed (section 001, CRN 4)"
+    assert all(s.topic is None for s in result["CS351"])
+    assert result["CS485"][0].section_title == "ST: PHYSICAL AI"

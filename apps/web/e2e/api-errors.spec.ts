@@ -16,7 +16,7 @@ test('professor server failures are shown separately from a missing professor', 
   api.respond('GET', path, { detail: 'Synthetic unavailable cache' }, 503)
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
-  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
+  await page.getByRole('button', { name: 'CS280: Programming Language Concepts' }).click()
   await expect.poll(() => api.requests('GET', path).length).toBeGreaterThan(0)
   await page.getByRole('button', { name: 'Any professor', exact: true }).click()
   await page.getByText('Taylor Test Lecturer', { exact: true }).click()

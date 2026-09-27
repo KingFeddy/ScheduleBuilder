@@ -59,6 +59,44 @@ async def test_cron_includes_discovered_subjects_alongside_configured_subjects(m
 
 
 @pytest.mark.asyncio
+async def test_course_search_accepts_spaced_codes_and_multiword_titles(db_session):
+    from src.routers.courses import search_courses
+
+    await db_session.execute(text("""
+        INSERT INTO courses(course_code, title, credits) VALUES
+        ('CS280', 'Programming Language Concepts', 3), ('CS281', 'Another course', 3)
+    """))
+    await db_session.execute(text("""
+        INSERT INTO sections(crn, term, course_code, section_number) VALUES
+        ('28001', '202690', 'CS280', '001'), ('28101', '202690', 'CS281', '001')
+    """))
+    for query in ('CS280', 'CS 280', ' cs  280 ', 'Programming Language'):
+        results = await search_courses(q=query, subject=None, term='202690', page=1, limit=8, db=db_session)
+        assert [course.course_code for course in results] == ['CS280']
+
+
+@pytest.mark.asyncio
+async def test_course_code_matches_rank_before_title_matches_before_pagination(db_session):
+    from src.routers.courses import search_courses
+
+    await db_session.execute(text("""
+        INSERT INTO courses(course_code, title, credits) VALUES
+        ('AD201', 'Genetics and CS280', 3), ('BIOL352', 'Genetics', 3),
+        ('CS100', 'Roadmap to Computing', 3), ('CS280', 'Programming Language Concepts', 3),
+        ('CS280H', 'Honors Programming Language Concepts', 3)
+    """))
+    await db_session.execute(text("""
+        INSERT INTO sections(crn, term, course_code, section_number)
+        SELECT course_code, '202690', course_code, '001' FROM courses
+        WHERE course_code != 'CS999'
+    """))
+    prefix = await search_courses(q='cs', subject=None, term='202690', page=1, limit=2, db=db_session)
+    assert [course.course_code for course in prefix] == ['CS100', 'CS280']
+    exact = await search_courses(q='CS 280', subject=None, term='202690', page=1, limit=2, db=db_session)
+    assert [course.course_code for course in exact] == ['CS280', 'CS280H']
+
+
+@pytest.mark.asyncio
 async def test_term_search_excludes_catalog_only_and_other_terms_but_keeps_full_sections(db_session):
     from src.routers.courses import search_courses
 

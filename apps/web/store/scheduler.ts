@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { ProfessorResponse, ScheduleResult } from '@/lib/api'
+import type { ProfessorResponse, ScheduleResult, SectionResponse } from '@/lib/api'
 
 export interface CommuterOptions {
   compact_week: boolean
@@ -24,6 +24,13 @@ const defaultCommuterOptions: CommuterOptions = {
   hide_full_sections: false,
 }
 
+function topicProfessors(sections: SectionResponse[], topic?: string): string[] {
+  const relevant = sections.some((s) => s.topic)
+    ? sections.filter((s) => s.topic === topic)
+    : sections
+  return [...new Set(relevant.map((s) => s.professor_name).filter((n): n is string => !!n))]
+}
+
 interface SchedulerState {
   // persisted
   selectedCourses: string[]
@@ -31,6 +38,7 @@ interface SchedulerState {
   preferredTerm: string | null // null follows the API default on each visit
   commuterOptions: CommuterOptions
   professorPreferences: Record<string, string[]>
+  topicPreferences: Record<string, string>
   activeResultIndex: number
 
   // not persisted
@@ -40,9 +48,12 @@ interface SchedulerState {
   solveWarnings: string[]
   professorCache: Record<string, ProfessorResponse | null>
   professorsByCourse: Record<string, string[]>
+  sectionsByCourse: Record<string, SectionResponse[]>
   termRevision: number
 
   // actions
+  setCourseSections: (code: string, sections: SectionResponse[]) => void
+  setTopicPreference: (code: string, topic: string) => void
   addCourse: (code: string) => void
   removeCourse: (code: string) => void
   setTerm: (term: string, preference?: string | null) => void
@@ -77,6 +88,7 @@ export const useSchedulerStore = create<SchedulerState>()(
       preferredTerm: null,
       commuterOptions: defaultCommuterOptions,
       professorPreferences: {},
+      topicPreferences: {},
       activeResultIndex: 0,
 
       // not persisted
@@ -87,6 +99,7 @@ export const useSchedulerStore = create<SchedulerState>()(
       professorCache: {},
       professorsByCourse: {},
       termRevision: 0,
+      sectionsByCourse: {},
 
       // actions
       addCourse: (code) =>
@@ -99,6 +112,8 @@ export const useSchedulerStore = create<SchedulerState>()(
       removeCourse: (code) =>
         set((s) => ({
           selectedCourses: s.selectedCourses.filter((c) => c !== code),
+          topicPreferences: Object.fromEntries(Object.entries(s.topicPreferences).filter(([k]) => k !== code)),
+          results: [], solveWarnings: [], isLoading: false, termRevision: s.termRevision + 1,
           professorPreferences: Object.fromEntries(
             Object.entries(s.professorPreferences).filter(([k]) => k !== code),
           ),
@@ -109,8 +124,21 @@ export const useSchedulerStore = create<SchedulerState>()(
         : {
             term, preferredTerm: preference, termRevision: s.termRevision + 1,
             results: [], activeResultIndex: 0, solveWarnings: [], error: null, isLoading: false,
-            professorPreferences: {}, professorsByCourse: {},
+            professorPreferences: {}, professorsByCourse: {}, topicPreferences: {}, sectionsByCourse: {},
           }),
+
+      setCourseSections: (code, sections) => set((s) => ({
+        sectionsByCourse: { ...s.sectionsByCourse, [code]: sections },
+        professorsByCourse: { ...s.professorsByCourse, [code]: topicProfessors(sections, s.topicPreferences[code]) },
+      })),
+
+      setTopicPreference: (code, topic) => set((s) => ({
+        topicPreferences: { ...s.topicPreferences, [code]: topic },
+        professorPreferences: Object.fromEntries(Object.entries(s.professorPreferences).filter(([k]) => k !== code)),
+        professorsByCourse: { ...s.professorsByCourse, [code]: topicProfessors(s.sectionsByCourse[code] ?? [], topic) },
+        results: [], activeResultIndex: 0, solveWarnings: [], error: null, isLoading: false,
+        termRevision: s.termRevision + 1,
+      })),
 
       setCommuterOptions: (opts) =>
         set((s) => ({ commuterOptions: { ...s.commuterOptions, ...opts } })),
@@ -142,13 +170,14 @@ export const useSchedulerStore = create<SchedulerState>()(
     {
       name: 'njit-scheduler',
       storage: createJSONStorage(() => safeStorage),
-      version: 8,
+      version: 9,
       partialize: (s) => ({
         selectedCourses: s.selectedCourses,
         term: s.term,
         preferredTerm: s.preferredTerm,
         commuterOptions: s.commuterOptions,
         professorPreferences: s.professorPreferences,
+        topicPreferences: s.topicPreferences,
         activeResultIndex: s.activeResultIndex,
       }),
       migrate(state, version) {
@@ -171,6 +200,7 @@ export const useSchedulerStore = create<SchedulerState>()(
           // discovery will resolve the new default before any section requests.
           state = { ...(state as Partial<SchedulerState>), preferredTerm: null }
         }
+        if (version < 9) state = { ...(state as Partial<SchedulerState>), topicPreferences: {} }
         return state as SchedulerState
       },
     },

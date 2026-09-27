@@ -41,6 +41,9 @@ async def catalog_coverage(
 def _slot_to_response(section: SectionSlot) -> SectionResponse:
     return SectionResponse(
         crn=section.crn,
+        section_number=section.section_number,
+        section_title=section.section_title,
+        topic=section.topic,
         course_code=section.course_code,
         professor_name=section.professor_name,
         total_seats=section.total_seats,
@@ -70,12 +73,25 @@ async def search_courses(
     offset = (page - 1) * limit
 
     conditions = []
+    order = "course_code"
     params: dict = {"limit": limit, "offset": offset}
 
-    if q:
-        q_pattern = f"%{q}%"
-        conditions.append("(course_code ILIKE :q_pattern OR title ILIKE :q_pattern)")
-        params["q_pattern"] = q_pattern
+    query = (q or "").strip()
+    if query:
+        conditions.append("(course_code ILIKE :code_pattern OR title ILIKE :title_pattern)")
+        # Banner stores codes without spaces; title searches still need spaces.
+        code_query = ''.join(query.split())
+        params["code_pattern"] = f"%{code_query}%"
+        params["code_exact"] = code_query.upper()
+        params["code_prefix"] = f"{code_query}%"
+        params["title_pattern"] = f"%{query}%"
+        # Rank before pagination so title matches cannot crowd out code matches.
+        order = """CASE
+            WHEN UPPER(course_code) = :code_exact THEN 0
+            WHEN course_code ILIKE :code_prefix THEN 1
+            WHEN course_code ILIKE :code_pattern THEN 2
+            ELSE 3
+        END, course_code"""
 
     if subject:
         conditions.append("course_code ILIKE :subject_prefix")
@@ -97,7 +113,7 @@ async def search_courses(
             SELECT course_code, title, credits, title_source, credits_source, metadata_latest_attempt
             FROM courses
             {where}
-            ORDER BY course_code
+            ORDER BY {order}
             LIMIT :limit OFFSET :offset
         """),
         params,

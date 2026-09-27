@@ -170,7 +170,7 @@ export default function PlannerPage() {
   // No degree data yet — full-page upload prompt
   if (!parsed || showUpload) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-10">
+      <div className="flex flex-1 flex-col items-center justify-center p-10">
         <div className="w-full max-w-lg">
           <h1 className="text-xl font-semibold tracking-tight mb-1">Degree Planner</h1>
           <p className="text-sm text-muted mb-8">

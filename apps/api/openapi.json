@@ -1789,6 +1789,39 @@
             ],
             "title": "Scraped At"
           },
+          "section_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Number"
+          },
+          "section_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Title"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
           "total_seats": {
             "title": "Total Seats",
             "type": "integer"
@@ -1871,6 +1904,16 @@
             "pattern": "^[0-9]{4}(10|50|90)$",
             "title": "Term",
             "type": "string"
+          },
+          "topic_preferences": {
+            "additionalProperties": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxProperties": 8,
+            "title": "Topic Preferences",
+            "type": "object"
           }
         },
         "required": [
@@ -1963,9 +2006,31 @@
             ],
             "title": "Section Number"
           },
+          "section_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Title"
+          },
           "term": {
             "title": "Term",
             "type": "string"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
           },
           "total_seats": {
             "title": "Total Seats",

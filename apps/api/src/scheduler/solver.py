@@ -12,6 +12,7 @@ import time as time_module
 from typing import Optional
 
 from .models import SectionSlot
+from ..services.course_topics import topic_key
 from .conflicts import sections_conflict, passes_commuter_filters, validate_schedule
 from .gap import compute_gap_minutes, compute_gap_count, compute_campus_days
 from .config import MAX_RESULTS, EXPLORE_LIMIT, SOLVE_TIME_BUDGET_MS, NODE_CHECK_INTERVAL
@@ -107,6 +108,8 @@ def _section_to_response(section: SectionSlot) -> SolveSectionResponse:
             for m in section.meetings
         ],
         section_number=section.section_number,
+        section_title=section.section_title,
+        topic=section.topic,
     )
 
 
@@ -189,6 +192,7 @@ def solve(
     options: CommuterOptions,
     professor_preferences: dict[str, list[str]],
     compact_week: bool = False,
+    topic_preferences: dict[str, str] | None = None,
 ) -> SolveResponse:
     """
     Pure synchronous solver. Called from the route handler after DB loading.
@@ -208,6 +212,13 @@ def solve(
     candidates: dict[str, list[SectionSlot]] = {}
     for code in course_codes:
         all_secs      = sections_by_course.get(code, [])
+        chosen_topic = (topic_preferences or {}).get(code)
+        if any(s.topic for s in all_secs) or chosen_topic:
+            if not chosen_topic:
+                return SolveResponse(results=[], warnings=[f"{code}: choose a topic before solving."], truncated=False)
+            all_secs = [s for s in all_secs if s.topic and topic_key(s.topic) == topic_key(chosen_topic)]
+            if not all_secs:
+                return SolveResponse(results=[], warnings=[f"{code}: the selected topic is unavailable. Choose another topic."], truncated=False)
         prof_whitelist = professor_preferences.get(code, [])
 
         after_prof    = [

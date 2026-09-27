@@ -236,3 +236,20 @@ async def test_valid_async_or_tba_replacement_still_commits(db_session, db_sessi
     for meeting in saved["meetings"]:
         assert meeting["days"] == "M"
         assert meeting["start_time"] is None and meeting["end_time"] is None
+
+
+async def test_section_title_survives_missing_title_and_failed_replacement(db_session, db_session_factory):
+    await _seed(db_session)
+    await _failure_constraint(db_session, "sql")
+    await banner._upsert_section_with_meetings(
+        db_session, _updated_section(courseTitle="ST: PHYSICAL AI"), TERM,
+    )
+    await banner._upsert_section_with_meetings(
+        db_session, _updated_section(courseTitle=None), TERM,
+    )
+    assert (await _snapshot(db_session_factory))["section"]["section_title"] == "ST: PHYSICAL AI"
+    with pytest.raises(DBAPIError):
+        await banner._upsert_section_with_meetings(
+            db_session, _updated_section(failure="sql", courseTitle="ST: Other topic"), TERM,
+        )
+    assert (await _snapshot(db_session_factory))["section"]["section_title"] == "ST: PHYSICAL AI"

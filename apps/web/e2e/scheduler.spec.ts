@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { presentCatalog, solveResponse } from './data'
+import { courses, presentCatalog, solveResponse } from './data'
 
 test('searches courses, submits filters, and renders timed and async meetings', async ({ page, api }) => {
   await page.goto('/')
@@ -9,9 +9,9 @@ test('searches courses, submits filters, and renders timed and async meetings', 
 
   const search = page.getByPlaceholder('Search courses… (e.g. CS 280)')
   await search.fill('CS 280')
-  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
+  await page.getByRole('button', { name: 'CS280: Programming Language Concepts' }).click()
   await search.fill('HUM 101')
-  await page.getByRole('button', { name: 'HUM101 Writing and Communication' }).click()
+  await page.getByRole('button', { name: 'HUM101: Writing and Communication' }).click()
   await page.getByText('Hide Full Sections', { exact: true }).click()
   // These existing selects do not yet have accessible labels (Goal 57).
   await page.getByRole('combobox').nth(0).selectOption('08:00')
@@ -29,11 +29,15 @@ test('searches courses, submits filters, and renders timed and async meetings', 
     },
     compact_week: false,
     professor_preferences: {},
+    topic_preferences: {},
   }])
   // One selected-course label plus a block for each of the two meeting patterns.
   await expect(page.getByText('CS280', { exact: true })).toHaveCount(3)
   await expect(page.getByText('Test Lecturer', { exact: true })).toHaveCount(2)
   await expect(page.getByText('12/30', { exact: true })).toHaveCount(2)
+  await expect(page.locator('p').filter({ hasText: /^CS280: Programming Language Concepts$/ })).toBeVisible()
+  await expect(page.getByText('Programming Language Concepts', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Writing and Communication', { exact: true })).toBeVisible()
   await expect(page.getByText('Async / TBA', { exact: true })).toBeVisible()
   await expect(page.getByText('Test Instructor', { exact: true })).toBeVisible()
   await expect(page.getByText(solveResponse.warnings[0], { exact: true })).toBeVisible()
@@ -54,7 +58,7 @@ test('shows a no-results warning and can solve again', async ({ page, api }) => 
   await page.goto('/scheduler')
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeDisabled()
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
-  await page.getByRole('button', { name: 'CS280 Programming Language Concepts' }).click()
+  await page.getByRole('button', { name: 'CS280: Programming Language Concepts' }).click()
   await page.getByRole('button', { name: 'Solve', exact: true }).click()
   await expect(page.getByText('No compatible schedules for these test filters.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
@@ -74,7 +78,37 @@ test('lets students select a course with an unknown catalog title', async ({ pag
     title_status: 'missing', credits_status: 'missing', credits_min: null, credits_max: null, credits_options: [], metadata_warnings: [] }])
   await page.goto('/scheduler')
   await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS280')
-  await page.getByRole('button', { name: 'CS280 Title unavailable' }).click()
+  await page.getByRole('button', { name: 'CS280: Title unavailable' }).click()
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
   await expect(page.getByText('CS280', { exact: true })).toBeVisible()
+})
+
+
+test('special topics persist, constrain requests, and clear an old schedule on change', async ({ page, api }) => {
+  const base = solveResponse.results[0].sections[0]
+  const ai = { ...base, course_code: 'CS485', crn: '96523', section_number: '003',
+    section_title: 'ST: PHYSICAL AI', topic: 'PHYSICAL AI' }
+  const hacking = { ...ai, crn: '91974', section_number: '001',
+    section_title: 'ST: Counter Hacking Techniques', topic: 'Counter Hacking Techniques' }
+  api.respond('GET', '/api/courses', [{ ...courses[0], course_code: 'CS485', title: 'St: Physical Ai' }])
+  api.respond('GET', '/api/courses/CS485/sections', [ai, hacking])
+  api.respond('POST', '/api/schedule/solve', {
+    results: [{ ...solveResponse.results[0], sections: [ai] }], warnings: [], truncated: false,
+  })
+  await page.goto('/scheduler')
+  await page.getByPlaceholder('Search courses… (e.g. CS 280)').fill('CS 485')
+  await page.getByRole('button', { name: 'CS485: Special Topics' }).click()
+  const picker = page.getByRole('combobox', { name: 'Topic for CS485' })
+  await expect(picker).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeDisabled()
+  await picker.selectOption('PHYSICAL AI')
+  await page.getByRole('button', { name: 'Solve', exact: true }).click()
+  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
+  expect(api.requests('POST', '/api/schedule/solve')[0].postDataJSON().topic_preferences).toEqual({ CS485: 'PHYSICAL AI' })
+  await expect(page.locator('p').filter({ hasText: /^Physical AI$/ })).not.toHaveCount(0)
+  await picker.selectOption('Counter Hacking Techniques')
+  await expect(page.getByText('Click Solve to generate schedules')).toBeVisible()
+  await page.reload()
+  await expect(picker).toHaveValue('Counter Hacking Techniques')
+  await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
 })

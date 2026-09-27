@@ -45,4 +45,5 @@ async def solve_schedule(
         options=body.options,
         professor_preferences=body.professor_preferences,
         compact_week=body.compact_week,
+        topic_preferences=body.topic_preferences,
     )

@@ -3,6 +3,8 @@ Banner scraper — resilient Playwright implementation (S7).
 """
 from __future__ import annotations
 
+from src.services.course_topics import clean_section_title
+
 import asyncio
 import html
 import json
@@ -355,17 +357,18 @@ async def _upsert_section_with_meetings(
             text("""
                 INSERT INTO sections (crn, term, course_code, professor_name,
                                       total_seats, open_seats, location, scraped_at,
-                                      section_number)
+                                      section_number, section_title)
                 VALUES (:crn, :term, :course_code, :professor_name,
                         :total_seats, :open_seats, :location, NOW(),
-                        :section_number)
+                        :section_number, :section_title)
                 ON CONFLICT (crn, term) DO UPDATE SET
                     professor_name = EXCLUDED.professor_name,
                     total_seats    = EXCLUDED.total_seats,
                     open_seats     = EXCLUDED.open_seats,
                     location       = EXCLUDED.location,
                     scraped_at     = EXCLUDED.scraped_at,
-                    section_number = EXCLUDED.section_number
+                    section_number = EXCLUDED.section_number,
+                    section_title = COALESCE(EXCLUDED.section_title, sections.section_title)
             """),
             {
                 "crn":            crn,
@@ -376,6 +379,7 @@ async def _upsert_section_with_meetings(
                 "open_seats":     open_seats,
                 "location":       section_location,
                 "section_number": section_number,
+                "section_title": clean_section_title(raw_section.get("courseTitle")),
             },
         )
 

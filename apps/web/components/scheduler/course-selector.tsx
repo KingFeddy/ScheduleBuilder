@@ -1,16 +1,21 @@
 'use client'
 
-import { catalogCredits } from '@/lib/course-metadata'
+import { catalogCredits, formatTopicTitle, formatCourseTitle } from '@/lib/course-metadata'
 
 import { useEffect, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { getCourses, getCoursesSections, getProfessor, type CourseResponse, type ProfessorResponse } from '@/lib/api'
 import { useSchedulerStore } from '@/store/scheduler'
-import { CourseCodePill } from '@/components/ui/course-code-pill'
 import { ProfessorPicker } from './professor-picker'
 
+function searchTitle(title: string | null): string {
+  return /^(?:ST\s*[:–—-]|(?:special|selected)\s+topics\b)/i.test(title ?? '')
+    ? 'Special Topics'
+    : title || 'Title unavailable'
+}
+
 export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
-  const { selectedCourses, term, termRevision, addCourse, removeCourse, setProfessorCache, setProfessorsByCourse } =
+  const { selectedCourses, term, termRevision, addCourse, removeCourse, setProfessorCache, setCourseSections, sectionsByCourse, topicPreferences, setTopicPreference } =
     useSchedulerStore()
 
   const [query, setQuery] = useState('')
@@ -75,7 +80,7 @@ export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
           const names = [
             ...new Set(sections.map((s) => s.professor_name).filter(Boolean)),
           ] as string[]
-          setProfessorsByCourse(code, names)
+          setCourseSections(code, sections)
           if (names.length === 0) return
           // Return the promise so a failed lookup reaches the catch below.
           // Only fulfilled lookups (including true 404s) may populate the cache.
@@ -137,9 +142,10 @@ export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
                   onClick={() => selectCourse(course.course_code)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-2 transition-colors duration-150"
                 >
-                  <CourseCodePill code={course.course_code} />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-text truncate">{course.title || 'Title unavailable'}</span>
+                    <span className="block text-sm text-text leading-snug break-words">
+                      <span className="font-mono font-semibold">{course.course_code}</span>: {searchTitle(formatCourseTitle(course.title) ?? null)}
+                    </span>
                     <span className="block text-xs text-muted font-mono">{catalogCredits(course)}</span>
                   </span>
                 </button>
@@ -152,23 +158,48 @@ export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
       {/* Selected course cards */}
       {selectedCourses.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {selectedCourses.map((code) => (
+          {selectedCourses.map((code) => {
+            const sections = sectionsByCourse[code] ?? []
+            const topics = [...new Set(sections.map((s) => s.topic).filter((t): t is string => !!t))]
+            const selectedTopic = topics.includes(topicPreferences[code]) ? topicPreferences[code] : ''
+            const title = formatCourseTitle(sections.find((s) => s.section_title)?.section_title)
+            const hasTopics = hasTermData && topics.length > 0
+            return (
             <li
               key={code}
               className="flex flex-col gap-1.5 px-3 py-2.5 rounded-lg bg-surface-2 border border-border"
             >
-              <div className="flex items-center justify-between gap-2">
-                <CourseCodePill code={code} />
+              <div className="flex items-start justify-between gap-2">
+                {hasTopics ? (
+                  <div className="min-w-0 flex-1 flex items-center gap-1 text-sm text-text">
+                    <span className="shrink-0 font-mono font-semibold">{code}:</span>
+                    <select
+                      aria-label={`Topic for ${code}`}
+                      title={selectedTopic ? formatTopicTitle(selectedTopic) : 'Choose a topic'}
+                      value={selectedTopic}
+                      onChange={(e) => setTopicPreference(code, e.target.value)}
+                      className="min-w-0 flex-1 rounded-md border border-border bg-surface py-1 pl-1 text-sm text-text focus:outline-none focus:border-border-strong"
+                    >
+                      <option value="">Choose a topic…</option>
+                      {topics.map((topic) => <option key={topic} value={topic}>{formatTopicTitle(topic)}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  <p className="min-w-0 text-sm text-text leading-snug break-words">
+                    <span className="font-mono font-semibold">{code}</span>{title && <>: {title}</>}
+                  </p>
+                )}
                 <button
+                  aria-label={`Remove ${code}`}
                   onClick={() => removeCourse(code)}
-                  className="text-faint hover:text-text transition-colors duration-150"
+                  className="shrink-0 mt-0.5 text-faint hover:text-text transition-colors duration-150"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {hasTermData && <ProfessorPicker courseCode={code} />}
+              {hasTermData && (topics.length === 0 || selectedTopic) && <ProfessorPicker courseCode={code} />}
             </li>
-          ))}
+          )})}
         </ul>
       )}
     </div>

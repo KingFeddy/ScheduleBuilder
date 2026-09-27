@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+from typing import Annotated
 from pydantic import BaseModel, Field, field_validator
 
 from ..scheduler.config import MAX_COURSES
@@ -42,6 +43,7 @@ class SolveRequest(BaseModel):
     term:                  TermCode
     options:               CommuterOptions = Field(default_factory=CommuterOptions)
     professor_preferences: dict[str, list[str]] = Field(default_factory=dict)
+    topic_preferences: dict[str, Annotated[str, Field(min_length=1, max_length=512)]] = Field(default_factory=dict, max_length=MAX_COURSES)
     compact_week:          bool = False
 
     @field_validator("course_codes")
@@ -64,12 +66,15 @@ class MeetingResponse(BaseModel):
 
 
 class SectionResponse(BaseModel):
+    section_number: str | None = None
     crn:            str
     course_code:    str
     professor_name: str | None
     total_seats:    int
     open_seats:     int
     scraped_at:     str | None
+    section_title:  str | None = None
+    topic:          str | None = None
     meetings:       list[MeetingResponse]
 
 
@@ -81,6 +86,8 @@ class SolveSectionResponse(BaseModel):
     total_seats:    int
     open_seats:     int
     scraped_at:     str | None
+    section_title:  str | None = None
+    topic:          str | None = None
     meetings:       list[MeetingResponse]
     section_number: str | None
 

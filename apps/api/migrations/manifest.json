@@ -12,6 +12,7 @@
     {"file": "014_prerequisite_verification.sql"},
     {"file": "015_prerequisite_rules.sql"},
     {"file": "016_course_metadata.sql"},
-    {"file": "017_scraper_run_scope.sql"}
+    {"file": "017_scraper_run_scope.sql"},
+    {"file": "018_section_titles.sql"}
   ]
 }

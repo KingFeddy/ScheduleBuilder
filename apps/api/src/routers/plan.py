@@ -126,7 +126,7 @@ async def parse_degree_works(request: Request, body: ParseRequest) -> ParseRespo
         raise HTTPException(
             status_code=422,
             detail=(
-                f"The extracted data appears inconsistent ({e.field}): {e.message} "
+                f"The extracted data appears inconsistent: {e.message} "
                 f"Please verify this is a DegreeWorks degree audit PDF."
             ),
         )

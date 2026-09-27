@@ -71,7 +71,7 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-lg rounded-xl border border-border bg-surface overflow-y-auto max-h-[85vh]"
+        className="relative w-full max-w-md rounded-xl border border-border bg-surface overflow-y-auto max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -83,7 +83,7 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
 
         <div className="p-6 space-y-5">
           {/* Header */}
-          <div>
+          <div className="pr-6">
             {loading ? (
               <div className="h-3 w-8 rounded bg-surface-2 animate-pulse mb-2" />
             ) : (
@@ -102,7 +102,7 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
           {/* Ratings */}
           <div className="flex gap-8">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted mb-1">Rating</p>
+              <p className="text-sm font-medium uppercase tracking-wider text-muted mb-1">Rating</p>
               {loading ? (
                 <div className="h-6 w-20 rounded bg-surface-2 animate-pulse" />
               ) : (
@@ -120,7 +120,7 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
               )}
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-muted mb-1">
+              <p className="text-sm font-medium uppercase tracking-wider text-muted mb-1">
                 Difficulty
               </p>
               {loading ? (
@@ -143,7 +143,7 @@ export function ProfessorModal({ professorName, onClose }: ProfessorModalProps) 
 
           {/* Meta */}
           {!loading && (prof?.rmp_would_take_again != null || prof?.rmp_num_ratings != null) && (
-            <p className="text-xs text-muted">
+            <p className="text-sm font-medium text-muted">
               {prof.rmp_would_take_again != null && (
                 <span>Would take again: {Math.round(prof.rmp_would_take_again)}%&nbsp;&nbsp;</span>
               )}

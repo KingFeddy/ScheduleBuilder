@@ -20,11 +20,15 @@ function ProfessorNameCell({
   const [hovered, setHovered] = useState(false)
 
   useEffect(() => {
-    if (containerRef.current && textRef.current) {
-      setOverflow(
-        Math.max(0, textRef.current.scrollWidth - containerRef.current.clientWidth),
-      )
-    }
+    const container = containerRef.current
+    const text = textRef.current
+    if (!container || !text) return
+    const observer = new ResizeObserver(() => {
+      setOverflow(Math.max(0, text.scrollWidth - container.clientWidth))
+    })
+    observer.observe(container)
+    observer.observe(text)
+    return () => observer.disconnect()
   }, [name])
 
   const display = name.includes(',')
@@ -39,8 +43,8 @@ function ProfessorNameCell({
       ref={containerRef}
       className="flex-1 min-w-0 overflow-hidden cursor-pointer"
       style={{
-        maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
-        WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
+        maskImage: overflow > 0 ? 'linear-gradient(to right, black 70%, transparent 100%)' : undefined,
+        WebkitMaskImage: overflow > 0 ? 'linear-gradient(to right, black 70%, transparent 100%)' : undefined,
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

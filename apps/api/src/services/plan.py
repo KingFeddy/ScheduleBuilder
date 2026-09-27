@@ -159,7 +159,7 @@ def validate_parsed_degree(raw: ParsedDegree) -> ParsedDegreeValidated:
     if not raw.majors:
         raise ParseValidationError(
             "majors",
-            "No major detected. Please verify this is a DegreeWorks degree audit PDF.",
+            "No major detected.",
         )
 
     if all(

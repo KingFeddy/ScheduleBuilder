@@ -1,25 +1,13 @@
 import type { ScheduleResult } from '@/lib/api'
 import { CourseBlock, type RenderedMeeting } from './course-block'
 import { AsyncBlock, isAsyncSection } from './async-block'
-
-const PX_PER_HOUR = 48
-const START_HOUR = 7
-const END_HOUR = 22
-const TOTAL_HOURS = END_HOUR - START_HOUR // 15
-const GRID_HEIGHT = TOTAL_HOURS * PX_PER_HOUR // 720px — used for all position math
-const GRID_DISPLAY_HEIGHT = GRID_HEIGHT + PX_PER_HOUR / 2 // 744px — extends to 10:30pm closing line
+import { calendarHours, PX_PER_HOUR } from '@/lib/calendar-time'
 
 const DAY_MAP: Record<string, number> = { U: 0, M: 1, T: 2, W: 3, R: 4, F: 5, S: 6 }
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-// 16 hour labels: 7am through 10pm inclusive
-const HOUR_MARKS = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => START_HOUR + i)
-// 16 rows: 15 hour slots + closing row that draws the 10pm hourly line
-const GRID_ROWS = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => i)
-
 function hourLabel(h: number): string {
-  if (h === 12) return '12:00'
-  return h > 12 ? `${h - 12}:00` : `${h}:00`
+  return `${h % 12 || 12}:00`
 }
 
 interface ScheduleGridProps {
@@ -65,6 +53,9 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
   }
 
   const asyncSlots = result.sections.filter(isAsyncSection)
+  const { startHour, endHour } = calendarHours(daySlots.flat())
+  const gridHeight = (endHour - startHour) * PX_PER_HOUR
+  const hourMarks = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i)
 
   return (
     <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-border bg-surface overflow-hidden">
@@ -84,18 +75,18 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
         ))}
       </div>
 
-      {/* Scrollable body — pt-3 gives the 7:00 label room above y=0 so translateY(-50%) doesn't clip */}
+      {/* Top padding leaves room for the first label above the opening line. */}
       <div className="overflow-y-auto flex-1 pt-3">
         <div
           className="grid"
-          style={{ gridTemplateColumns: `48px repeat(${DAY_LABELS.length}, 1fr)`, height: GRID_DISPLAY_HEIGHT }}
+          style={{ gridTemplateColumns: `48px repeat(${DAY_LABELS.length}, 1fr)`, height: gridHeight }}
         >
           {/* Time label column */}
-          <div className="relative border-r border-border" style={{ height: GRID_DISPLAY_HEIGHT }}>
-            {HOUR_MARKS.map((h, i) => (
+          <div className="relative border-r border-border" style={{ height: gridHeight }}>
+            {hourMarks.map((h, i) => (
               <span
                 key={h}
-                className="absolute right-2 text-[10px] font-mono text-faint select-none"
+                className="absolute right-2 text-[10px] font-mono text-text select-none"
                 style={{ top: i * PX_PER_HOUR, transform: 'translateY(-50%)' }}
               >
                 {hourLabel(h)}
@@ -110,25 +101,25 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
               role="group"
               aria-label={`${DAY_LABELS[colIdx]} classes`}
               className="relative border-r border-border last:border-r-0"
-              style={{ height: GRID_DISPLAY_HEIGHT }}
+              style={{ height: gridHeight }}
             >
               {/* Hourly and half-hour grid lines */}
-              {GRID_ROWS.map((i) => (
+              {hourMarks.map((hour, i) => (
                 <div key={i}>
                   <div
                     className="absolute w-full border-t border-border"
                     style={{ top: i * PX_PER_HOUR }}
                   />
-                  <div
+                  {hour < endHour && <div
                     className="absolute w-full border-t border-border opacity-40"
                     style={{ top: i * PX_PER_HOUR + PX_PER_HOUR / 2 }}
-                  />
+                  />}
                 </div>
               ))}
 
               {/* Course blocks */}
               {slots.map((slot, i) => (
-                <CourseBlock key={`${slot.crn}-${slot.start_time}-${colIdx}-${i}`} slot={slot} />
+                <CourseBlock key={`${slot.crn}-${slot.start_time}-${colIdx}-${i}`} slot={slot} startHour={startHour} />
               ))}
             </div>
           ))}

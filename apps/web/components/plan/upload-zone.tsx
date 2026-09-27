@@ -102,7 +102,7 @@ export function UploadZone({ onParsed }: UploadZoneProps) {
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         className={[
-          'w-full max-w-lg rounded-xl border-2 border-dashed p-10 flex flex-col items-center gap-3 transition-colors duration-150',
+          'w-full min-h-64 sm:min-h-72 rounded-xl border-2 border-dashed px-6 py-10 sm:p-12 flex flex-col items-center justify-center gap-5 transition-colors duration-150',
           isLoading ? 'cursor-default' : 'cursor-pointer',
           isDragging
             ? 'border-njit-red bg-red-dim'
@@ -111,18 +111,18 @@ export function UploadZone({ onParsed }: UploadZoneProps) {
       >
         {isLoading ? (
           <>
-            <div className="w-10 h-10 rounded-full bg-surface-2 animate-pulse" />
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-surface-2 animate-pulse" />
             <div className="h-3 rounded bg-surface-2 animate-pulse w-48" />
-            <p className="text-sm text-muted">Reading your degree audit…</p>
+            <p className="text-base text-muted">Reading your degree audit…</p>
           </>
         ) : (
           <>
-            <UploadCloud className="w-10 h-10 text-muted" />
-            <div className="flex flex-col items-center gap-1 text-center">
-              <p className="text-sm font-medium text-text">Upload your DegreeWorks PDF</p>
-              <p className="text-xs text-muted">Drag and drop or click to browse</p>
+            <UploadCloud className="w-12 h-12 sm:w-14 sm:h-14 text-muted" />
+            <div className="flex flex-col items-center gap-2 text-center">
+              <p className="text-base sm:text-lg font-medium text-text">Upload your DegreeWorks PDF</p>
+              <p className="text-sm text-muted">Drag and drop or click to browse</p>
             </div>
-            <p className="text-xs text-faint text-center">
+            <p className="text-sm text-faint text-center">
               Export from DegreeWorks → Actions → Print/Save as PDF
             </p>
           </>

@@ -126,7 +126,7 @@ export function CourseSelector({ hasTermData }: { hasTermData: boolean }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => results.length > 0 && setShowDropdown(true)}
-            placeholder="Search courses… (e.g. CS 280)"
+            placeholder="Search courses"
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-surface-2 text-sm text-text placeholder:text-faint focus:outline-none focus:border-border-strong transition-colors duration-150"
           />
           {searchLoading && (

@@ -24,22 +24,22 @@ export function AsyncBlock({ slot }: { slot: SolveSectionResponse }) {
   return (
     <div
       className="w-56 flex-shrink-0 rounded-md px-3 py-2"
+      title={[slot.course_code, slot.section_number, title, prof].filter(Boolean).join(' · ')}
       style={{ backgroundColor: bg, border: `1px solid ${bg}cc` }}
     >
       <div className="flex items-baseline justify-between gap-1">
         <div className="flex items-baseline gap-1.5 min-w-0">
           <p className="font-mono font-bold text-[15px] text-text truncate">{slot.course_code}</p>
           {slot.section_number && (
-            <p className="font-mono text-[11px] text-muted flex-shrink-0">{slot.section_number}</p>
+            <p className="font-mono text-[15px] text-muted flex-shrink-0">{slot.section_number}</p>
           )}
         </div>
         <p
-          className={`font-mono tabular-nums text-[12px] flex-shrink-0 ${seatColorClass(slot.open_seats)}`}
+          className={`font-mono tabular-nums text-[15px] flex-shrink-0 ${seatColorClass(slot.open_seats)}`}
         >
           {slot.open_seats}/{slot.total_seats}
         </p>
       </div>
-      {title && <p className="text-[11px] text-text truncate" title={title}>{title}</p>}
       <p className="font-mono text-[13px] text-text truncate">{prof}</p>
     </div>
   )

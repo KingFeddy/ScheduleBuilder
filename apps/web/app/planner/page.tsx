@@ -170,10 +170,10 @@ export default function PlannerPage() {
   // No degree data yet — full-page upload prompt
   if (!parsed || showUpload) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-10">
-        <div className="w-full max-w-lg">
-          <h1 className="text-xl font-semibold tracking-tight mb-1">Degree Planner</h1>
-          <p className="text-sm text-muted mb-8">
+      <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 sm:px-10">
+        <div className="w-full max-w-2xl">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-3">Degree Planner</h1>
+          <p className="text-base leading-relaxed text-muted mb-8">
             Upload your DegreeWorks PDF to generate a semester-by-semester graduation plan.
           </p>
           {auditNotice && <p role="status" className="text-sm text-muted mb-6">{auditNotice}</p>}

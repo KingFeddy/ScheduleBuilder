@@ -34,7 +34,7 @@ export default function RootLayout({
             {children}
           </main>
         </div>
-        <Analytics />
+        {!process.env.E2E_TEST_MODE && <Analytics />}
       </body>
     </html>
   )

@@ -5,7 +5,10 @@ _TOPIC_PREFIX = re.compile(r"^(?:ST\s*[:–—-]\s*|(?:special|selected)\s+topic
 
 
 def clean_section_title(value: object) -> str | None:
-    if not isinstance(value, str):
+    # PostgreSQL text cannot store NUL bytes or unpaired Unicode surrogates.
+    # Treat a bad title as missing so valid section/credit updates can proceed.
+    if (not isinstance(value, str) or "\x00" in value
+            or any(0xD800 <= ord(character) <= 0xDFFF for character in value)):
         return None
     title = " ".join(value.split())
     return title if title and len(title) <= 512 else None

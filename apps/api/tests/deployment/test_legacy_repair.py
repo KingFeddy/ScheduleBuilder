@@ -64,7 +64,9 @@ async def test_upgrade_preserves_legacy_records_and_passes_current_and_future_ga
         assert await session.scalar(text('SELECT credits FROM courses')) == 4
         assert await session.scalar(text('SELECT total_seats FROM sections')) == 25
         assert await session.scalar(text('SELECT count(*) FROM meetings')) == 1
-        assert await session.scalar(text('SELECT count(*) FROM schema_migrations')) == 9
+        recorded = (await session.execute(text('SELECT version FROM schema_migrations ORDER BY version'))).scalars().all()
+        assert recorded == [m.version for m in load_migrations() if m.deferred_reason is None]
+        assert await session.scalar(text('SELECT section_title FROM sections')) is None
         assert await schema_errors(await session.connection(), schema_name=legacy.schema_name) == []
         assert await apply_migrations(await session.connection(), schema_name=legacy.schema_name) == []
         assert (await repair_legacy(await session.connection(), legacy.schema_name))['already_compatible']

@@ -207,7 +207,8 @@ async def test_legacy_credit_value_is_an_estimate_until_refreshed(db_session):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("bad_title", [
     None,
-    "Bad\x00Title"
+    "Bad\x00Title",
+    "Bad\ud800Title",
 ],
                        )
 async def test_bad_title_keeps_previous_title_without_blocking_valid_credits(db_session, upstream, bad_title):
@@ -216,6 +217,7 @@ async def test_bad_title_keeps_previous_title_without_blocking_valid_credits(db_
     row = await saved(db_session)
     assert (row["title"], row["credits"]) == ("Known", 4)
     assert decode(row["metadata_latest_attempt"])["title_error"]
+    assert await db_session.scalar(text("SELECT section_title FROM sections WHERE crn='81111' AND term='202690'")) == "Known"
 
 
 @pytest.mark.asyncio

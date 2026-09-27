@@ -12,6 +12,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from scripts.migrate import load_migrations
 from tests.database_isolation import isolated_test_database
 
 
@@ -43,7 +44,8 @@ async def test_current_migrations_pass_without_touching_records(database):
     assert await _errors(database) == []
     async with database.session_factory() as session:
         assert await session.scalar(text("SELECT title FROM courses")) == "Keep this record"
-        assert await session.scalar(text("SELECT count(*) FROM schema_migrations")) == 9
+        recorded = (await session.execute(text("SELECT version FROM schema_migrations ORDER BY version"))).scalars().all()
+        assert recorded == [m.version for m in load_migrations() if m.deferred_reason is None]
 
 
 # Representative columns exercise missing-field detection across catalog tables.

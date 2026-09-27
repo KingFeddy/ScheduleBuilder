@@ -77,7 +77,7 @@ async def repair_legacy(connection, schema_name="public"):
     if not report['ready']:
         raise RepairError(' '.join(report['blockers']))
     migrations = [m for m in load_migrations() if m.deferred_reason is None]
-    if [m.version for m in migrations] != ['000', '007', '009', '012', '013', '014', '015', '016', '017']:
+    if [m.version for m in migrations] != ['000', '007', '009', '012', '013', '014', '015', '016', '017', '018']:
         raise RepairError('The migration inventory has changed; this targeted repair needs review.')
     raw = await connection.get_raw_connection()
     await raw.driver_connection.execute('''
@@ -105,7 +105,7 @@ async def repair_legacy(connection, schema_name="public"):
           'Intact legacy professor records preserved during explicit catalog reconciliation, 2026-09-13. Do not drop without a separately verified backup/review.';
     ''')
     for migration in migrations:
-        if migration.version in {'014', '015', '016', '017'}:
+        if migration.version in {'014', '015', '016', '017', '018'}:
             await raw.driver_connection.execute(migration.sql)
     errors = await schema_errors(connection, schema_name=schema_name)
     await _select_schema(connection, schema_name)
@@ -118,7 +118,7 @@ async def repair_legacy(connection, schema_name="public"):
         checksum TEXT NOT NULL CHECK(length(checksum)=64),
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )'''))
-    await connection.execute(text("COMMENT ON TABLE schema_migrations IS 'Legacy schema explicitly reconciled on 2026-09-13: adopted 000/007/009/012/013 after verification; executed 014/015/016/017. Original professor records retained in professors_legacy_20260913.'"))
+    await connection.execute(text("COMMENT ON TABLE schema_migrations IS 'Legacy schema explicitly reconciled using the 2026-09-13 repair: adopted 000/007/009/012/013 after verification; executed 014/015/016/017/018. Original professor records retained in professors_legacy_20260913.'"))
     for migration in migrations:
         await connection.execute(text('INSERT INTO schema_migrations(version,filename,checksum) VALUES (:version,:filename,:checksum)'),
                                  {'version': migration.version, 'filename': migration.filename, 'checksum': migration.checksum})

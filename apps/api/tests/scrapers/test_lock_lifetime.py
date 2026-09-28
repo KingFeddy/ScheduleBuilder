@@ -236,6 +236,7 @@ async def test_cron_disposes_engine_on_success_failure_and_cancellation(monkeypa
     monkeypatch.setattr(cron, "create_async_engine", MagicMock(return_value=engine))
     monkeypatch.setattr(cron, "async_sessionmaker", MagicMock(return_value=session_factory))
     monkeypatch.setattr(cron, "run_banner_scrape", banner_run)
+    monkeypatch.setattr(cron, "discover_banner_subjects", AsyncMock(return_value=["CS"]))
 
     if failure:
         with pytest.raises(failure):
@@ -250,13 +251,13 @@ async def test_cron_disposes_engine_on_success_failure_and_cancellation(monkeypa
 @pytest.mark.parametrize("stage,failure", [
     (None, None), ("prerequisites", asyncio.CancelledError),
     ("rmp", RuntimeError), ("rmp", asyncio.CancelledError),
-    ("unverified", RuntimeError),
+    ("course_failure", RuntimeError),
 ])
 async def test_metadata_cron_disposes_engine_and_reports_failures(monkeypatch, stage, failure):
     from src.scrapers import metadata_cron
 
     engine = MagicMock(dispose=AsyncMock())
-    prerequisites = AsyncMock(return_value=2 if stage == "unverified" else 0,
+    prerequisites = AsyncMock(return_value=2 if stage == "course_failure" else 0,
                               side_effect=failure() if stage == "prerequisites" else None)
     ratings = AsyncMock(side_effect=failure() if stage == "rmp" else None)
     monkeypatch.setattr(metadata_cron, "create_async_engine", MagicMock(return_value=engine))

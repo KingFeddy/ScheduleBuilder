@@ -94,7 +94,7 @@ jobs:
         run: pnpm lint
 
   deploy-backend:
-    name: Deploy to Railway
+    name: Verify schema and deploy scraper
     needs: [test-backend, test-frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -118,11 +118,8 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy API service
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service api --detach
-
+      # The API deploys through Railway's GitHub integration. Enable Wait for CI
+      # on that service so it waits for these checks, including schema verification.
       - name: Deploy Scraper service
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

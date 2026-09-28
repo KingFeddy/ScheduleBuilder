@@ -93,6 +93,45 @@ def test_empty_message_must_not_hide_unknown_conditions_or_wrong_response(replac
         prerequisites.parse_prerequisite_rules(body, {})
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("statuses,lookup_error,expected_failed,summary", [
+    (["verified", "verified_empty", "unresolved"], None, 0,
+     "3 courses, 2 verified, 1 unresolved, 0 failed"),
+    (["unresolved", "failed", RuntimeError("Synthetic write failure")], None, 2,
+     "3 courses, 0 verified, 1 unresolved, 2 failed"),
+    (["unresolved"], prerequisites.PrerequisiteDataError("Invalid subject lookup"), 1,
+     "1 courses, 0 verified, 0 unresolved, 1 failed"),
+])
+async def test_metadata_refresh_separates_unresolved_rules_from_operational_failures(
+    monkeypatch, caplog, statuses, lookup_error, expected_failed, summary,
+):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def acquired_lock(*args):
+        yield True
+
+    session = MagicMock(execute=AsyncMock(return_value=MagicMock()), rollback=AsyncMock())
+    session.execute.return_value.mappings.return_value.all.return_value = [
+        {"course_code": f"ZZZ{100 + i}", "crn": str(90000 + i)}
+        for i in range(len(statuses))
+    ]
+    cm = _mock_playwright_returning([])
+    browser = cm.__aenter__.return_value.chromium.launch.return_value
+    refresh = AsyncMock(side_effect=statuses)
+    monkeypatch.setattr(banner, "advisory_lock", acquired_lock)
+    monkeypatch.setattr(banner, "async_playwright", MagicMock(return_value=cm))
+    monkeypatch.setattr(banner, "_open_banner_term", AsyncMock())
+    monkeypatch.setattr(banner, "_prerequisite_lookup", AsyncMock(return_value=(None, lookup_error)))
+    monkeypatch.setattr(banner, "_refresh_course_prerequisites", refresh)
+
+    assert await banner.run_prerequisite_refresh(session, TERM) == expected_failed
+    assert refresh.await_count == len(statuses)
+    assert summary in caplog.text
+    browser.close.assert_awaited_once()
+    assert session.rollback.await_count == sum(isinstance(s, Exception) for s in statuses)
+
+
 INVALID_HTML = [
     pytest.param("", id="blank"),
     pytest.param("<h3>Catalog Prerequisites</h3>", id="heading-only"),

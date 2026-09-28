@@ -541,7 +541,9 @@ async def run_prerequisite_refresh(session: AsyncSession, term: str) -> int:
     """Refresh one representative section per offered course; never touch seat freshness.
 
     Runs independently of section scraping, using its own lock. Verified rules
-    survive failed requests. The return value counts unverified course attempts.
+    survive failed requests. Return operational failures, not unresolved rules:
+    ambiguous/unsupported requirements remain recorded for review without making
+    a completed cron run crash. Request and persistence failures still fail it.
     """
     async with advisory_lock(session, PREREQUISITE_SCRAPER_LOCK_ID, "prerequisites") as acquired:
         if not acquired:
@@ -558,6 +560,8 @@ async def run_prerequisite_refresh(session: AsyncSession, term: str) -> int:
 
         started = time_module.monotonic()
         failed = 0
+        unresolved = 0
+        verified = 0
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             try:
@@ -570,15 +574,25 @@ async def run_prerequisite_refresh(session: AsyncSession, term: str) -> int:
                         status = await _refresh_course_prerequisites(
                             session, page, term, course["crn"], course["course_code"], lookup, lookup_error,
                         )
-                        failed += status not in {"verified", "verified_empty"}
+                        if lookup_error is not None:
+                            # A broken shared lookup is a job-level source failure,
+                            # even when stored attempts are marked unresolved.
+                            failed += 1
+                        elif status in {"verified", "verified_empty"}:
+                            verified += 1
+                        elif status == "unresolved":
+                            unresolved += 1
+                        else:
+                            failed += 1
                     except Exception:
                         await session.rollback()
                         failed += 1
                         logger.exception("Could not record prerequisite refresh for %s", course["course_code"])
             finally:
                 await browser.close()
-        logger.info("Prerequisite refresh: %d courses, %d unverified, %.1fs",
-                    len(courses), failed, time_module.monotonic() - started)
+        log_summary = logger.warning if unresolved or failed else logger.info
+        log_summary("Prerequisite refresh: %d courses, %d verified, %d unresolved, %d failed, %.1fs",
+                    len(courses), verified, unresolved, failed, time_module.monotonic() - started)
         return failed
 
 

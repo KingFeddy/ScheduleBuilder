@@ -23,7 +23,7 @@ async def main() -> None:
         async with Session() as session:
             await run_rmp_scrape(session=session, term=settings.CURRENT_TERM)
         if failed:
-            raise RuntimeError(f"Prerequisite refresh left {failed} course(s) unverified; see course attempt records.")
+            raise RuntimeError(f"Prerequisite refresh failed for {failed} course(s); see request/persistence errors and course attempt records.")
     finally:
         await engine.dispose()
     logger.info("Metadata refresh complete")

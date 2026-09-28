@@ -121,7 +121,7 @@ def test_docker_context_contains_only_runtime_inputs(poisoned_project, tmp_path,
 
 
 @pytest.mark.docker_image
-# Build/remove the larger image first to reduce peak disk use on cold runs.
+# Keep the legacy scraper image working alongside the shared default image.
 @pytest.mark.parametrize("dockerfile", ["Dockerfile.scraper", "Dockerfile"])
 def test_production_image_excludes_local_artifacts(poisoned_project, dockerfile):
     # SAFETY: secrets must never enter an image, and the host venv must not
@@ -186,23 +186,25 @@ import main
 for module in pkgutil.walk_packages(["src"], "src."):
     importlib.import_module(module.name)
 import scripts.migrate, scripts.verify_migrations, scripts.backfill_meetings
-if SCRAPER:
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
-        page = browser.new_page()
-        page.set_content("<title>Synthetic Docker check</title>")
-        assert page.title() == "Synthetic Docker check"
-        browser.close()
-print(json.dumps({"runtime_files": len(actual), "python": sys.version.split()[0], "scraper": SCRAPER}))
+# Railway may select the default Dockerfile for a worker, so both images must
+# include a usable browser. Imports alone do not detect missing executables.
+from playwright.sync_api import sync_playwright
+with sync_playwright() as playwright:
+    browser = playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
+    page = browser.new_page()
+    page.set_content("<title>Synthetic Docker check</title>")
+    assert page.title() == "Synthetic Docker check"
+    chromium_version = browser.version
+    browser.close()
+print(json.dumps({"runtime_files": len(actual), "python": sys.version.split()[0], "chromium": chromium_version}))
 '''
         output = run(command, cwd=project, input=(
             f"EXPECTED = {sorted(required)!r}\nSENTINEL = {POISON!r}\n"
-            f"SCRAPER = {dockerfile == 'Dockerfile.scraper'!r}\n" + inspection
+            + inspection
         ))
         result = json.loads(output)
         assert result["runtime_files"] == len(required)
-        assert result["scraper"] == (dockerfile == "Dockerfile.scraper")
+        assert result["chromium"]
     finally:
         # Only the unique container/image created by this test can be removed.
         # Docker's reusable build cache is left under the builder's own policy.

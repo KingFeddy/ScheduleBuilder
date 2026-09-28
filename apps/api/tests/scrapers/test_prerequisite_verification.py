@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -36,6 +37,60 @@ def table(*rows):
 
 def response(body, *, status=200, content_type="text/html"):
     return MagicMock(status=status, headers={"content-type": content_type}, text=AsyncMock(return_value=body))
+
+
+# Public Banner responses captured for Fall 2026 on 2026-09-27; no database I/O.
+BANNER_FIXTURES = Path(__file__).parent / "fixtures" / "banner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fixture,crn,status", [
+    ("empty", "90001", "verified_empty"),
+    ("acct215", "90010", "verified"),
+    ("arch295", "90083", "unresolved"),
+])
+async def test_captured_banner_empty_messages_do_not_block_valid_prerequisites(fixture, crn, status):
+    from src.schemas.prerequisites import AnyConditions, is_empty
+
+    prerequisite_html = (BANNER_FIXTURES / f"{fixture}-prerequisites.html").read_text()
+    corequisite_html = (BANNER_FIXTURES / "empty-corequisites.html").read_text()
+    subjects = [
+        {"code": "ACCT", "description": "Accounting"},
+        {"code": "ARCH", "description": "Architecture"},
+    ]
+    page = MagicMock(request=MagicMock(
+        get=AsyncMock(return_value=response(json.dumps(subjects), content_type="application/json")),
+        post=AsyncMock(side_effect=[response(prerequisite_html), response(corequisite_html)]),
+    ))
+    lookup = await prerequisites.fetch_subject_lookup(page, "https://example.test/ssb", "202690")
+    result = await prerequisites.fetch_prerequisites(page, "https://example.test/ssb", "202690", crn, lookup)
+
+    assert result.status == status
+    assert is_empty(result.rules.corequisites)
+    assert [source.text for source in result.sources[1:]] == [prerequisite_html, corequisite_html]
+    if status == "verified":
+        assert result.error is None
+        assert isinstance(result.rules.prerequisites, AnyConditions)
+        assert [(rule.course_code, rule.minimum_grade) for rule in result.rules.prerequisites.items] == [
+            ("ACCT115", "D"), ("ACCT117", "D"),
+        ]
+    elif status == "verified_empty":
+        assert result.error is None
+        assert is_empty(result.rules.prerequisites)
+    else:
+        assert "Mixed AND/OR" in result.error
+
+
+@pytest.mark.parametrize("replacement", [
+    "No prerequisite information available. Advisor approval required.",
+    "No prerequisite information available.<p>CS100 required</p>",
+    "No corequisite course information available.",
+])
+def test_empty_message_must_not_hide_unknown_conditions_or_wrong_response(replacement):
+    body = (BANNER_FIXTURES / "empty-prerequisites.html").read_text()
+    body = body.replace("No prerequisite information available.", replacement)
+    with pytest.raises(prerequisites.PrerequisiteDataError):
+        prerequisites.parse_prerequisite_rules(body, {})
 
 
 INVALID_HTML = [

@@ -93,6 +93,23 @@ def _table_data(body: str, *, corequisites: bool = False) -> tuple[list[str], li
     section_id = "coReqs" if corequisites else "preReqs"
     section = len(roots) == 1 and roots[0].name == "section" and roots[0].get("aria-labelledby") == section_id
     if section:
+        # Banner emits bare text for its normal empty state. Accept only the
+        # complete known envelope, never discard text alongside actual rules.
+        contents = [child for child in roots[0].children
+                    if not isinstance(child, Comment)
+                    and (isinstance(child, Tag) or str(child).strip())]
+        empty_message = (
+            "No corequisite course information available." if corequisites
+            else "No prerequisite information available."
+        )
+        if (len(contents) == 2
+                and isinstance(contents[0], Tag)
+                and contents[0].name == "h3"
+                and not contents[0].find(True)
+                and _normalize(contents[0].get_text()) == heading
+                and isinstance(contents[1], str)
+                and _normalize(contents[1]) == empty_message):
+            return None
         roots = _children(roots[0])
     if roots and roots[0].name == "h3" and _normalize(roots[0].get_text(" ", strip=True)) == heading:
         roots = roots[1:]

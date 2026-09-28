@@ -31,7 +31,7 @@ test('searches courses, submits filters, and renders timed and async meetings', 
     term: '202690',
     options: {
       earliest_start: '08:00', latest_end: '20:00',
-      minimize_gaps: false, hide_full_sections: true,
+      minimize_gaps: true, hide_full_sections: true,
     },
     compact_week: false,
     professor_preferences: {},
@@ -47,7 +47,7 @@ test('searches courses, submits filters, and renders timed and async meetings', 
   await expect(page.getByRole('group', { name: 'Sun classes' }).getByText('CS280', { exact: true })).toBeVisible()
   const sundayColumn = page.getByRole('group', { name: 'Sun classes' })
   await expect(sundayColumn).toHaveCSS('height', '720px') // 8am–11pm
-  await expect(sundayColumn.locator('[title^="CS280 ·"]')).toHaveCSS('top', '48px') // 9am
+  await expect(sundayColumn.locator('div.absolute').filter({ hasText: 'CS280' })).toHaveCSS('top', '48px') // 9am
   const sundayHeader = await page.getByText('Sun', { exact: true }).boundingBox()
   const mondayHeader = await page.getByText('Mon', { exact: true }).boundingBox()
   expect(sundayHeader!.x).toBeLessThan(mondayHeader!.x)

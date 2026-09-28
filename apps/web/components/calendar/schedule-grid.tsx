@@ -86,7 +86,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
             {hourMarks.map((h, i) => (
               <span
                 key={h}
-                className="absolute right-2 text-[10px] font-mono text-text select-none"
+                className="absolute right-2 text-xs leading-4 font-mono text-muted whitespace-nowrap select-none"
                 style={{ top: i * PX_PER_HOUR, transform: 'translateY(-50%)' }}
               >
                 {hourLabel(h)}

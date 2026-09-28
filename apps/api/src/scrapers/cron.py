@@ -3,8 +3,8 @@ Scraper cron entry point — runs as a standalone Railway service.
 
 Invoked by Railway on schedule: */30 * * * *
 Not a FastAPI server — creates its own engine rather than using app.state.
-Banner runs first; RMP queries the sections table for professor names, so it
-must see the fresh Banner data before running.
+Only sections and their course metadata are refreshed here. Slow prerequisite
+and rating requests run independently in metadata_cron.
 """
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from .banner import run_banner_scrape
-from .rmp import run_rmp_scrape
 from .term_inventory import discover_banner_subjects
 from ..config import settings
 
@@ -42,13 +41,6 @@ async def main() -> None:
                 term=settings.CURRENT_TERM,
             )
 
-        # RMP runs in a separate session after Banner completes so it sees the
-        # full, fresh professor list from the sections table.
-        async with Session() as session:
-            await run_rmp_scrape(
-                session=session,
-                term=settings.CURRENT_TERM,
-            )
     finally:
         await engine.dispose()
     logger.info("Scraper cron complete")

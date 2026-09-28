@@ -49,6 +49,10 @@ API_COMMANDS = [
 SCRAPER_COMMANDS = [
     pytest.param(docker_command("Dockerfile.scraper"), id="docker-scraper"),
     pytest.param(
+        shlex.split(railway_config(API_ROOT / "railway.metadata.toml")["deploy"]["startCommand"]),
+        id="railway-metadata",
+    ),
+    pytest.param(
         shlex.split(railway_config(API_ROOT / "railway.scraper.toml")["deploy"]["startCommand"]),
         id="railway-scraper",
     ),
@@ -150,18 +154,23 @@ async def fake_subjects(term):
 async def fake_banner(**kwargs):
     assert kwargs["term"] == "202690"
     print("SYNTHETIC_BANNER", flush=True)
+async def fake_prerequisites(session, term):
+    assert term == "202690"
+    print("SYNTHETIC_PREREQUISITES", flush=True)
+    return 0
 async def fake_rmp(**kwargs):
     assert kwargs["term"] == "202690"
     print("SYNTHETIC_RMP", flush=True)
 banner.run_banner_scrape = fake_banner
+banner.run_prerequisite_refresh = fake_prerequisites
 rmp.run_rmp_scrape = fake_rmp
 term_inventory.discover_banner_subjects = fake_subjects
 ''')
     environment = {**runtime.environment, "PYTHONPATH": os.pathsep.join((str(bootstrap), str(runtime.project)))}
     output = runtime.run(command, environment=environment)
-    assert [line for line in output.splitlines() if line.startswith("SYNTHETIC_")] == [
-        "SYNTHETIC_BANNER", "SYNTHETIC_RMP",
-    ]
+    expected = (["SYNTHETIC_PREREQUISITES", "SYNTHETIC_RMP"]
+                if "src.scrapers.metadata_cron" in command else ["SYNTHETIC_BANNER"])
+    assert [line for line in output.splitlines() if line.startswith("SYNTHETIC_")] == expected
     assert runtime.packages() == before
     assert (runtime.project / "uv.lock").read_bytes() == lock_before
 

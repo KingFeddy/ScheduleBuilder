@@ -225,8 +225,7 @@ async def test_cancelled_scraper_releases_lock_and_pool_connections(
 
 
 @pytest.mark.parametrize("stage,failure", [
-    (None, None), ("banner", RuntimeError), ("rmp", RuntimeError),
-    ("banner", asyncio.CancelledError), ("rmp", asyncio.CancelledError),
+    (None, None), ("banner", RuntimeError), ("banner", asyncio.CancelledError),
 ])
 async def test_cron_disposes_engine_on_success_failure_and_cancellation(monkeypatch, stage, failure):
     from src.scrapers import cron
@@ -234,11 +233,9 @@ async def test_cron_disposes_engine_on_success_failure_and_cancellation(monkeypa
     engine = MagicMock(dispose=AsyncMock())
     session_factory = MagicMock()
     banner_run = AsyncMock(side_effect=failure("Synthetic failure") if stage == "banner" else None)
-    rmp_run = AsyncMock(side_effect=failure("Synthetic failure") if stage == "rmp" else None)
     monkeypatch.setattr(cron, "create_async_engine", MagicMock(return_value=engine))
     monkeypatch.setattr(cron, "async_sessionmaker", MagicMock(return_value=session_factory))
     monkeypatch.setattr(cron, "run_banner_scrape", banner_run)
-    monkeypatch.setattr(cron, "run_rmp_scrape", rmp_run)
 
     if failure:
         with pytest.raises(failure):
@@ -248,7 +245,32 @@ async def test_cron_disposes_engine_on_success_failure_and_cancellation(monkeypa
 
     engine.dispose.assert_awaited_once_with()
     banner_run.assert_awaited_once()
-    if stage == "banner":
-        rmp_run.assert_not_awaited()
+
+
+@pytest.mark.parametrize("stage,failure", [
+    (None, None), ("prerequisites", asyncio.CancelledError),
+    ("rmp", RuntimeError), ("rmp", asyncio.CancelledError),
+    ("unverified", RuntimeError),
+])
+async def test_metadata_cron_disposes_engine_and_reports_failures(monkeypatch, stage, failure):
+    from src.scrapers import metadata_cron
+
+    engine = MagicMock(dispose=AsyncMock())
+    prerequisites = AsyncMock(return_value=2 if stage == "unverified" else 0,
+                              side_effect=failure() if stage == "prerequisites" else None)
+    ratings = AsyncMock(side_effect=failure() if stage == "rmp" else None)
+    monkeypatch.setattr(metadata_cron, "create_async_engine", MagicMock(return_value=engine))
+    monkeypatch.setattr(metadata_cron, "async_sessionmaker", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr(metadata_cron, "run_prerequisite_refresh", prerequisites)
+    monkeypatch.setattr(metadata_cron, "run_rmp_scrape", ratings)
+    if failure:
+        with pytest.raises(failure):
+            await metadata_cron.main()
     else:
-        rmp_run.assert_awaited_once()
+        await metadata_cron.main()
+    engine.dispose.assert_awaited_once_with()
+    prerequisites.assert_awaited_once()
+    if stage == "prerequisites":
+        ratings.assert_not_awaited()
+    else:
+        ratings.assert_awaited_once()

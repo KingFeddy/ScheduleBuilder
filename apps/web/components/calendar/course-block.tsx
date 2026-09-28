@@ -1,4 +1,3 @@
-import { formatTopicTitle, formatCourseTitle } from '@/lib/course-metadata'
 import { courseColor } from '@/lib/course-colors'
 import { seatColorClass } from '@/components/ui/seat-status'
 import { PX_PER_HOUR, timeToMinutes } from '@/lib/calendar-time'
@@ -41,10 +40,10 @@ interface CourseBlockProps {
 export function CourseBlock({ slot, startHour, hasConflict = false }: CourseBlockProps) {
   const startMin = timeToMinutes(slot.start_time)
   const endMin = timeToMinutes(slot.end_time)
+  const showProfessor = endMin - startMin >= 50
   const topPx = ((startMin - startHour * 60) / 60) * PX_PER_HOUR
   const heightPx = ((endMin - startMin) / 60) * PX_PER_HOUR
   const bg = courseColor(slot.course_code)
-  const title = slot.topic ? formatTopicTitle(slot.topic) : formatCourseTitle(slot.section_title)
   const prof = lastName(slot.professor_name)
 
   return (
@@ -55,13 +54,12 @@ export function CourseBlock({ slot, startHour, hasConflict = false }: CourseBloc
       ]
         .join(' ')
         .trim()}
-      title={[slot.course_code, slot.section_number, title, prof].filter(Boolean).join(" · ")}
       style={{ top: topPx, height: heightPx, backgroundColor: bg, border: `1px solid ${bg}cc` }}
     >
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-1">
         <p className="col-span-2 row-start-1 @[130px]:col-span-1 font-mono font-bold text-[12px] leading-4 text-text truncate">{slot.course_code}</p>
-        <p className="col-span-2 row-start-2 font-mono text-[11px] leading-[14px] text-text truncate">{prof}</p>
-        <div className="col-span-2 row-start-3 @[130px]:col-span-1 @[130px]:col-start-2 @[130px]:row-start-1 flex items-baseline justify-between gap-1 font-mono text-[12px] leading-4">
+        {showProfessor && <p className="col-span-2 row-start-2 font-mono text-[11px] leading-[14px] text-text truncate">{prof}</p>}
+        <div className={`col-span-2 ${showProfessor ? 'row-start-3' : 'row-start-2'} @[130px]:col-span-1 @[130px]:col-start-2 @[130px]:row-start-1 flex items-baseline justify-between gap-1 font-mono text-[12px] leading-4`}>
           {slot.section_number && <p className="text-muted">{slot.section_number}</p>}
           <p className={`tabular-nums ${seatColorClass(slot.open_seats)}`}>
             {slot.open_seats}/{slot.total_seats}

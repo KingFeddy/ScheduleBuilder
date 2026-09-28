@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 BANNER_SCRAPER_LOCK_ID = 12345001
 RMP_SCRAPER_LOCK_ID    = 12345002
+PREREQUISITE_SCRAPER_LOCK_ID = 12345003
 
 
 @asynccontextmanager

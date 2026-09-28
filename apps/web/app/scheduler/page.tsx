@@ -60,7 +60,7 @@ export default function SchedulerPage() {
         options: {
           earliest_start: commuterOptions.earliest_start || '07:00',
           latest_end: commuterOptions.latest_end || '22:30',
-          minimize_gaps: commuterOptions.minimize_gaps,
+          minimize_gaps: true,
           hide_full_sections: commuterOptions.hide_full_sections,
         },
         compact_week: commuterOptions.compact_week,

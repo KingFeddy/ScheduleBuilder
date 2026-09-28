@@ -240,7 +240,7 @@ async def test_structured_refresh_stores_rules_and_exact_evidence_without_flatte
     await seed(db_session)
     source.prerequisite = response(table(row(opening="("), row(number="994", connector="Or", closing=")", grade="B-")))
     source.corequisite = response(corequisite_table())
-    assert await banner.scrape_subject(db_session, SUBJECT, TERM) == (1, 0, 0)
+    assert await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True) == (1, 0, 0)
     saved = await snapshot(db_session_factory)
     assert saved["prerequisites"] == ["ZZZ990", "ZZZ991"]
     assert saved["prerequisites_status"] == "verified"
@@ -267,7 +267,7 @@ async def test_failure_retains_verified_tree_and_evidence_but_records_new_attemp
     db_session, db_session_factory, source, failure_kind,
 ):
     source.corequisite = response(EMPTY_COREQUISITES)
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     before = await snapshot(db_session_factory)
     if failure_kind == "unsupported":
         source.prerequisite = response(table(row(), row(subject="", number="", test="Placement", score="80", connector="Or")))
@@ -275,7 +275,7 @@ async def test_failure_retains_verified_tree_and_evidence_but_records_new_attemp
         source.corequisite = response("Synthetic upstream failure", status=503)
     else:
         source.prerequisite = response("<h1>Changed response</h1>")
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     after = await snapshot(db_session_factory)
     for field in ("prerequisites", "prerequisites_rules", "prerequisites_source", "prerequisites_verified_at"):
         assert after[field] == before[field]
@@ -295,7 +295,7 @@ async def test_failure_retains_verified_tree_and_evidence_but_records_new_attemp
 async def test_unknown_new_rule_never_becomes_verified_empty(db_session, db_session_factory, source):
     source.corequisite = response(EMPTY_COREQUISITES)
     source.prerequisite = response(table(row(subject="Unknown department")))
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     saved = await snapshot(db_session_factory)
     assert saved["prerequisites_status"] == "unresolved"
     assert saved["prerequisites_rules"] is None
@@ -308,10 +308,10 @@ async def test_unknown_new_rule_never_becomes_verified_empty(db_session, db_sess
 @pytest.mark.parametrize("body", ["<h1>Broken\x00response</h1>"])
 async def test_unusable_source_can_still_be_recorded_without_losing_known_data(db_session, db_session_factory, source, body):
     from src.schemas.prerequisites import SourceEvidence
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     before = await snapshot(db_session_factory)
     source.prerequisite = response(body)
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     after = await snapshot(db_session_factory)
     assert after["prerequisites_status"] == "unresolved"
     assert after["prerequisites_rules"] == before["prerequisites_rules"]
@@ -328,7 +328,7 @@ async def test_unusable_source_can_still_be_recorded_without_losing_known_data(d
 @pytest.mark.asyncio
 async def test_rejected_rule_write_cannot_separate_rule_from_evidence(db_session, db_session_factory, source):
     source.corequisite = response(EMPTY_COREQUISITES)
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     before = await snapshot(db_session_factory)
     async with db_session.begin():
         await db_session.execute(text("""
@@ -336,7 +336,7 @@ async def test_rejected_rule_write_cannot_separate_rule_from_evidence(db_session
             CHECK (prerequisites_rules -> 'prerequisites' ->> 'kind' <> 'any')
         """))
     source.prerequisite = response(table(row(), row(connector="Or", number="994")))
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     after = await snapshot(db_session_factory)
     assert after["prerequisites_status"] == "failed"
     for field in ("prerequisites", "prerequisites_rules", "prerequisites_source", "prerequisites_verified_at"):

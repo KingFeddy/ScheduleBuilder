@@ -20,7 +20,7 @@ const TIME_OPTIONS = buildTimeOptions()
 
 export function CommuterToggles() {
   const { commuterOptions, setCommuterOptions } = useSchedulerStore()
-  const { compact_week, earliest_start, latest_end, minimize_gaps, hide_full_sections } = commuterOptions
+  const { compact_week, earliest_start, latest_end, hide_full_sections } = commuterOptions
 
   return (
     <div className="flex flex-col gap-4">
@@ -109,29 +109,6 @@ export function CommuterToggles() {
         </div>
       </div>
 
-      {/* Minimize Gaps toggle */}
-      <div
-        className="flex items-center justify-between cursor-pointer group"
-        onClick={() => setCommuterOptions({ minimize_gaps: !minimize_gaps })}
-      >
-        <div>
-          <p className="text-sm font-medium text-text">Minimize Gaps</p>
-          <p className="text-xs text-muted">Prefer back-to-back classes</p>
-        </div>
-        <div
-          className="relative flex-shrink-0 w-9 h-5 rounded-full border transition-colors duration-150"
-          style={
-            minimize_gaps
-              ? { background: 'var(--njit-red)', borderColor: 'var(--njit-red)' }
-              : { background: 'var(--surface-2)', borderColor: 'var(--border)' }
-          }
-        >
-          <span
-            className="absolute top-1/2 w-4 h-4 rounded-full bg-text transition-transform duration-150"
-            style={{ transform: `translateY(-50%) ${minimize_gaps ? 'translateX(16px)' : 'translateX(2px)'}` }}
-          />
-        </div>
-      </div>
     </div>
   )
 }

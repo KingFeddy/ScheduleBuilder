@@ -1,0 +1,10 @@
+# Separate Railway service; root directory apps/api, config path
+# /apps/api/railway.metadata.toml. Run after the initial section import.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.scraper"
+
+[deploy]
+startCommand = "uv run --no-sync python -m src.scrapers.metadata_cron"
+cronSchedule = "0 7 * * *"
+restartPolicyType = "NEVER"

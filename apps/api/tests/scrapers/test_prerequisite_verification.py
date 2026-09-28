@@ -159,6 +159,46 @@ async def snapshot(factory):
         return dict((await observer.execute(text("SELECT * FROM courses WHERE course_code = 'ZZZ997'"))).mappings().one())
 
 
+@pytest.mark.asyncio
+async def test_sections_skip_prerequisites_and_metadata_preserves_section_freshness(
+    db_session, db_session_factory, source,
+):
+    await seed(db_session)
+    source.sections = [section(), section("81112")]
+    before = await snapshot(db_session_factory)
+    assert await banner.scrape_subject(db_session, SUBJECT, TERM) == (2, 0, 0)
+    assert source.prerequisite_requests == []
+    source.browser.new_context.return_value.new_page.return_value.request.get.assert_not_awaited()
+    after = await snapshot(db_session_factory)
+    assert {k: v for k, v in after.items() if k.startswith('prerequisites')} == {
+        k: v for k, v in before.items() if k.startswith('prerequisites')
+    }
+
+    async def sections():
+        async with db_session_factory() as observer:
+            return (await observer.execute(text("SELECT * FROM sections ORDER BY crn, term"))).mappings().all()
+
+    async with db_session.begin():
+        await db_session.execute(text("""
+            INSERT INTO sections(crn, term, course_code, section_number) VALUES
+                ('80000', :term, 'ZZZ997', ' fp '), ('70000', '202610', 'ZZZ997', '001')
+        """), {'term': TERM})
+    section_snapshot = await sections()
+    assert await banner.run_prerequisite_refresh(db_session, TERM) == 0
+    # Skip placeholders and other semesters; fetch only once for a shared course.
+    assert source.prerequisite_requests == [{"term": TERM, "courseReferenceNumber": "81111"}]
+    verified = await snapshot(db_session_factory)
+    assert verified['prerequisites'] == ['ZZZ996']
+    assert verified['prerequisites_status'] == 'verified'
+    source.prerequisite = TimeoutError('Synthetic timeout')
+    assert await banner.run_prerequisite_refresh(db_session, TERM) == 1
+    failed = await snapshot(db_session_factory)
+    assert failed['prerequisites'] == verified['prerequisites']
+    assert failed['prerequisites_verified_at'] == verified['prerequisites_verified_at']
+    assert failed['prerequisites_status'] == 'failed'
+    assert await sections() == section_snapshot
+
+
 FAILURES = [
     pytest.param("lookup", TimeoutError("synthetic timeout"), "failed", id="lookup-timeout"),
     pytest.param("lookup", response("[]", content_type="application/json"), "unresolved", id="empty-lookup")
@@ -172,7 +212,7 @@ async def test_failed_refresh_preserves_existing_values_and_records_uncertainty(
 ):
     await seed(db_session)
     setattr(source, attribute, failure)
-    assert await banner.scrape_subject(db_session, SUBJECT, TERM) == (1, 0, 0)
+    assert await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True) == (1, 0, 0)
     saved = await snapshot(db_session_factory)
     assert saved["prerequisites"] == ["ZZZ990", "ZZZ991"]
     assert (saved["title"], saved["credits"]) == ("Preserve this title", 4)
@@ -195,7 +235,7 @@ async def test_verified_refresh_then_failure_then_recovery(
 ):
     await seed(db_session)
     source.prerequisite = response(body)
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     verified = await snapshot(db_session_factory)
     assert verified["prerequisites"] == codes
     assert verified["prerequisites_status"] == status
@@ -204,7 +244,7 @@ async def test_verified_refresh_then_failure_then_recovery(
     assert verified["prerequisites_error"] is None
 
     source.prerequisite = TimeoutError("synthetic timeout")
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     failed = await snapshot(db_session_factory)
     assert failed["prerequisites"] == codes
     assert failed["prerequisites_verified_at"] == verified["prerequisites_verified_at"]
@@ -213,7 +253,7 @@ async def test_verified_refresh_then_failure_then_recovery(
     assert failed["prerequisites_error"]
 
     source.prerequisite = response(body)
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     recovered = await snapshot(db_session_factory)
     assert recovered["prerequisites_status"] == status
     assert recovered["prerequisites_verified_at"] > failed["prerequisites_attempted_at"]
@@ -223,7 +263,7 @@ async def test_verified_refresh_then_failure_then_recovery(
 @pytest.mark.asyncio
 async def test_new_course_with_failed_lookup_remains_unverified_empty(db_session, db_session_factory, source):
     source.lookup = TimeoutError("synthetic timeout")
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     saved = await snapshot(db_session_factory)
     assert saved["prerequisites"] == []
     assert saved["prerequisites_status"] == "failed"
@@ -234,7 +274,7 @@ async def test_new_course_with_failed_lookup_remains_unverified_empty(db_session
 async def test_shared_course_fetches_once_and_other_courses_continue_after_failure(db_session, source):
     source.sections = [section(), section("81112"), section("81113", courseNumber="998")]
     source.prerequisite = TimeoutError("synthetic timeout")
-    assert await banner.scrape_subject(db_session, SUBJECT, TERM) == (3, 0, 0)
+    assert await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True) == (3, 0, 0)
     assert source.prerequisite_requests == [
         {"term": TERM, "courseReferenceNumber": "81111"},
         {"term": TERM, "courseReferenceNumber": "81113"},
@@ -247,7 +287,7 @@ async def test_cancellation_preserves_prerequisites_and_propagates(db_session, d
     before = await snapshot(db_session_factory)
     source.prerequisite = asyncio.CancelledError()
     with pytest.raises(asyncio.CancelledError):
-        await banner.scrape_subject(db_session, SUBJECT, TERM)
+        await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     assert await snapshot(db_session_factory) == before
     source.browser.close.assert_awaited_once()
 
@@ -256,7 +296,7 @@ async def test_cancellation_preserves_prerequisites_and_propagates(db_session, d
 async def test_rejected_database_replacement_preserves_last_verified_values(db_session, db_session_factory, source):
     await seed(db_session)
     source.prerequisite = response(table(row(number="990"), row(number="991", connector="And")))
-    await banner.scrape_subject(db_session, SUBJECT, TERM)
+    await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True)
     before = await snapshot(db_session_factory)
     async with db_session.begin():
         # Inject a real database write failure only in this test's private schema.
@@ -265,7 +305,7 @@ async def test_rejected_database_replacement_preserves_last_verified_values(db_s
             CHECK (NOT (prerequisites @> ARRAY['ZZZ996']))
         """))
     source.prerequisite = response(table(row()))
-    assert await banner.scrape_subject(db_session, SUBJECT, TERM) == (1, 0, 0)
+    assert await banner.scrape_subject(db_session, SUBJECT, TERM, refresh_prerequisites=True) == (1, 0, 0)
     after = await snapshot(db_session_factory)
     assert after["prerequisites"] == before["prerequisites"]
     assert after["prerequisites_verified_at"] == before["prerequisites_verified_at"]

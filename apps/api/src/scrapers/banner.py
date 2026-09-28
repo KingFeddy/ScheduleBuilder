@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.schemas.prerequisites import PrerequisiteRefresh, SubjectLookup, legacy_course_codes
 
-from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID
+from .lock import advisory_lock, BANNER_SCRAPER_LOCK_ID, PREREQUISITE_SCRAPER_LOCK_ID
 from .course_metadata import metadata_observation, parse_title, refresh_course_metadata
 from .prerequisites import (
     PrerequisiteDataError,
@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 
 BANNER_HOST = "https://reg-prod.ec.njit.edu"
 BANNER_BASE = f"{BANNER_HOST}/StudentRegistrationSsb/ssb"
+BANNER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 PAGE_SIZE   = 500
 RETRY_DELAYS = [5, 15, 30]
 
@@ -467,7 +472,7 @@ async def _refresh_course_prerequisites(
     session: AsyncSession, page, term: str, crn: str, course_code: str,
     subject_lookup: SubjectLookup | None,
     lookup_error: PrerequisiteDataError | PrerequisiteRequestError | None,
-) -> None:
+) -> str:
     """Save a complete replacement atomically, or record uncertainty without erasing data.
 
     The verified timestamp belongs to the retained rules and source evidence.
@@ -506,7 +511,7 @@ async def _refresh_course_prerequisites(
                     "attempt": json.dumps(attempt),
                     "course_code": course_code,
                 })
-            return
+            return status
         except Exception:
             status, error = "failed", "Could not save prerequisite refresh."
 
@@ -519,6 +524,100 @@ async def _refresh_course_prerequisites(
             WHERE course_code = :course_code
         """), {"status": status, "error": error, "course_code": course_code, "attempt": json.dumps(attempt)})
     logger.warning("Banner/%s/%s/%s: prerequisites %s: %s", term, crn, course_code, status, error)
+    return status
+
+
+async def _prerequisite_lookup(page, term: str):
+    try:
+        return await fetch_subject_lookup(page, BANNER_BASE, term), None
+    except Exception as exc:
+        error = (exc if isinstance(exc, (PrerequisiteDataError, PrerequisiteRequestError))
+                 else PrerequisiteRequestError("Subject lookup request failed."))
+        logger.warning("Banner/%s: prerequisite refreshes will retain previous data: %s", term, error)
+        return None, error
+
+
+async def run_prerequisite_refresh(session: AsyncSession, term: str) -> int:
+    """Refresh one representative section per offered course; never touch seat freshness.
+
+    Runs independently of section scraping, using its own lock. Verified rules
+    survive failed requests. The return value counts unverified course attempts.
+    """
+    async with advisory_lock(session, PREREQUISITE_SCRAPER_LOCK_ID, "prerequisites") as acquired:
+        if not acquired:
+            return 0
+        async with session.begin():
+            courses = (await session.execute(text("""
+                SELECT DISTINCT ON (course_code) course_code, crn
+                FROM sections
+                WHERE term = :term AND upper(trim(COALESCE(section_number, ''))) <> 'FP'
+                ORDER BY course_code, crn
+            """), {"term": term})).mappings().all()
+        if not courses:
+            raise RuntimeError(f"No sections available for prerequisite refresh in {term}; run the section import first.")
+
+        started = time_module.monotonic()
+        failed = 0
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            try:
+                context = await browser.new_context(user_agent=BANNER_USER_AGENT)
+                page = await context.new_page()
+                await _open_banner_term(page, term, "prerequisites")
+                lookup, lookup_error = await _prerequisite_lookup(page, term)
+                for course in courses:
+                    try:
+                        status = await _refresh_course_prerequisites(
+                            session, page, term, course["crn"], course["course_code"], lookup, lookup_error,
+                        )
+                        failed += status not in {"verified", "verified_empty"}
+                    except Exception:
+                        await session.rollback()
+                        failed += 1
+                        logger.exception("Could not record prerequisite refresh for %s", course["course_code"])
+            finally:
+                await browser.close()
+        logger.info("Prerequisite refresh: %d courses, %d unverified, %.1fs",
+                    len(courses), failed, time_module.monotonic() - started)
+        return failed
+
+
+async def _open_banner_term(page, term: str, subject: str) -> None:
+    await page.goto(
+        f"{BANNER_BASE}/classSearch/classSearch",
+        timeout=30_000,
+        wait_until="networkidle",
+    )
+
+    # Banner requires a term selection POST before searchResults returns data.
+    # Without this the session has no active term and every query returns data=null.
+    term_resp = await page.request.post(
+        f"{BANNER_BASE}/term/search?mode=search",
+        form={
+            "term":            term,
+            "studyPath":       "",
+            "studyPathText":   "",
+            "startDatepicker": "",
+            "endDatepicker":   "",
+            "uniqueSessionId": f"scraper-{term}-{subject}",
+        },
+    )
+    if term_resp.status != 200:
+        raise BannerBlockedError(
+            f"Banner term/search POST returned {term_resp.status} for term {term}"
+        )
+
+    # Banner responds with {"fwdURL": "/StudentRegistrationSsb/ssb/classSearch/classSearch"}.
+    # Navigating there switches the session from registration context to classSearch
+    # context — without this step every subsequent searchResults query returns 500.
+    fwd_body = json.loads(await term_resp.text())
+    fwd_path = fwd_body.get("fwdURL", "")
+    if fwd_path:
+        await page.goto(
+            f"{BANNER_HOST}{fwd_path}",
+            timeout=30_000,
+            wait_until="networkidle",
+        )
 
 
 async def scrape_subject(
@@ -527,10 +626,14 @@ async def scrape_subject(
     term: str,
     *,
     progress: ScrapeProgress | None = None,
+    refresh_prerequisites: bool = False,
 ) -> tuple[int, int, int]:
     """
     Scrape all sections for one subject+term via Playwright.
     Returns (sections_upserted, sections_failed, sections_deleted).
+
+    Prerequisites are handled by the independent metadata job by default.
+    The explicit opt-in is retained for one-off full imports.
 
     Raises BannerBlockedError, BannerSchemaError, or BannerResponseError if the
     subject's response set cannot be verified as complete.
@@ -554,65 +657,15 @@ async def scrape_subject(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        )
+        context = await browser.new_context(user_agent=BANNER_USER_AGENT)
         page = await context.new_page()
 
         try:
-            await page.goto(
-                f"{BANNER_BASE}/classSearch/classSearch",
-                timeout=30_000,
-                wait_until="networkidle",
-            )
+            await _open_banner_term(page, term, subject)
 
-            # Banner requires a term selection POST before searchResults returns data.
-            # Without this the session has no active term and every query returns data=null.
-            term_resp = await page.request.post(
-                f"{BANNER_BASE}/term/search?mode=search",
-                form={
-                    "term":            term,
-                    "studyPath":       "",
-                    "studyPathText":   "",
-                    "startDatepicker": "",
-                    "endDatepicker":   "",
-                    "uniqueSessionId": f"scraper-{term}-{subject}",
-                },
-            )
-            if term_resp.status != 200:
-                raise BannerBlockedError(
-                    f"Banner term/search POST returned {term_resp.status} for term {term}"
-                )
-
-            # Banner responds with {"fwdURL": "/StudentRegistrationSsb/ssb/classSearch/classSearch"}.
-            # Navigating there switches the session from registration context to classSearch
-            # context — without this step every subsequent searchResults query returns 500.
-            fwd_body = json.loads(await term_resp.text())
-            fwd_path = fwd_body.get("fwdURL", "")
-            if fwd_path:
-                await page.goto(
-                    f"{BANNER_HOST}{fwd_path}",
-                    timeout=30_000,
-                    wait_until="networkidle",
-                )
-
-            lookup_error = None
-            try:
-                subject_lookup = await fetch_subject_lookup(page, BANNER_BASE, term)
-            except Exception as exc:
-                lookup_error = (
-                    exc if isinstance(exc, (PrerequisiteDataError, PrerequisiteRequestError))
-                    else PrerequisiteRequestError("Subject lookup request failed.")
-                )
-                logger.warning(
-                    "Banner/%s: prerequisite refreshes will retain previous data: %s",
-                    subject, lookup_error,
-                )
-                subject_lookup = None
+            subject_lookup, lookup_error = None, None
+            if refresh_prerequisites:
+                subject_lookup, lookup_error = await _prerequisite_lookup(page, term)
             seen_course_codes: set[str] = set()
             course_observations: dict[str, list[dict]] = {}
 
@@ -674,7 +727,7 @@ async def scrape_subject(
 
                         course_code = f"{raw['subject']}{raw['courseNumber']}"
                         course_observations.setdefault(course_code, []).append(metadata_observation(raw))
-                        if course_code not in seen_course_codes:
+                        if refresh_prerequisites and course_code not in seen_course_codes:
                             seen_course_codes.add(course_code)
                             try:
                                 await _refresh_course_prerequisites(

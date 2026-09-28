@@ -113,7 +113,8 @@ export const useSchedulerStore = create<SchedulerState>()(
         set((s) => ({
           selectedCourses: s.selectedCourses.filter((c) => c !== code),
           topicPreferences: Object.fromEntries(Object.entries(s.topicPreferences).filter(([k]) => k !== code)),
-          results: [], solveWarnings: [], isLoading: false, termRevision: s.termRevision + 1,
+          // Keep the last solved calendar while editing; invalidate in-flight solves.
+          solveWarnings: [], error: null, isLoading: false, termRevision: s.termRevision + 1,
           professorPreferences: Object.fromEntries(
             Object.entries(s.professorPreferences).filter(([k]) => k !== code),
           ),
@@ -136,7 +137,7 @@ export const useSchedulerStore = create<SchedulerState>()(
         topicPreferences: { ...s.topicPreferences, [code]: topic },
         professorPreferences: Object.fromEntries(Object.entries(s.professorPreferences).filter(([k]) => k !== code)),
         professorsByCourse: { ...s.professorsByCourse, [code]: topicProfessors(s.sectionsByCourse[code] ?? [], topic) },
-        results: [], activeResultIndex: 0, solveWarnings: [], error: null, isLoading: false,
+        solveWarnings: [], error: null, isLoading: false,
         termRevision: s.termRevision + 1,
       })),
 

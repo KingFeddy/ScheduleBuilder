@@ -153,7 +153,7 @@ export function SemesterPlan({
               : 'Saved start semester unavailable. Regenerate to record it.'}
           </p>
           <p className="text-sm text-muted mt-0.5">
-            Projected graduation:{' '}
+            {warnings.some((warning) => warning.startsWith('Partial plan:')) ? 'Last planned semester:' : 'Projected graduation:'}{' '}
             <span className="font-mono text-text">{graduation}</span>
           </p>
         </div>

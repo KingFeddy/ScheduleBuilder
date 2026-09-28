@@ -67,6 +67,32 @@ def test_missing_subject_or_wrong_catalog_edition_rejects():
                                    url=URL, subject="PHYS", catalog_year=2026)
 
 
+def test_math_placement_entries_do_not_block_standard_course_metadata():
+    parsed = catalog.parse_catalog_page(page(
+        "MATH E. Math Stack Engineers. 3 credits.",
+        "MATH NE. Math Stack For Non-Engineers. 3 credits.",
+        "MATH 211. Calculus III A. 3 credits.",
+    ), url=URL, subject="MATH", catalog_year=2026)
+    assert [c.course_code for c in parsed.courses] == ["MATH211"]
+    assert len(parsed.skipped_placeholders) == 2
+
+
+@pytest.mark.asyncio
+async def test_scheduled_refresh_retains_failed_subject_and_continues_other_pages(monkeypatch):
+    from unittest.mock import AsyncMock
+    second = "https://catalog.njit.edu/undergraduate/computing-sciences/computer-science/"
+    monkeypatch.setattr(catalog, "CATALOG_PAGES", {URL: ("PHYS",), second: ("CS",)})
+    monkeypatch.setattr(catalog, "fetch_catalog_page", AsyncMock(side_effect=[
+        page("PHYS 485. Unsupported heading. many credits."),
+        page("CS 490. Project. 3 credits."),
+    ]))
+    writer = AsyncMock(return_value=1)
+    monkeypatch.setattr(catalog, "import_catalog_page", writer)
+    assert await catalog.run_catalog_refresh(AsyncMock()) == 1
+    assert writer.await_count == 1
+    assert writer.call_args.args[1].subject == "CS"
+
+
 def test_duplicates_only_deduplicate_identical_facts():
     heading = "PHYS 485. Modeling. 3 credits."
     assert len(parse(heading, heading).courses) == 1

@@ -9,7 +9,7 @@ from typing import Annotated, Literal, Optional
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, computed_field, field_validator, model_validator
 from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 
-COURSE_CODE_PATTERN = re.compile(r"^[A-Z]{2,5}\d{3}[A-Z]?$")
+COURSE_CODE_PATTERN = re.compile(r"^(?:R[0-9]{3}|[A-Z]{2,5})[0-9]{3}[A-Z]?$")
 WILDCARD_PATTERN = re.compile(r"[Xx@*]")
 MIN_CREDITS_PER_SEMESTER = 3
 MAX_CREDITS_PER_SEMESTER = 24

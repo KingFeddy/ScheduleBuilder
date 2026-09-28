@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
 import re
 from urllib.parse import urlsplit
 
@@ -15,9 +16,19 @@ from src.scrapers import lock
 from src.scrapers.course_metadata import parse_credits, parse_title
 
 MAX_PAGE_BYTES = 4 * 1024 * 1024
+logger = logging.getLogger(__name__)
+# Official department pages supplying the planner's core catalog metadata.
+# Multiple subjects on one page share a fetch; sections remain Banner-owned.
+CATALOG_PAGES = {
+    "https://catalog.njit.edu/undergraduate/computing-sciences/computer-science/": ("CS",),
+    "https://catalog.njit.edu/undergraduate/computing-sciences/informatics/": ("IS",),
+    "https://catalog.njit.edu/undergraduate/science-liberal-arts/humanities-and-social-sciences/": ("COM", "HSS"),
+    "https://catalog.njit.edu/undergraduate/science-liberal-arts/mathematical-sciences/": ("MATH",),
+    "https://catalog.njit.edu/undergraduate/science-liberal-arts/physics/": ("PHYS",),
+}
 _NUMBER = r"[0-9]+(?:\.[0-9]+)?"
 _HEADING = re.compile(
-    rf"(?P<subject>[A-Z]{{2,5}})\s*(?P<number>[0-9]{{3}}[A-Z]?|[0-9]\*{{2}})\.\s+"
+    rf"(?P<subject>[A-Z]{{2,5}})\s*(?P<number>[0-9]{{3}}[A-Z]?|[0-9]\*{{2}}|E|NE)\.\s+"
     rf"(?P<title>.+?)\.\s+(?P<low>{_NUMBER})"
     rf"(?:\s*(?P<separator>[-–]|or)\s*(?P<high>{_NUMBER}))?\s+credits?"
     r"(?:\.|,\s+[0-9]+(?:\.[0-9]+)?\s+contact hours?\s*\([^()]*\)\.)?",
@@ -107,11 +118,14 @@ def parse_catalog_page(html: str, *, url: str, subject: str, catalog_year: int) 
         credits, credits_error = parse_credits(raw)
         if title_error or credits_error:
             raise ValueError(f"Invalid catalog title or credits for {code}.")
-        if match["number"].endswith("**"):
-            # Official level placeholders are not individually selectable courses.
+        if match["number"].endswith("**") or (subject == "MATH" and match["number"] in {"E", "NE"}):
+            # Level placeholders and math placement entries are not supported
+            # individually selectable degree courses.
             # Validate their full heading, report them, and never manufacture a code.
             skipped_placeholders.append(heading)
             continue
+        if not re.fullmatch(r"[0-9]{3}[A-Z]?", match["number"]):
+            raise ValueError(f"Unsupported {subject} course number: {match['number']}")
         record = CatalogCourse(code, title, credits, heading)
         if code in records and (records[code].title, records[code].credits) != (title, credits):
             raise ValueError(f"Conflicting catalog entries for {code}.")
@@ -171,3 +185,35 @@ async def import_catalog_page(session, page: CatalogPage) -> int:
                 "credits_source": json.dumps(page.evidence(course, course.credits)),
             } for course in page.courses])
     return len(page.courses)
+
+
+async def run_catalog_refresh(session) -> int:
+    """Refresh canonical metadata independently; failed subjects retain old data."""
+    failed = 0
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+        for url, subjects in CATALOG_PAGES.items():
+            try:
+                html = await fetch_catalog_page(url, client=client)
+                soup = BeautifulSoup(html, "html.parser")
+                editions = {int(match[1]) for heading in soup.select("h1")
+                            if (match := re.fullmatch(
+                                r"University Catalog\s+([0-9]{4})\s*[-–]\s*[0-9]{4}",
+                                heading.get_text(" ", strip=True), re.IGNORECASE))}
+                if len(editions) != 1:
+                    raise ValueError("Catalog edition is missing or ambiguous.")
+                year = editions.pop()
+            except (httpx.HTTPError, ValueError):
+                logger.exception("Catalog page refresh failed: %s; existing metadata retained", url)
+                failed += len(subjects)
+                continue
+            for subject in subjects:
+                try:
+                    page = parse_catalog_page(html, url=url, subject=subject, catalog_year=year)
+                    count = await import_catalog_page(session, page)
+                    logger.info("Catalog metadata refreshed: %s (%d courses, edition %d)", subject, count, year)
+                except Exception:
+                    await session.rollback()
+                    # Database exceptions may contain SQL parameters; keep logs bounded.
+                    logger.error("Catalog metadata refresh failed for %s; existing metadata retained", subject)
+                    failed += 1
+    return failed

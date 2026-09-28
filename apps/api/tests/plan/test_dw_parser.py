@@ -7,6 +7,19 @@ from src.services.plan import validate_parsed_degree
 
 class TestExtractStillNeeded:
 
+    def test_overall_credit_summary_does_not_create_a_course_from_policy_text(self):
+        items = _extract_still_needed(
+            "Course work greater than 10 years old cannot be applied to any degree requirement.\n"
+            "Still needed: A minimum of 134 credits are required. You currently have 110 credits\n"
+            "Minimum 134 Credit Requirement\n"
+            "completed or in-progress, you still need 24 more credits.\n"
+            "Approval requirement\nStill needed: Advisor approval required.\n"
+            "Natural sciences\nStill needed: 1 Class in CHEM 121 or PHYS 202 or\nR120 101\n"
+        )
+        assert len(items) == 2
+        assert items[0].quantity_status == "unresolved"
+        assert items[1].options == ["CHEM121", "PHYS202", "R120101"]
+
     def test_see_without_number_never_matches(self):
         """'Still needed: See ...' has no number — the regex never matches it."""
         text = "Still needed: See Double Major in CS and Physics section"

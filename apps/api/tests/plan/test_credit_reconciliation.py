@@ -25,6 +25,17 @@ def review(generated):
 
 
 @pytest.mark.asyncio
+async def test_completed_course_still_required_is_reviewed_without_invented_credits(catalog):
+    catalog("CS435", 3)
+    generated = await generate([
+        requirement("minor", ["MATH222"]), requirement("core", ["CS435"]),
+    ], 3, completed_courses=["MATH222"])
+    assert [c.course_code for s in generated.semesters for c in s.courses] == ["CS435"]
+    assert any("Audit allocation review:" in w and "MATH222" in w for w in generated.warnings)
+    assert any(w.startswith("Partial plan: 1 audit requirement") for w in generated.warnings)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("remaining,direction", [(2, "1 above"), (4, "1 below")])
 async def test_small_overage_and_shortfall_are_reported(catalog, remaining, direction):
     catalog("CS435", 3)

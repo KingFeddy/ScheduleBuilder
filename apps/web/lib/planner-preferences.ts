@@ -12,7 +12,7 @@ export const PREFERENCES_NOTICE = 'Your saved preferences could not be restored.
 export function normalizeElective(value: string): string | null {
   if ([...value].some((character) => character.charCodeAt(0) > 127)) return null
   const code = value.toUpperCase().replace(/\s+/g, '')
-  return /^[A-Z]{2,5}[0-9]{3}[A-Z]?$/.test(code) ? code : null
+  return /^(?:R[0-9]{3}|[A-Z]{2,5})[0-9]{3}[A-Z]?$/.test(code) ? code : null
 }
 
 export function restorePreferences(raw: string): PlannerPreferences | null {

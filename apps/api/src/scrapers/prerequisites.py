@@ -237,7 +237,10 @@ def parse_prerequisite_rules(body: str, subject_lookup: dict[str, str]) -> Rule:
             tokens.append(connector)
         tokens.extend(opening)
         if test or score:
-            rule = UnresolvedCondition(reason="unsupported_test_condition", source_row=index)
+            rule = UnresolvedCondition(
+                reason=f"Banner check '{test[:120] or 'unnamed test'}' requires score {score[:30] or 'unspecified'}; confirm this requirement with NJIT",
+                source_row=index,
+            )
         else:
             timing = {"Yes": "prior_or_concurrent", "No": "prior", "": "unspecified"}.get(
                 values[9] if len(headers) == 10 else "", "unrecognized",

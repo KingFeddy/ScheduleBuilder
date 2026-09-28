@@ -41,7 +41,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap, requirement, una
     async function loadCourses() {
       if (!requirement) return getGerCourses({ signal: controller.signal })
       const subjects = requirement.options.includes('@') ? [undefined] : [...new Set(requirement.options
-        .map((option) => /^([A-Z]{2,5})[0-9X]{3}[A-Z]?$/.exec(option)?.[1]).filter((subject): subject is string => !!subject))]
+        .map((option) => /^(R[0-9]{3}|[A-Z]{2,5})[0-9X]{3}[A-Z]?$/.exec(option)?.[1]).filter((subject): subject is string => !!subject))]
       const collected = new Map<string, GerGroup>()
       let requests = 0
       for (const subject of subjects) {
@@ -49,7 +49,7 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap, requirement, una
           if (++requests > 100) throw new Error('Course lookup limit reached')
           const courses = await getCourses({ subject, page, limit: 100 }, { signal: controller.signal })
           for (const course of courses.filter((item) => matchesRequirement(item.course_code, requirement!))) {
-            const prefix = course.course_code.replace(/\d.*$/, '')
+            const prefix = /^(R[0-9]{3}|[A-Z]{2,5})[0-9]{3}[A-Z]?$/.exec(course.course_code)?.[1] || course.course_code
             const group = collected.get(prefix) || { prefix, courses: [] }
             if (!group.courses.some((item) => item.code === course.course_code)) group.courses.push({
               code: course.course_code, title: course.title, title_status: course.title_status,

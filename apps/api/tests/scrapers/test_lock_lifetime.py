@@ -251,7 +251,7 @@ async def test_cron_disposes_engine_on_success_failure_and_cancellation(monkeypa
 @pytest.mark.parametrize("stage,failure", [
     (None, None), ("prerequisites", asyncio.CancelledError),
     ("rmp", RuntimeError), ("rmp", asyncio.CancelledError),
-    ("course_failure", RuntimeError),
+    ("course_failure", RuntimeError), ("catalog_failure", RuntimeError),
 ])
 async def test_metadata_cron_disposes_engine_and_reports_failures(monkeypatch, stage, failure):
     from src.scrapers import metadata_cron
@@ -260,6 +260,7 @@ async def test_metadata_cron_disposes_engine_and_reports_failures(monkeypatch, s
     prerequisites = AsyncMock(return_value=2 if stage == "course_failure" else 0,
                               side_effect=failure() if stage == "prerequisites" else None)
     ratings = AsyncMock(side_effect=failure() if stage == "rmp" else None)
+    monkeypatch.setattr(metadata_cron, "run_catalog_refresh", AsyncMock(return_value=1 if stage == "catalog_failure" else 0))
     monkeypatch.setattr(metadata_cron, "create_async_engine", MagicMock(return_value=engine))
     monkeypatch.setattr(metadata_cron, "async_sessionmaker", MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(metadata_cron, "run_prerequisite_refresh", prerequisites)

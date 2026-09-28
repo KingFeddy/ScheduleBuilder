@@ -1,4 +1,4 @@
-"""Daily prerequisite and professor-rating refresh, independent of section updates."""
+"""Daily catalog, prerequisite and professor-rating refresh, independent of sections."""
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +7,7 @@ import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from .banner import run_prerequisite_refresh
+from .catalog_metadata import run_catalog_refresh
 from .rmp import run_rmp_scrape
 from ..config import settings
 
@@ -19,11 +20,15 @@ async def main() -> None:
     try:
         Session = async_sessionmaker(engine, expire_on_commit=False)
         async with Session() as session:
+            catalog_failed = await run_catalog_refresh(session)
+        async with Session() as session:
             failed = await run_prerequisite_refresh(session, settings.CURRENT_TERM)
         async with Session() as session:
             await run_rmp_scrape(session=session, term=settings.CURRENT_TERM)
         if failed:
             raise RuntimeError(f"Prerequisite refresh failed for {failed} course(s); see request/persistence errors and course attempt records.")
+        if catalog_failed:
+            raise RuntimeError(f"Catalog metadata refresh failed for {catalog_failed} subject(s); existing records were retained.")
     finally:
         await engine.dispose()
     logger.info("Metadata refresh complete")

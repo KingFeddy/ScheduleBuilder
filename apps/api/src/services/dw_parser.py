@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # One ordered grammar shares department context across explicit and wildcard
 # entries. Full-token boundaries prevent partial matches of malformed codes.
 _OPTION_TOKEN_RE = re.compile(
-    r"(?:(?P<dept>[A-Z]{2,5}|R510|R512)[ \t]*"
+    r"(?:(?P<dept>R[0-9]{3}|[A-Z]{2,5})[ \t]*"
     r"(?P<number>[0-9]{3}[A-Z]?|[0-9]@|@)"
     r"|(?P<universal>@(?:[ \t]+@)?)"
     r"|(?P<inherited>[0-9]{3}[A-Z]?|[0-9]@))(?=$|[\s,])"
@@ -30,10 +30,6 @@ _OPTION_SEPARATOR_RE = re.compile(r"\s*(?i:or)\b\s*|\s*,\s*|[ \t]*\n\s*")
 # These expression words can resemble departments before an inherited number
 # on a wrapped line (e.g. "AND 491"). They must never become course subjects.
 _OPTION_RESERVED_WORDS = {"AND", "OR", "WITH", "ONLY", "GRADE", "FROM"}
-
-# Preserve the existing exclusion, but retain its context so subsequent bare
-# numbers cannot accidentally inherit the preceding NJIT department.
-_RUTGERS_DEPTS = {"R510", "R512"}
 
 # Preserve every non-reference block, including an unreadable amount. A failed
 # amount extraction must not silently remove an unfulfilled requirement.
@@ -52,6 +48,13 @@ _CREDITS_APPLIED_RE = re.compile(r"Credits applied:\s*(\d+)")
 
 # Prose fallback: "you still need 21 more credits"
 _CREDITS_PROSE_RE = re.compile(r"you still need\s+(\d+)\s+more credits", re.IGNORECASE)
+# The overall credit minimum is already represented by credits_remaining. Its
+# wrapped label may occur inside the prose; it is not an additional course slot.
+_CREDIT_SUMMARY_RE = re.compile(
+    r"^A minimum of \d+ credits are required\.\s+You currently have \d+ credits"
+    r"\s+(?:Minimum \d+ Credit Requirement\s+)?"
+    r"completed or in-progress,\s+you still need \d+ more credits\.", re.IGNORECASE,
+)
 
 # Catalog year: "Catalog year: 2025-2026" → 2025
 _CATALOG_YEAR_RE = re.compile(r"Catalog year:\s*(\d{4})-\d{4}")
@@ -70,13 +73,13 @@ _MINOR_RE = re.compile(
 # Match the full grade token, including unknown grades, rather than a passing
 # suffix inside e.g. WF/ABC. Only standalone course rows are attempt evidence.
 _ATTEMPT_ROW_RE = re.compile(
-    r"^[ \t]*(?P<dept>[A-Z]{2,5})[ \t]*(?P<number>[0-9]{3}[A-Z]?)[ \t]+"
+    r"^[ \t]*(?P<dept>R[0-9]{3}|[A-Z]{2,5})[ \t]*(?P<number>[0-9]{3}[A-Z]?)[ \t]+"
     r"(?:.*?[ \t]+)?(?P<grade>[^\s()]+)[ \t]+"
     r"(?P<credits>[0-9]+(?:\.[0-9]+)?|\([0-9]+(?:\.[0-9]+)?\))"
     r"(?:[ \t]+(?P<term>[0-9]{4}[ \t]+[A-Za-z]+|[A-Za-z]+[ \t]+[0-9]{4}))?[ \t]*$"
 )
-_ATTEMPT_CODE_RE = re.compile(r"\b[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b")
-_ATTEMPT_COLUMN_RE = re.compile(r"[ \t]{2,}(?=[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b)")
+_ATTEMPT_CODE_RE = re.compile(r"\b(?:R[0-9]{3}|[A-Z]{2,5})[ \t]*[0-9]{3}[A-Z]?\b")
+_ATTEMPT_COLUMN_RE = re.compile(r"[ \t]{2,}(?=(?:R[0-9]{3}|[A-Z]{2,5})[ \t]*[0-9]{3}[A-Z]?\b)")
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────
@@ -84,6 +87,8 @@ _ATTEMPT_COLUMN_RE = re.compile(r"[ \t]{2,}(?=[A-Z]{2,5}[ \t]*[0-9]{3}[A-Z]?\b)"
 def _extract_course_attempts(text: str, *, document_id: str | None = None) -> list[CourseAttempt]:
     attempts = []
     for line_number, line in enumerate(text.splitlines(), start=1):
+        if re.search(r"Still needed:|Satisfied by:", line, re.IGNORECASE):
+            continue
         # layout=True separates columns with whitespace. Never let the title
         # wildcard consume a second course and borrow its grade. Ambiguous
         # merged rows without a column boundary remain unclassified.
@@ -91,6 +96,14 @@ def _extract_course_attempts(text: str, *, document_id: str | None = None) -> li
             if len(_ATTEMPT_CODE_RE.findall(column)) != 1:
                 continue
             match = _ATTEMPT_ROW_RE.fullmatch(column)
+            if match is None:
+                # Long left-column labels can touch the transcript column with
+                # just one space in layout extraction. Accept a complete dated
+                # row tail, still requiring exactly one course in the column.
+                code = _ATTEMPT_CODE_RE.search(column)
+                match = _ATTEMPT_ROW_RE.fullmatch(column[code.start():])
+                if match is not None and match["term"] is None:
+                    match = None
             if match is None:
                 continue
             credits = float(match["credits"].strip("()"))
@@ -129,9 +142,8 @@ def _extract_course_codes(text: str) -> list[str]:
             if last_dept is None:
                 return []
             number = match["number"] or match["inherited"]
-            if last_dept not in _RUTGERS_DEPTS:
-                suffix = "XXX" if number == "@" else number.replace("@", "XX")
-                code = last_dept + suffix
+            suffix = "XXX" if number == "@" else number.replace("@", "XX")
+            code = last_dept + suffix
         if code is not None and code not in seen:
             seen.add(code)
             result.append(code)
@@ -211,6 +223,8 @@ def _extract_still_needed(text: str, *, document_id: str | None = None) -> list[
     identity_context = document_id or hashlib.sha256(text.encode()).hexdigest()
     for block_index, match in enumerate(_STILL_NEEDED_RE.finditer(text), start=1):
         body = match.group("body").strip()
+        if _CREDIT_SUMMARY_RE.match(body):
+            continue
         amount_match = _REQUIREMENT_AMOUNT_RE.fullmatch(body)
         quantity = None
         unit = "unknown"

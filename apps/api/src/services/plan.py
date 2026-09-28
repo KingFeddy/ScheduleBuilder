@@ -33,7 +33,7 @@ from src.services.course_metadata import course_response, planning_credits
 from src.services.corequisite_groups import corequisite_groups
 from src.services.flexible_prerequisites import flexible_course_ordering, prepare_flexible_groups
 from src.services.mixed_prerequisite_choices import choose_rule_paths
-from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering
+from src.services.prerequisite_checks import check_plan_prerequisites, load_prerequisite_rows, prior_course_ordering, verified_rules
 from src.catalog import course_subject
 from src.config import settings
 from src.schemas.catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
@@ -450,6 +450,7 @@ def _compute_prerequisite_dependencies(
     in_progress: set[str],
     prerequisites_by_code: dict[str, list[str]],
     verified_history: dict[str, set[str]] | None = None,
+    diagnosed_codes: set[str] | None = None,
 ) -> tuple[list[set[int]], list[str]]:
     """
     Returns (depends_on, warnings).
@@ -507,7 +508,10 @@ def _compute_prerequisite_dependencies(
                 continue
             dep_idx = code_to_index.get(prereq_code)
             if dep_idx is None:
-                flagged_codes.add(code)
+                # Structured diagnostics retain AND/OR semantics, unlike old
+                # flattened lists. Do not duplicate their missing-course check.
+                if code not in (diagnosed_codes or set()):
+                    flagged_codes.add(code)
                 continue
             if dep_idx == i:
                 continue
@@ -914,7 +918,7 @@ async def generate_plan(
             if code in all_excluded:
                 raise ParseValidationError(field, f"{code} is already completed or in progress.")
             if not any(
-                (option == "@" or (option.isascii() and re.fullmatch(r"[A-Z]{2,5}[0-9X]{3}[A-Z]?", option)))
+                (option == "@" or (option.isascii() and re.fullmatch(r"(?:R[0-9]{3}|[A-Z]{2,5})[0-9X]{3}[A-Z]?", option)))
                 and matches_wildcard(code, option) for option in requirement.options
             ):
                 raise ParseValidationError(field, f"{code} does not match this requirement's parsed course options.")
@@ -984,6 +988,18 @@ async def generate_plan(
     # Build resolved items
     for i, item in enumerate(validated.still_needed):
         if item.quantity_status == "known" and item.remaining_quantity == 0:
+            continue
+        if (item.options and all(COURSE_CODE_PATTERN.fullmatch(code) for code in item.options)
+                and set(item.options) <= all_excluded):
+            # The audit, not the planner, owns degree/minor sharing decisions.
+            # Keep this requirement unresolved in reconciliation, but do not
+            # invent replacement credits or recommend repeating passed work.
+            warnings.append(
+                f"Audit allocation review: '{item.requirement}' is still marked needed, but "
+                f"{', '.join(item.options)} is already completed or in progress. "
+                "Ask your advisor whether it can apply to this requirement. "
+                "No repeat course or placeholder credits were added."
+            )
             continue
         unreadable_options_note = (
             f"Course options could not be read for '{item.requirement}'. "
@@ -1082,6 +1098,7 @@ async def generate_plan(
     warnings.extend(ordering_warnings)
     depends_on, prereq_warnings = _compute_prerequisite_dependencies(
         resolved, completed, in_progress, prerequisites_by_code, verified_history,
+        {code for code, row in rule_rows.items() if verified_rules(row, allow_unresolved=True) is not None},
     )
     warnings.extend(prereq_warnings)
 

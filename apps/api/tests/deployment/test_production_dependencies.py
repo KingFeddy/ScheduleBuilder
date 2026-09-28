@@ -148,7 +148,11 @@ def test_scraper_startup_keeps_production_packages(production_runtime, command):
     # Execute the configured cron entrypoint, replacing only its external scrape
     # calls. Real imports/SQLAlchemy session creation run; no DB or HTTP I/O does.
     (bootstrap / "sitecustomize.py").write_text('''
-from src.scrapers import banner, rmp, term_inventory
+from src.scrapers import banner, rmp, term_inventory, catalog_metadata
+async def fake_catalog(session):
+    print("SYNTHETIC_CATALOG", flush=True)
+    return 0
+catalog_metadata.run_catalog_refresh = fake_catalog
 async def fake_subjects(term):
     return ["CS", "R120"]
 async def fake_banner(**kwargs):
@@ -168,7 +172,7 @@ term_inventory.discover_banner_subjects = fake_subjects
 ''')
     environment = {**runtime.environment, "PYTHONPATH": os.pathsep.join((str(bootstrap), str(runtime.project)))}
     output = runtime.run(command, environment=environment)
-    expected = (["SYNTHETIC_PREREQUISITES", "SYNTHETIC_RMP"]
+    expected = (["SYNTHETIC_CATALOG", "SYNTHETIC_PREREQUISITES", "SYNTHETIC_RMP"]
                 if "src.scrapers.metadata_cron" in command else ["SYNTHETIC_BANNER"])
     assert [line for line in output.splitlines() if line.startswith("SYNTHETIC_")] == expected
     assert runtime.packages() == before

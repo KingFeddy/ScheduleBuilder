@@ -28,6 +28,7 @@ _GRADES = {grade: rank for rank, grade in enumerate(('F', 'D', 'C', 'C+', 'B', '
 class RuleEvaluation:
     status: Literal['satisfied', 'unmet', 'unknown']
     detail: str = ''
+    policy_review: frozenset[str] = frozenset()
 
 
 def _combine(results: list[RuleEvaluation], *, alternative=False) -> RuleEvaluation:
@@ -35,11 +36,16 @@ def _combine(results: list[RuleEvaluation], *, alternative=False) -> RuleEvaluat
         if any(result.status == 'satisfied' for result in results):
             return RuleEvaluation('satisfied')
         status = 'unknown' if any(result.status == 'unknown' for result in results) else 'unmet'
-        return RuleEvaluation(status, 'one of (' + ' OR '.join(dict.fromkeys(r.detail for r in results)) + ')')
+        notes = frozenset().union(*(r.policy_review for r in results))
+        details = list(dict.fromkeys(r.detail for r in results))
+        detail = details[0] if len(details) == 1 else 'one of (' + ' OR '.join(
+            detail or 'timing/course-level confirmation' for detail in details) + ')'
+        return RuleEvaluation(status, detail, notes)
     if all(result.status == 'satisfied' for result in results):
         return RuleEvaluation('satisfied')
     status = 'unmet' if any(result.status == 'unmet' for result in results) else 'unknown'
-    return RuleEvaluation(status, '; '.join(dict.fromkeys(r.detail for r in results if r.status != 'satisfied')))
+    return RuleEvaluation(status, '; '.join(dict.fromkeys(r.detail for r in results if r.status != 'satisfied' and r.detail)),
+                          frozenset().union(*(r.policy_review for r in results if r.status != 'satisfied')))
 
 
 def _term(value: str | None) -> str | None:
@@ -49,12 +55,15 @@ def _term(value: str | None) -> str | None:
     if re.fullmatch(r'(19|20|21)[0-9]{2}(10|50|90)', value):
         return value
     match = re.fullmatch(r'(Spring|Summer|Fall)\s+((?:19|20|21)[0-9]{2})', value, re.IGNORECASE)
-    return match[2] + {'spring':'10', 'summer':'50', 'fall':'90'}[match[1].lower()] if match else None
+    if match:
+        return match[2] + {'spring':'10', 'summer':'50', 'fall':'90'}[match[1].lower()]
+    match = re.fullmatch(r'((?:19|20|21)[0-9]{2})\s+(Spring|Summer|Fall)', value, re.IGNORECASE)
+    return match[1] + {'spring':'10', 'summer':'50', 'fall':'90'}[match[2].lower()] if match else None
 
 
 def _timing(code: str, timing: str, observed_term: str | None, target_term: str) -> RuleEvaluation:
     if timing == 'unspecified' or observed_term is None:
-        return RuleEvaluation('unknown', f'{code}: course timing is not established')
+        return RuleEvaluation('unknown', policy_review=frozenset({'timing'}))
     fits = {'prior': observed_term < target_term, 'prior_or_concurrent': observed_term <= target_term,
             'concurrent': observed_term == target_term}[timing]
     if fits:
@@ -102,7 +111,7 @@ def _course(rule: CourseCondition, audit: ParsedDegreeValidated, planned: dict[s
         result = _combine(possibilities, alternative=True) if len(possibilities) > 1 else possibilities[0]
     checks = [result]
     if rule.level:
-        checks.append(RuleEvaluation('unknown', f'{code}: academic level {rule.level} cannot be checked from this audit'))
+        checks.append(RuleEvaluation('unknown', policy_review=frozenset({'level'})))
     if rule.required_crn:
         checks.append(RuleEvaluation('unknown', f'{code}: required section {rule.required_crn} has not been selected'))
     return _combine(checks)
@@ -113,7 +122,13 @@ def evaluate_rule(rule: Rule, audit: ParsedDegreeValidated, planned: dict[str, s
     if _term(target_term) != target_term:
         return RuleEvaluation('unknown', 'unsupported target semester')
     if isinstance(rule, UnresolvedCondition):
-        return RuleEvaluation('unknown', 'recorded condition is unresolved')
+        detail = {
+            'unsupported_test_condition': 'a Banner test or GER approval must be confirmed with NJIT',
+            'unresolved_subject': 'a transfer or historical subject could not be identified',
+            'unsupported_minimum_grade': 'a grade or transfer-credit condition needs confirmation',
+            'unrecognized_source': 'the source response could not be interpreted',
+        }.get(rule.reason, rule.reason if rule.reason.startswith("Banner check '") else 'recorded condition is unresolved')
+        return RuleEvaluation('unknown', detail)
     if isinstance(rule, CourseCondition):
         return _course(rule, audit, planned, target_term)
     return _combine([evaluate_rule(child, audit, planned, target_term) for child in rule.items],
@@ -125,16 +140,28 @@ async def load_prerequisite_rows(session, codes) -> dict[str, dict]:
     if not codes:
         return {}
     result = await session.execute(text(
-        'SELECT course_code, prerequisites_status, prerequisites_rules FROM courses WHERE course_code = ANY(:codes)'
+        "SELECT course_code, prerequisites_status, prerequisites_rules, "
+        "jsonb_build_object('status', prerequisites_latest_attempt->'status', "
+        "'rules', prerequisites_latest_attempt->'rules') AS prerequisites_latest_attempt "
+        "FROM courses WHERE course_code = ANY(:codes)"
     ), {'codes': sorted(set(codes))})
     return {row['course_code']: row for row in result.mappings()}
 
 
-def verified_rules(row) -> PrerequisiteRules | None:
-    if row.get('prerequisites_status') not in {'verified', 'verified_empty'}:
+def verified_rules(row, *, allow_unresolved=False) -> PrerequisiteRules | None:
+    # Diagnostic evaluation may retain unknown branches. Scheduling callers
+    # continue to require fully parsed rules; partial data never certifies order.
+    statuses = {'verified', 'verified_empty', 'unresolved'} if allow_unresolved else {'verified', 'verified_empty'}
+    if row.get('prerequisites_status') not in statuses:
         return None
     try:
         raw = row.get('prerequisites_rules')
+        if allow_unresolved and row.get('prerequisites_status') == 'unresolved':
+            attempt = row.get('prerequisites_latest_attempt')
+            if isinstance(attempt, str):
+                attempt = json.loads(attempt)
+            if isinstance(attempt, dict) and attempt.get('status') == 'unresolved':
+                raw = attempt.get('rules')
         rules = PrerequisiteRules.model_validate(json.loads(raw) if isinstance(raw, str) else raw)
         if (_term(rules.scope.term) != rules.scope.term or not re.fullmatch(r'[0-9]{5}', rules.scope.crn)
                 or (row['prerequisites_status'] == 'verified_empty'
@@ -289,9 +316,10 @@ async def check_plan_prerequisites(session, audit: ParsedDegreeValidated, planne
     if rows is None:
         rows = await load_prerequisite_rows(session, planned)
     warnings, unavailable, other_term = [], [], []
+    timing_review, level_review = set(), set()
     for code, term in sorted(planned.items()):
         row = rows.get(code, {})
-        rules = verified_rules(row)
+        rules = verified_rules(row, allow_unresolved=True)
         if rules is None:
             unavailable.append(code)
             continue
@@ -303,6 +331,12 @@ async def check_plan_prerequisites(session, audit: ParsedDegreeValidated, planne
                 checked = evaluate_rule(rule, audit, planned, term)
                 if checked.status == 'satisfied':
                     continue
+                if 'timing' in checked.policy_review:
+                    timing_review.add(code)
+                if 'level' in checked.policy_review:
+                    level_review.add(code)
+                if not checked.detail:
+                    continue
                 outcome = 'conflict with recorded rules' if checked.status == 'unmet' and same_term else 'needs review'
                 warnings.append(f'{code}: {label} {outcome} — {checked.detail}.')
         except (ValidationError, ValueError, TypeError, RecursionError):
@@ -313,4 +347,10 @@ async def check_plan_prerequisites(session, audit: ParsedDegreeValidated, planne
     if other_term:
         warnings.append('Recorded rules for ' + ', '.join(other_term)
                         + ' come from a different term; confirm which rules apply to the planned semester.')
+    if timing_review:
+        warnings.append('Prerequisite timing needs confirmation for: ' + ', '.join(sorted(timing_review))
+                        + '. Banner timing rules or completion dates are missing; verify whether prior or concurrent coursework is required.')
+    if level_review:
+        warnings.append('Course-level requirements need confirmation for: ' + ', '.join(sorted(level_review))
+                        + '. The audit does not provide the academic-level evidence required by Banner.')
     return warnings

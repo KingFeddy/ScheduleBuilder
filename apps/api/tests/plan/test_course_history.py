@@ -81,6 +81,17 @@ def test_columns_cannot_assign_a_neighbors_passing_grade_to_a_failed_course():
     assert history[0].source.line == history[1].source.line == 1
 
 
+def test_labelled_audit_rows_keep_completed_and_cross_registered_courses():
+    history = _extract_course_attempts(
+        "Programming requirement CS 280 Synthetic Course B+ 3 2025 Fall\n"
+        "Physics requirement R750 315 Synthetic Course A 3 2025 Spring\n"
+        "Still needed: CS 301 Synthetic Course B 3 2025 Fall\n"
+        "Ambiguous heading CS 302 Synthetic Course A 3\n"
+    )
+    assert [(a.course_code, a.grade) for a in history] == [("CS280", "B+"), ("R750315", "A")]
+    assert all(a.earns_credit for a in history)
+
+
 def test_posted_status_cannot_override_grade_and_legacy_history_stays_unknown():
     attempt = CourseAttempt.model_validate({
         "course_code": "cs 101", "grade": "f", "credits": 3,

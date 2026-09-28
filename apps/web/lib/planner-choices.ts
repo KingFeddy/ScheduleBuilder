@@ -6,13 +6,13 @@ export type RequirementChoices = Record<string, string[]>
 export function matchesRequirement(code: string, requirement: StillNeededItem): boolean {
   if (normalizeElective(code) !== code) return false
   return requirement.options.some((option) => option === '@'
-    || (/^[A-Z]{2,5}[0-9X]{3}[A-Z]?$/.test(option)
+    || (/^(?:R[0-9]{3}|[A-Z]{2,5})[0-9X]{3}[A-Z]?$/.test(option)
       && new RegExp(`^${option.replaceAll('X', '[0-9]')}$`).test(code)))
 }
 
 export function canChoose(requirement: StillNeededItem | null | undefined): boolean {
   return !!requirement && !(requirement.quantity_status === 'known' && requirement.remaining_quantity === 0)
-    && requirement.options.some((option) => option === '@' || /^[A-Z]{2,5}[0-9X]{3}[A-Z]?$/.test(option))
+    && requirement.options.some((option) => option === '@' || /^(?:R[0-9]{3}|[A-Z]{2,5})[0-9X]{3}[A-Z]?$/.test(option))
 }
 
 // Saved choices are audit-scoped input, not proof of current catalog eligibility.

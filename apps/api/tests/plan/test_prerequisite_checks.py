@@ -51,6 +51,9 @@ def test_missing_or_future_history_term_does_not_satisfy_prior_course():
     assert evaluate(condition(), audit(term=None)).status == 'unknown'
     assert evaluate(condition(), audit(term='Fall 2027')).status == 'unmet'
     assert evaluate(condition(), audit(term='202610')).status == 'satisfied'
+    assert evaluate(condition(), audit(term='2025 Fall')).status == 'satisfied'
+    assert evaluate(condition(), audit(term='2027 Fall')).status == 'unmet'
+    assert evaluate(condition(), audit(term='2025 Winter')).status == 'unknown'
     assert evaluate(condition(), ParsedDegreeValidated(majors=['Synthetic'], completed_courses=['CS100'])).status == 'unknown'
 
 
@@ -97,6 +100,31 @@ async def test_check_uses_one_batched_query_and_reports_low_grade():
 async def test_missing_failed_and_malformed_rules_are_not_empty_prerequisites():
     warnings,_=await check([stored(status='failed'), {'course_code':'CS300','prerequisites_status':'verified','prerequisites_rules':{}}],terms={'CS200':'202690','CS300':'202690','CS400':'202690'})
     assert any(all(code in w for code in ['CS200','CS300','CS400']) and 'unavailable' in w for w in warnings)
+
+
+@pytest.mark.asyncio
+async def test_partial_rules_keep_known_checks_and_explain_manual_conditions():
+    from src.services.prerequisite_checks import verified_rules
+    row = stored(status='unresolved', prereq=AllConditions(items=[
+        condition().model_copy(update={'minimum_grade': 'C'}),
+        UnresolvedCondition(reason="Banner check 'GER approval' requires score 1; confirm this requirement with NJIT"),
+    ]))
+    row['prerequisites_latest_attempt'] = {'status': 'unresolved', 'rules': row['prerequisites_rules']}
+    row['prerequisites_rules'] = None
+    warnings, _ = await check([row], audit('D'))
+    assert any('below minimum C' in w and 'GER approval' in w for w in warnings)
+    assert not any('rules are unavailable' in w for w in warnings)
+    assert verified_rules(row) is None  # Partial observations never become verified ordering evidence.
+
+
+@pytest.mark.asyncio
+async def test_repeated_missing_policy_fields_are_grouped_without_hiding_missing_courses():
+    rule = AllConditions(items=[condition(code, timing='unspecified').model_copy(update={'level': 'Undergraduate'})
+                                for code in ['CS100', 'CS101']])
+    warnings, _ = await check([stored(prereq=rule)])
+    assert sum(w.startswith('Prerequisite timing needs confirmation') for w in warnings) == 1
+    assert sum(w.startswith('Course-level requirements need confirmation') for w in warnings) == 1
+    assert any('CS101: no completion' in w and 'conflict' in w for w in warnings)
 
 
 @pytest.mark.asyncio

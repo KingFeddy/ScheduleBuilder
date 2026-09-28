@@ -24,6 +24,7 @@ test('accepts boundary credit targets and rejects malformed typed elective codes
     expect(restorePreferences(JSON.stringify({ courses: [], creditsPerSemester }))).toEqual({ courses: [], creditsPerSemester, startTerm: null })
   }
   expect(normalizeElective(' cs 435 ')).toBe('CS435')
+  expect(normalizeElective('R120 101')).toBe('R120101')
   expect(normalizeElective('CS400,CS401')).toBeNull()
   expect(normalizeElective('ＣＳ435')).toBeNull()
 })

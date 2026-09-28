@@ -224,7 +224,7 @@ def test_malformed_or_ambiguous_logic_does_not_get_a_guessed_interpretation(body
 
 
 @pytest.mark.parametrize("bad_row, reason", [
-    (row(subject="", number="", test="Placement", score="80", connector="Or"), "unsupported_test_condition"),
+    (row(subject="", number="", test="Placement", score="80", connector="Or"), "Banner check 'Placement' requires score 80; confirm this requirement with NJIT"),
     (row(subject="Unknown department", connector="Or"), "unresolved_subject"),
     (row(number="3@", connector="Or"), "unsupported_course_number"),
     (row(grade="Instructor approval", connector="Or"), "unsupported_minimum_grade"),

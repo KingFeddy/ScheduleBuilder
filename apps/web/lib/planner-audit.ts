@@ -35,7 +35,7 @@ function requirement(value: unknown): boolean {
 
 function attempt(value: unknown): boolean {
   return record(value)
-    && text(value.course_code) && /^[A-Z]{2,5}[0-9]{3}[A-Z]?$/.test(value.course_code)
+    && text(value.course_code) && /^(?:R[0-9]{3}|[A-Z]{2,5})[0-9]{3}[A-Z]?$/.test(value.course_code)
     && (value.grade === null || nonblank(value.grade))
     && nullableAmount(value.credits) && (value.term === null || nonblank(value.term))
     && text(value.status) && ['passed', 'transfer', 'failed', 'withdrawn', 'incomplete', 'in_progress', 'audit', 'unknown'].includes(value.status)

@@ -97,7 +97,7 @@ test('lets students select a course with an unknown catalog title', async ({ pag
 })
 
 
-test('special topics persist, constrain requests, and clear an old schedule on change', async ({ page, api }) => {
+test('special topics persist and keep the calendar until solving again', async ({ page, api }) => {
   const base = solveResponse.results[0].sections[0]
   const ai = { ...base, course_code: 'CS485', crn: '96523', section_number: '003',
     section_title: 'ST: PHYSICAL AI', topic: 'PHYSICAL AI' }
@@ -120,8 +120,40 @@ test('special topics persist, constrain requests, and clear an old schedule on c
   expect(api.requests('POST', '/api/schedule/solve')[0].postDataJSON().topic_preferences).toEqual({ CS485: 'PHYSICAL AI' })
   await expect(page.locator('p').filter({ hasText: /^Physical AI$/ })).toHaveCount(0)
   await picker.selectOption('Counter Hacking Techniques')
-  await expect(page.getByText('Click Solve to generate schedules')).toBeVisible()
+  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
+  await expect(page.getByText('003', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Click Solve to generate schedules')).toHaveCount(0)
+  api.respond('POST', '/api/schedule/solve', {
+    results: [{ ...solveResponse.results[0], sections: [hacking] }], warnings: [], truncated: false,
+  })
+  await page.getByRole('button', { name: 'Solve', exact: true }).click()
+  await expect(page.getByText('001', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('003', { exact: true })).toHaveCount(0)
+  expect(api.requests('POST', '/api/schedule/solve')[1].postDataJSON().topic_preferences).toEqual({ CS485: 'Counter Hacking Techniques' })
   await page.reload()
   await expect(picker).toHaveValue('Counter Hacking Techniques')
   await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeEnabled()
+})
+
+test('removing a course keeps the calendar until solving the remaining selection', async ({ page, api }) => {
+  await page.goto('/scheduler')
+  const search = page.getByPlaceholder('Search courses')
+  await search.fill('CS280')
+  await page.getByRole('button', { name: 'CS280: Programming Language Concepts' }).click()
+  await search.fill('HUM101')
+  await page.getByRole('button', { name: 'HUM101: Writing and Communication' }).click()
+  await page.getByRole('button', { name: 'Solve', exact: true }).click()
+  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Remove CS280' }).click()
+  await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Mon classes' }).getByText('CS280', { exact: true })).toBeVisible()
+  await expect(page.getByText('Click Solve to generate schedules')).toHaveCount(0)
+  api.respond('POST', '/api/schedule/solve', {
+    results: [{ ...solveResponse.results[0], sections: [solveResponse.results[0].sections[1]], campus_days: 0 }],
+    warnings: [], truncated: false,
+  })
+  await page.getByRole('button', { name: 'Solve', exact: true }).click()
+  await expect(page.getByText('CS280', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Test Instructor', { exact: true })).toBeVisible()
+  expect(api.requests('POST', '/api/schedule/solve')[1].postDataJSON().course_codes).toEqual(['HUM101'])
 })

@@ -13,7 +13,8 @@ from tests.plan.test_planner import _make_mock_session
     ("PHYS 3@ or 4@ or CS 490 or 4@", ["PHYS3XX", "PHYS4XX", "CS490", "CS4XX"]),
     ("COM 303 or\n310 or LIT 320 or 321", ["COM303", "COM310", "LIT320", "LIT321"]),
     ("@ @", ["@"]),
-    ("CS @ or 490", ["CSXXX", "CS490"])
+    ("CS @ or 490", ["CSXXX", "CS490"]),
+    ("HIST 300 or R510 301 or 305 or R512 310 or CS 490", ["HIST300", "R510301", "R510305", "R512310", "CS490"])
 ])
 def test_mixed_options_keep_source_order_and_department_context(text, expected):
     assert _extract_course_codes(text) == expected

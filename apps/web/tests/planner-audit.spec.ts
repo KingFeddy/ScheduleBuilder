@@ -44,7 +44,7 @@ test('rejects inconsistent quantities, duplicate IDs, and invalid source records
 })
 
 test('preserves graded attempts and explicit missing metadata but rejects invalid attempt fields', () => {
-  const attempt = { course_code: 'CS100', grade: 'B+', credits: 3, term: '2025 Spring',
+  const attempt = { course_code: 'R750315', grade: 'B+', credits: 3, term: '2025 Spring',
     status: 'passed', earns_credit: true,
     source: { document_id: 'a'.repeat(64), line: 3, text: 'Synthetic attempt' },
   }

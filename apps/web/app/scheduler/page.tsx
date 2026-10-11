@@ -102,7 +102,7 @@ export default function SchedulerPage() {
   const activeResult = hasTermData ? results[activeResultIndex] ?? null : null
 
   return (
-    <div className="flex min-h-0 flex-1 gap-5 p-5 overflow-hidden">
+    <div className="flex min-h-0 flex-1 gap-3 p-5 overflow-hidden">
       {/* Left panel */}
       <div className="w-80 min-h-0 flex-shrink-0 rounded-xl border border-border flex flex-col gap-5 p-5 overflow-y-auto">
         <div className="min-h-48 flex-1 overflow-y-auto overscroll-contain">

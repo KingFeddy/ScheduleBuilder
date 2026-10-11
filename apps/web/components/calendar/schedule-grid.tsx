@@ -5,6 +5,7 @@ import { calendarHours, PX_PER_HOUR } from '@/lib/calendar-time'
 
 const DAY_MAP: Record<string, number> = { U: 0, M: 1, T: 2, W: 3, R: 4, F: 5, S: 6 }
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const TIME_COLUMN_WIDTH = 56
 
 function hourLabel(h: number): string {
   return `${h % 12 || 12}:00`
@@ -62,7 +63,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
       {/* Day header — not sticky inside overflow:hidden, so pinned via flex-shrink-0 */}
       <div
         className="flex-shrink-0 grid border-b border-border bg-bg"
-        style={{ gridTemplateColumns: `48px repeat(${DAY_LABELS.length}, 1fr)` }}
+        style={{ gridTemplateColumns: `${TIME_COLUMN_WIDTH}px repeat(${DAY_LABELS.length}, 1fr)` }}
       >
         <div />
         {DAY_LABELS.map((day) => (
@@ -79,7 +80,7 @@ export function ScheduleGrid({ result }: ScheduleGridProps) {
       <div className="overflow-y-auto flex-1 pt-3">
         <div
           className="grid"
-          style={{ gridTemplateColumns: `48px repeat(${DAY_LABELS.length}, 1fr)`, height: gridHeight }}
+          style={{ gridTemplateColumns: `${TIME_COLUMN_WIDTH}px repeat(${DAY_LABELS.length}, 1fr)`, height: gridHeight }}
         >
           {/* Time label column */}
           <div className="relative border-r border-border" style={{ height: gridHeight }}>

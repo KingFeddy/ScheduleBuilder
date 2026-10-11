@@ -223,7 +223,6 @@ export function GerModal({ isOpen, courseCode, onClose, onSwap, requirement, una
                           </span>
                           <span className="text-sm text-muted">
                             {formatCourseTitle(course.title) || 'Title unavailable'}
-                            {course.title && course.title_status !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
                             <CatalogNote status={course.catalog_status} note={course.catalog_note} />
                           </span>
                         </button>

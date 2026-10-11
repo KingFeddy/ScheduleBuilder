@@ -6,6 +6,7 @@
 !apps/api/uv.lock
 !apps/api/main.py
 !apps/api/src/**/*.py
+!apps/api/src/data/course_offering_history.json
 !apps/api/scripts/**/*.py
 !apps/api/migrations/[0-9][0-9][0-9]_*.sql
 !apps/api/migrations/manifest.json

@@ -5,6 +5,7 @@
 !uv.lock
 !main.py
 !src/**/*.py
+!src/data/course_offering_history.json
 !scripts/**/*.py
 !migrations/[0-9][0-9][0-9]_*.sql
 !migrations/manifest.json

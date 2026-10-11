@@ -3,7 +3,7 @@
 import { useState, useRef, type KeyboardEvent } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { planningTermLabel, planningTermOptions } from '@/lib/planner-terms'
-import { normalizeElective, type PlannerPreferences } from '@/lib/planner-preferences'
+import { MAX_PLANNER_CREDITS, MIN_PLANNER_CREDITS, normalizeElective, type PlannerPreferences } from '@/lib/planner-preferences'
 
 interface PreferencesFormProps {
   generating: boolean
@@ -22,8 +22,6 @@ const PRESET_OPTIONS = [
   { label: 'Heavy', credits: 17 },
 ] as const
 
-const MIN_CUSTOM_CREDITS = 3
-const MAX_CUSTOM_CREDITS = 24
 const CHARGE_THRESHOLD = 17
 
 export function PreferencesForm({ generating: isLoading, preferences, onPreferencesChange, onGenerate, onBrowseGer, defaultStartTerm, startTermError, onRetryStartTerm }: PreferencesFormProps) {
@@ -68,7 +66,7 @@ export function PreferencesForm({ generating: isLoading, preferences, onPreferen
     const parsedCredits = parseInt(customDraft, 10)
     return Number.isNaN(parsedCredits)
       ? creditsPerSemester
-      : Math.min(MAX_CUSTOM_CREDITS, Math.max(MIN_CUSTOM_CREDITS, parsedCredits))
+      : Math.min(MAX_PLANNER_CREDITS, Math.max(MIN_PLANNER_CREDITS, parsedCredits))
   }
 
   function commitCustomCredits() {
@@ -196,8 +194,8 @@ export function PreferencesForm({ generating: isLoading, preferences, onPreferen
               <input
                 ref={customInputRef}
                 type="number"
-                min={MIN_CUSTOM_CREDITS}
-                max={MAX_CUSTOM_CREDITS}
+                min={MIN_PLANNER_CREDITS}
+                max={MAX_PLANNER_CREDITS}
                 value={customDraft}
                 onChange={(e) => setCustomDraft(e.target.value)}
                 onBlur={commitCustomCredits}
@@ -207,6 +205,7 @@ export function PreferencesForm({ generating: isLoading, preferences, onPreferen
               />
             </div>
           </div>
+          <p className="text-xs text-muted">Choose {MIN_PLANNER_CREDITS}–{MAX_PLANNER_CREDITS} credits per semester.</p>
           {showChargeWarning && (
             <p className="text-xs text-yellow">
               Credits above 17 may incur an additional charge.

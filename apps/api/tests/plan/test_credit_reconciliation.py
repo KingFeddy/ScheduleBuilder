@@ -25,14 +25,13 @@ def review(generated):
 
 
 @pytest.mark.asyncio
-async def test_completed_course_still_required_is_reviewed_without_invented_credits(catalog):
+async def test_completed_required_course_satisfies_minor_without_repeat_credits_or_warnings(catalog):
     catalog("CS435", 3)
     generated = await generate([
         requirement("minor", ["MATH222"]), requirement("core", ["CS435"]),
     ], 3, completed_courses=["MATH222"])
     assert [c.course_code for s in generated.semesters for c in s.courses] == ["CS435"]
-    assert any("Audit allocation review:" in w and "MATH222" in w for w in generated.warnings)
-    assert any(w.startswith("Partial plan: 1 audit requirement") for w in generated.warnings)
+    assert not any("Audit allocation review:" in w or w.startswith("Partial plan:") or w.startswith("Credit review:") for w in generated.warnings)
 
 
 @pytest.mark.asyncio
@@ -139,3 +138,23 @@ async def test_sample_arithmetic_keeps_39_requirement_credits_without_inflating_
     assert "0 course-load filler credits" in message
     assert "3 estimated credits" in message
     assert "Requirement-linked credits are 15 above the audit figure" in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label,options,quantity,completed,in_progress", [
+    ("Math Elective", ["MATH222"], 1, ["MATH222"], []),
+    ("Math Elective", ["MATH222", "MATH333"], 1, ["MATH222", "MATH333"], []),
+    ("Differential Equations", ["MATH222"], 1, [], ["MATH222"]),
+    ("Math coursework", ["MATH222"], 2, ["MATH222"], []),
+])
+async def test_elective_or_unfinished_requirement_is_not_satisfied_by_completed_major_course(
+    catalog, label, options, quantity, completed, in_progress,
+):
+    catalog("CS435", 3)
+    item = requirement("minor", options, quantity)
+    item.requirement = label
+    generated = await generate([item, requirement("core", ["CS435"])], 3,
+                               completed_courses=completed, in_progress_courses=in_progress)
+    assert [c.course_code for s in generated.semesters for c in s.courses] == ["CS435"]
+    assert any(w.startswith("Partial plan: 1 audit requirement") for w in generated.warnings)
+    assert any("Audit allocation review:" in w for w in generated.warnings)

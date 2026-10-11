@@ -21,6 +21,14 @@ except UnsafeTestDatabase as error:
 configure_test_environment(os.environ, _database_config)
 
 
+@pytest.fixture(autouse=True)
+def isolate_live_offering_history(monkeypatch):
+    # Synthetic course fixtures must not inherit changing public catalog data.
+    # Historical-offering tests explicitly install their own representative data.
+    from src.services import offering_history
+    monkeypatch.setattr(offering_history, 'load_offering_history', lambda: {})
+
+
 def pytest_sessionstart(session):
     if _database_config is not None:
         try:

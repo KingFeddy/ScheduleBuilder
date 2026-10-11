@@ -12,9 +12,6 @@ interface CourseRowProps {
   code: string
   title: string | null
   credits: number
-  estimated: boolean
-  creditsNote: string
-  titleStatus: string
   catalogStatus: SemesterPlanType['courses'][number]['catalog_status']
   catalogNote: string
   badge: 'Required' | 'Elective' | 'TBD'
@@ -24,7 +21,7 @@ interface CourseRowProps {
   onSwap?: () => void
 }
 
-function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, catalogStatus, catalogNote, badge, reason, requirement, allocation, onSwap }: CourseRowProps) {
+function CourseRow({ code, title, credits, catalogStatus, catalogNote, badge, reason, requirement, allocation, onSwap }: CourseRowProps) {
   const showSwap = canChoose(requirement) && requirement!.options.some((option) => option !== code) && !!onSwap
   const showReason = badge !== 'Required' && !!reason
   const knownQuantity = requirement?.quantity_status === 'known'
@@ -39,37 +36,20 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
         <span className="block text-sm text-muted group-hover:text-text transition-colors duration-150 truncate">
           {formatCourseTitle(title) || 'Title unavailable'}
         </span>
-        {title && titleStatus !== 'verified' && <span className="block text-xs text-faint">Title unverified</span>}
-        {estimated && <span className="block text-xs text-muted">{creditsNote || 'Credits are unverified; this amount is an estimate.'}</span>}
-        {requirement !== null && (knownQuantity ? (
-          <span className="block text-xs text-muted">
-            Audit requirement: <span className="font-mono">{requirement!.remaining_quantity}</span>{' '}
-            {requirement!.quantity_unit === 'classes'
-              ? (requirement!.remaining_quantity === 1 ? 'class' : 'classes')
-              : (requirement!.remaining_quantity === 1 ? 'credit' : 'credits')}.
-          </span>
-        ) : <span className="block text-xs text-yellow">Audit requirement quantity is unknown.</span>)}
-        {allocation && (allocation.status === 'unknown' ? (
+        {requirement && !knownQuantity && (
+          <span className="block text-xs text-yellow">Audit requirement quantity is unknown.</span>
+        )}
+        {allocation?.status === 'unknown' && (
           <span className="block text-xs text-yellow">Allocation is unverified. Regenerate after confirming the requirement.</span>
-        ) : (
-          <>
-            <span className="block text-xs text-muted">
-              Allocated: <span className="font-mono">{allocation.allocated_quantity}</span> of{' '}
-              <span className="font-mono">{allocation.required_quantity}</span>{' '}
-              {allocation.quantity_unit === 'classes'
-                ? (allocation.required_quantity === 1 ? 'class' : 'classes')
-                : (allocation.required_quantity === 1 ? 'credit' : 'credits')}.
-            </span>
-            {allocation.status === 'partial' && (
-              <span className="block text-xs text-yellow">
-                Unresolved: <span className="font-mono">{allocation.unresolved_quantity}</span>{' '}
-                {allocation.quantity_unit === 'classes'
-                  ? (allocation.unresolved_quantity === 1 ? 'class' : 'classes')
-                  : (allocation.unresolved_quantity === 1 ? 'credit' : 'credits')}.
-              </span>
-            )}
-          </>
-        ))}
+        )}
+        {allocation?.status === 'partial' && (
+          <span className="block text-xs text-yellow">
+            Unresolved: <span className="font-mono">{allocation.unresolved_quantity}</span>{' '}
+            {allocation.quantity_unit === 'classes'
+              ? (allocation.unresolved_quantity === 1 ? 'class' : 'classes')
+              : (allocation.unresolved_quantity === 1 ? 'credit' : 'credits')}.
+          </span>
+        )}
         <CatalogNote status={catalogStatus} note={catalogNote} />
         {showReason && (
           <span className="block text-xs text-faint break-words">{reason}</span>
@@ -83,8 +63,8 @@ function CourseRow({ code, title, credits, estimated, creditsNote, titleStatus, 
           {code === 'TBD' ? 'choose →' : 'swap →'}
         </button>
       )}
-      <span className="font-mono tabular-nums text-xs text-faint w-32 text-right flex-shrink-0">
-        {formatCredits(credits)} cr{estimated ? ' (estimated)' : ''}
+      <span className="font-mono tabular-nums text-base text-muted w-20 text-right flex-shrink-0">
+        {formatCredits(credits)} cr
       </span>
       <span
         className={[
@@ -140,7 +120,6 @@ export function SemesterPlan({
   onSwapCourse,
 }: SemesterPlanProps) {
   const totalCredits = semesters.reduce((sum, s) => sum + s.total_credits, 0)
-  const includesEstimates = semesters.some((semester) => semester.courses.some((course) => course.credits_estimated !== false))
 
   return (
     <div className="flex flex-col gap-4">
@@ -208,8 +187,8 @@ export function SemesterPlan({
                 <span className="font-mono text-sm font-bold text-text">
                   {semester.term_label}
                 </span>
-                <span className="font-mono tabular-nums text-xs text-muted">
-                  {formatCredits(semester.total_credits)} credits{semester.courses.some((course) => course.credits_estimated !== false) ? ' (estimated)' : ''}
+                <span className="font-mono tabular-nums text-base text-muted">
+                  {formatCredits(semester.total_credits)} credits
                 </span>
               </div>
               <div className="divide-y divide-border">
@@ -219,9 +198,6 @@ export function SemesterPlan({
                     code={course.course_code}
                     title={course.title}
                     credits={course.credits}
-                    estimated={course.credits_estimated !== false}
-                    creditsNote={course.credits_note}
-                    titleStatus={course.title_status}
                     catalogStatus={course.catalog_status}
                     catalogNote={course.catalog_note}
                     badge={course.badge}
@@ -245,8 +221,8 @@ export function SemesterPlan({
               <span className="font-mono text-sm font-bold text-text">
                 Total credits planned
               </span>
-              <span className="font-mono tabular-nums text-xs text-muted">
-                {formatCredits(totalCredits)} credits{includesEstimates ? ' (estimated)' : ''}
+              <span className="font-mono tabular-nums text-base text-muted">
+                {formatCredits(totalCredits)} credits
               </span>
             </div>
           </div>

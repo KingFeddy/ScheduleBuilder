@@ -42,7 +42,8 @@ without being saved on the server.
 - **Schedule search:** uses backtracking to find compatible sections, then ranks
   results by campus days and gaps between classes.
 - **Degree planning:** extracts requirements from DegreeWorks PDFs and builds
-  semester plans using recorded prerequisites and credit targets.
+  semester plans using recorded prerequisites, historical offering patterns,
+  and credit targets.
 - **Data updates:** collects course and professor data, with retry handling and
   database safeguards that preserve existing records when updates fail.
 - **Deployment checks:** automated tests, type checks, and database schema

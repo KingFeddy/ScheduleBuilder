@@ -30,6 +30,7 @@ from src.scheduler.time_utils import (
 )
 from src.schemas.courses import CourseResponse
 from src.services.course_metadata import course_response, planning_credits
+from src.services.course_offerings import common_offering_seasons, require_common_offering, unavailable_offering_reason
 from src.services.corequisite_groups import corequisite_groups
 from src.services.flexible_prerequisites import flexible_course_ordering, prepare_flexible_groups
 from src.services.mixed_prerequisite_choices import choose_rule_paths
@@ -296,6 +297,16 @@ class GeneratedPlan:
     warnings:             list[str]
 
 
+def _completed_required_course(item: StillNeededItem, completed: set[str]) -> bool:
+    """Reuse completed required coursework, never automatically fill elective slots."""
+    return (
+        item.quantity_status == "known" and item.quantity_unit == "classes"
+        and item.remaining_quantity == 1 and len(item.options) == 1
+        and item.options[0] in completed
+        and not re.search(r"\b(?:electives?|choices?|choose|select(?:ion)?|options?)\b", item.requirement, re.I)
+    )
+
+
 def _credit_reconciliation_warnings(
     audit: ParsedDegreeValidated, semesters: list[SemesterCard],
 ) -> list[str]:
@@ -306,7 +317,8 @@ def _credit_reconciliation_warnings(
     """
     selected = unresolved_slots = extras = fillers = estimated = Decimal(0)
     active = {item.requirement_id for item in audit.still_needed
-              if item.quantity_status != "known" or item.remaining_quantity != 0}
+              if (item.quantity_status != "known" or item.remaining_quantity != 0)
+              and not _completed_required_course(item, set(audit.completed_courses))}
     represented: set[str] = set()
     unresolved: set[str] = set()
     for semester in semesters:
@@ -415,6 +427,7 @@ async def select_best_option(
         and opt not in in_progress
         and not WILDCARD_PATTERN.search(opt)
         and opt.isascii() and COURSE_CODE_PATTERN.fullmatch(opt)
+        and not unavailable_offering_reason(opt, target_term)
     ]
 
     if not available:
@@ -541,6 +554,16 @@ def _compute_prerequisite_dependencies(
 
 # ── Semester packing ───────────────────────────────────────────────────────────
 
+def _planned_course(item: _ResolvedItem) -> PlannedCourse:
+    return PlannedCourse(
+        slot_id=item.slot_id, requirement=item.source_requirement, allocation=item.allocation,
+        course_code=item.course_code or "TBD", title=item.title, credits=item.credits,
+        badge=item.badge, reason=item.reason, credits_estimated=item.credits_estimated,
+        credits_note=item.credits_note, title_status=item.title_status,
+        catalog_status=item.catalog_status, catalog_note=item.catalog_note,
+    )
+
+
 def _pack_semesters(
     items_pool: list[_ResolvedItem],
     depends_on: list[set[int]],
@@ -570,14 +593,15 @@ def _pack_semesters(
             raise ValueError("Concurrent group is missing an unplaced member")
         return [pool_by_index[i] for i in sorted(members)]
 
-    def planned(item):
-        return PlannedCourse(
-            slot_id=item.slot_id, requirement=item.source_requirement, allocation=item.allocation,
-            course_code=item.course_code or "TBD", title=item.title, credits=item.credits,
-            badge=item.badge, reason=item.reason, credits_estimated=item.credits_estimated,
-            credits_note=item.credits_note, title_status=item.title_status,
-            catalog_status=item.catalog_status, catalog_note=item.catalog_note,
-        )
+    # Reject impossible seasonal intersections before entering the retry loop.
+    initial_pool = {index_by_item[id(item)]: item for item in items_pool}
+    group_seasons = {}
+    for item in items_pool:
+        index = index_by_item[id(item)]
+        if index not in group_seasons:
+            group = group_for(item, initial_pool)
+            seasons = require_common_offering([member.course_code for member in group], planning_terms[0])
+            group_seasons.update({index_by_item[id(member)]: seasons for member in group})
 
     semesters: list[SemesterCard] = []
     term_idx = 0
@@ -612,11 +636,12 @@ def _pack_semesters(
                 deps = set().union(*(depends_on[index] for index in indices))
                 flexible_deps = set().union(*(same_or_before[index] for index in indices)) - indices
                 group_credits = round(sum(member.credits for member in group), 2)
-                if (any(d not in placed_at or placed_at[d] >= term_idx for d in deps)
+                if (term[-2:] not in group_seasons[idx]
+                        or any(d not in placed_at or placed_at[d] >= term_idx for d in deps)
                         or any(d not in placed_at or placed_at[d] > term_idx for d in flexible_deps)):
                     blocked.extend(group)
                 elif credits_used + group_credits <= credit_target:
-                    placed.extend(planned(member) for member in group)
+                    placed.extend(_planned_course(member) for member in group)
                     placed_at.update({index: term_idx for index in indices})
                     credits_used = round(credits_used + group_credits, 2)
                     progressed = True
@@ -635,7 +660,7 @@ def _pack_semesters(
         if not placed and remaining:
             group = group_for(remaining[0], pool_by_index)
             indices = {index_by_item[id(member)] for member in group}
-            placed.extend(planned(member) for member in group)
+            placed.extend(_planned_course(member) for member in group)
             placed_at.update({index: term_idx for index in indices})
             credits_used = round(sum(member.credits for member in group), 2)
             remaining = [member for member in remaining if index_by_item[id(member)] not in indices]
@@ -652,6 +677,68 @@ def _pack_semesters(
         items_pool = remaining + blocked
         term_idx  += 1
 
+    return semesters
+
+
+def _pack_with_final_seminar(items, depends_on, index_by_item, credit_target,
+                            planning_terms, concurrent_groups, same_or_before, warnings):
+    """Reserve HSS404 for the final semester as an explicit planning policy.
+
+    Do not infer this policy from arbitrary capstone labels. Move mandatory
+    concurrent companions and same-or-later dependents together; never break a
+    strict prerequisite edge to force an impossible final-semester placement.
+    """
+    final = {index_by_item[id(item)] for item in items if item.course_code == "HSS404"}
+    while final:
+        expanded = final | set().union(*(concurrent_groups.get(i, {i}) for i in final))
+        expanded.update(i for i, deps in enumerate(same_or_before) if deps & final)
+        if expanded == final:
+            break
+        final = expanded
+    if final and any(deps & final for deps in depends_on):
+        warnings.append(
+            "Partial plan: HSS404 cannot be placed in the last planned semester because "
+            "another selected course requires it or its concurrent coursework in an earlier semester. "
+            "Review the conflicting requirements; prerequisite order was preserved."
+        )
+        final = set()
+    final_seasons = common_offering_seasons([
+        item.course_code for item in items if index_by_item[id(item)] in final
+    ], planning_terms[0])
+    if final and not final_seasons:
+        warnings.append(
+            "Partial plan: HSS404 and its final-semester coursework have incompatible offering seasons. "
+            "Seasonal offerings and prerequisite order were preserved; review the final-semester requirement."
+        )
+        final = set()
+    placed_at = {}
+    semesters = _pack_semesters(
+        [item for item in items if index_by_item[id(item)] not in final],
+        depends_on, index_by_item, credit_target, planning_terms, placed_at,
+        concurrent_groups=concurrent_groups, same_or_before=same_or_before,
+    )
+    if not final:
+        return semesters
+    final_courses = [_planned_course(item) for item in items if index_by_item[id(item)] in final]
+    credits = round(sum(course.credits for course in final_courses), 2)
+    last_index = planning_terms.index(semesters[-1].term) if semesters else 0
+    prior = set().union(*(depends_on[i] for i in final))
+    fits = (semesters and semesters[-1].term[-2:] in final_seasons
+            and semesters[-1].total_credits + credits <= credit_target
+            and all(placed_at[d] < last_index for d in prior))
+    if not fits:
+        term = get_next_njit_term(semesters[-1].term) if semesters else planning_terms[0]
+        while term[-2:] not in final_seasons:
+            term = get_next_njit_term(term)
+        semesters.append(SemesterCard(term=term, term_label=term_to_label(term)))
+    semesters[-1].courses.extend(final_courses)
+    semesters[-1].total_credits = round(semesters[-1].total_credits + credits, 2)
+    if credits > credit_target:
+        warnings.append(f"HSS404 and coursework that must accompany it total {credits:g} credits, "
+                        f"above your {credit_target}-credit target for the last planned semester.")
+    for course in final_courses:
+        if course.course_code == "HSS404":
+            course.reason += " Scheduled in the last planned semester."
     return semesters
 
 
@@ -844,14 +931,17 @@ async def _allocate_requirement_quantities(
                     limit_reached = True
                     break
                 chunk = Decimal(1) if unit == "classes" else min(pending, Decimal(credit_target))
+                offering_notes = [note for option in requirement.options
+                                  if (note := unavailable_offering_reason(option, target_term))]
                 placeholder = replace(
                     base, course_code=None, credits=3 if unit == "classes" else float(chunk),
                     title=requirement.requirement, badge="TBD", credits_estimated=True,
                     credits_note=("Estimated credits for an unresolved class." if unit == "classes"
                                   else "Unresolved requirement credits; no qualifying course has been selected."),
                     title_status="unverified", catalog_status="unresolved",
-                    catalog_note="No specific catalog course has been selected for this slot.",
-                    reason=(base.reason if not requirement.options else
+                    catalog_note=(" ".join(offering_notes) if offering_notes else
+                                  "No specific catalog course has been selected for this slot."),
+                    reason=(base.reason if not requirement.options or offering_notes else
                             f"Unresolved {unit} for '{requirement.requirement}'; select additional qualifying coursework."),
                 )
                 if rows:
@@ -901,7 +991,14 @@ async def generate_plan(
 
     requirement_choices = preferences.requirement_choices
     requirements_by_id = {item.requirement_id: item for item in validated.still_needed}
+    completed_required = {
+        item.requirement_id for item in validated.still_needed if _completed_required_course(item, completed)
+    }
     chosen_codes = {code for codes in requirement_choices.values() for code in codes}
+    start_term = preferences.start_term or settings.CURRENT_TERM
+    for code in sorted((chosen_codes | set(student_electives)) - all_excluded):
+        if reason := unavailable_offering_reason(code, start_term):
+            raise ParseValidationError("preferences.courses", reason + " Choose another course or confirm updated offerings.")
     for requirement_id, codes in requirement_choices.items():
         field = f"preferences.requirement_choices.{requirement_id}"
         requirement = requirements_by_id.get(requirement_id)
@@ -974,7 +1071,7 @@ async def generate_plan(
 
     resolved: list[_ResolvedItem] = []
     satisfied_indices: set[int] = {
-        i for i, item in enumerate(validated.still_needed) if item.requirement_id in requirement_choices
+        i for i, item in enumerate(validated.still_needed) if item.requirement_id in requirement_choices or item.requirement_id in completed_required
     }
 
     # Match student electives to requirements (exact first, then wildcard)
@@ -987,6 +1084,8 @@ async def generate_plan(
 
     # Build resolved items
     for i, item in enumerate(validated.still_needed):
+        if item.requirement_id in completed_required:
+            continue
         if item.quantity_status == "known" and item.remaining_quantity == 0:
             continue
         if (item.options and all(COURSE_CODE_PATTERN.fullmatch(code) for code in item.options)
@@ -1030,6 +1129,11 @@ async def generate_plan(
                 and subject not in settings.catalog_subjects
             })
             catalog_note = "No specific catalog course has been selected for this slot."
+            unavailable_notes = [reason for option in item.options
+                                 if (reason := unavailable_offering_reason(option, current_term))]
+            if best is None and unavailable_notes:
+                catalog_note = " ".join(unavailable_notes) + " This degree requirement still needs a suitable course."
+                warnings.append(catalog_note)
             if best is None and missing_scope:
                 catalog_note += f" Requirement subjects outside collection scope: {', '.join(missing_scope)}. Confirm options with NJIT."
             resolved.append(_ResolvedItem(
@@ -1041,6 +1145,7 @@ async def generate_plan(
                     f"One of {num_available} options for '{item.requirement}'" if is_choice
                     else f"Required for {validated.majors[0]}" if best
                     else unreadable_options_note if not item.options
+                    else catalog_note if unavailable_notes
                     else f"Requirement '{item.requirement}' — discuss with advisor."
                 ),
                 catalog_note=catalog_note,
@@ -1126,14 +1231,14 @@ async def generate_plan(
     warnings.extend(flexible_warnings)
 
     # ── 7. Pack one course pool using recorded dependencies ────────────────
-    # Requirement labels remain descriptive. They do not establish a final-term
-    # restriction or justify dropping an edge into a separate packing phase.
+    # HSS404 has an explicit final-semester policy; arbitrary requirement labels
+    # still do not establish a final-term restriction.
     index_by_item = {id(item): index for index, item in enumerate(resolved)}
     concrete = sorted((item for item in resolved if item.course_code is not None), key=lambda item: -item.credits)
     unresolved = [item for item in resolved if item.course_code is None]
-    semesters = _pack_semesters(
-        concrete + unresolved, depends_on, index_by_item, credit_target, planning_terms, {},
-        concurrent_groups=concurrent_groups, same_or_before=same_or_before,
+    semesters = _pack_with_final_seminar(
+        concrete + unresolved, depends_on, index_by_item, credit_target, planning_terms,
+        concurrent_groups, same_or_before, warnings,
     )
 
     # Credit targets guide packing; a lighter final semester needs no filler.

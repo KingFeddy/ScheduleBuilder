@@ -66,7 +66,7 @@ def test_malformed_degree_fields_have_structured_errors(generation, field, value
     ({'courses': ['CS4XX']}, ['courses', 0]),
     ({'courses': ['CS435', ' cs 435 ']}, ['courses']),
     ({'credits_per_semester': 2}, ['credits_per_semester']),
-    ({'credits_per_semester': 25}, ['credits_per_semester']),
+    ({'credits_per_semester': 22}, ['credits_per_semester']),
     ({'credits_per_semester': True}, ['credits_per_semester']),
     ({'electives': []}, ['electives']),
 ])
@@ -96,7 +96,7 @@ def test_invalid_nonfinite_numbers_return_422_without_echoing_input(generation, 
     planner.assert_not_awaited()
 
 
-@pytest.mark.parametrize("target", [3])
+@pytest.mark.parametrize("target", [3, 21])
 def test_planner_receives_validated_models_and_normalized_preferences(generation, target):
     from src.schemas.plan import ParsedDegreeValidated, PlanPreferences
 
@@ -167,7 +167,7 @@ def test_generation_schema_exposes_degree_and_preferences(api):
     assert props["parsed_degree"]["$ref"].endswith("/ParsedDegree")
     assert props["preferences"]["$ref"].endswith("/PlanPreferences")
     assert schemas["PlanPreferences"]["properties"]["credits_per_semester"]["minimum"] == 3
-    assert schemas["PlanPreferences"]["properties"]["credits_per_semester"]["maximum"] == 24
+    assert schemas["PlanPreferences"]["properties"]["credits_per_semester"]["maximum"] == 21
 
 
 def test_real_parser_history_survives_parse_response_and_generation(generation, monkeypatch):

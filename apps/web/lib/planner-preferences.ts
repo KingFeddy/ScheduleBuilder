@@ -6,6 +6,9 @@ export interface PlannerPreferences {
   startTerm: string | null
 }
 
+export const MIN_PLANNER_CREDITS = 3
+export const MAX_PLANNER_CREDITS = 21
+
 export const DEFAULT_PREFERENCES: PlannerPreferences = { courses: [], creditsPerSemester: 15, startTerm: null }
 export const PREFERENCES_NOTICE = 'Your saved preferences could not be restored. Review your course choices, credit target, and start semester before generating a plan.'
 
@@ -22,7 +25,7 @@ export function restorePreferences(raw: string): PlannerPreferences | null {
     if ('version' in saved && saved.version !== 1) return null
     if (!('courses' in saved) || !Array.isArray(saved.courses)
       || !('creditsPerSemester' in saved) || typeof saved.creditsPerSemester !== 'number'
-      || !Number.isInteger(saved.creditsPerSemester) || saved.creditsPerSemester < 3 || saved.creditsPerSemester > 24) return null
+      || !Number.isInteger(saved.creditsPerSemester) || saved.creditsPerSemester < MIN_PLANNER_CREDITS || saved.creditsPerSemester > MAX_PLANNER_CREDITS) return null
     const startTerm = 'startTerm' in saved ? saved.startTerm : null
     if (startTerm !== null && !isPlanningTerm(startTerm)) return null
     const courses: string[] = []

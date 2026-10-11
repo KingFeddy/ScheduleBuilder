@@ -24,7 +24,12 @@ export function ResultNavigator() {
       <div className="flex items-center gap-3 text-sm">
         <span className="text-text font-medium">
           Schedule{' '}
-          <span className="font-mono tabular-nums">{current}</span>
+          <span
+            className="inline-block text-right font-mono tabular-nums"
+            style={{ width: `${String(total).length}ch` }}
+          >
+            {current}
+          </span>
           <span className="text-muted"> / </span>
           <span className="font-mono tabular-nums">{total}</span>
         </span>

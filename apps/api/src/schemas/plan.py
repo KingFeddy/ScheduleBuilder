@@ -12,7 +12,7 @@ from .catalog import CatalogStatus, UNCHECKED_CATALOG_NOTE
 COURSE_CODE_PATTERN = re.compile(r"^(?:R[0-9]{3}|[A-Z]{2,5})[0-9]{3}[A-Z]?$")
 WILDCARD_PATTERN = re.compile(r"[Xx@*]")
 MIN_CREDITS_PER_SEMESTER = 3
-MAX_CREDITS_PER_SEMESTER = 24
+MAX_CREDITS_PER_SEMESTER = 21
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 

@@ -1157,7 +1157,7 @@
           },
           "credits_per_semester": {
             "default": 15,
-            "maximum": 24.0,
+            "maximum": 21.0,
             "minimum": 3.0,
             "title": "Credits Per Semester",
             "type": "integer"

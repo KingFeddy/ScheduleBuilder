@@ -57,6 +57,34 @@ async def test_verified_empty_removes_obsolete_legacy_edge():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('target,semester_count', [(6, 2), (3, 4)])
+async def test_hss404_is_reserved_for_last_semester_without_losing_courses(target, semester_count):
+    plan, terms, _ = await generate(['HSS404', 'CS100', 'CS200', 'CS300'], [], target=target)
+    assert terms['HSS404'] == plan.semesters[-1].term
+    assert len(plan.semesters) == semester_count
+    assert all(s.total_credits <= target for s in plan.semesters)
+    assert sum(s.total_credits for s in plan.semesters) == 12
+    assert len([c for s in plan.semesters for c in s.courses]) == 4
+
+
+@pytest.mark.asyncio
+async def test_final_seminar_keeps_concurrent_group_and_waits_for_prior_course():
+    from tests.plan.test_corequisite_groups import coreq
+    plan, terms, _ = await generate(['HSS404', 'CS200', 'CS100'], [
+        coreq('HSS404', 'CS200'), stored('CS200', prereq=condition('CS100')),
+    ], target=9)
+    assert terms['CS100'] < terms['HSS404'] == terms['CS200'] == plan.semesters[-1].term
+    assert [s.total_credits for s in plan.semesters] == [3, 6]
+
+
+@pytest.mark.asyncio
+async def test_impossible_final_seminar_policy_warns_instead_of_reversing_dependency():
+    plan, terms, _ = await generate(['HSS404', 'CS200'], [stored('CS200', prereq=condition('HSS404'))])
+    assert terms['HSS404'] < terms['CS200']
+    assert any(w.startswith('Partial plan: HSS404 cannot') for w in plan.warnings)
+
+
+@pytest.mark.asyncio
 async def test_verified_dependency_crossing_capstone_boundary_is_preserved_transitively():
     plan,terms,_=await generate(['CS300','CS200','CS100'],[
         stored('CS200',prereq=condition('CS100')),

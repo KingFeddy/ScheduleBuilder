@@ -68,7 +68,8 @@ def poisoned_project(tmp_path):
     for filename in filter(None, sources):
         relative = Path(filename).relative_to("apps/api")
         if (
-            str(relative) in {"main.py", "pyproject.toml", "uv.lock", "migrations/manifest.json"}
+            str(relative) in {"main.py", "pyproject.toml", "uv.lock", "migrations/manifest.json",
+                              "src/data/course_offering_history.json"}
             or (relative.parts[0] in {"src", "scripts"} and relative.suffix == ".py")
             or (relative.parent == Path("migrations") and relative.suffix == ".sql")
         ):
@@ -76,6 +77,7 @@ def poisoned_project(tmp_path):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO_ROOT / filename, destination)
             required.add(relative.as_posix())
+    assert "src/data/course_offering_history.json" in required
     # Include real control files, including any future per-Dockerfile override.
     # Missing ignore files are allowed here so the regression fails on leakage.
     for relative in (

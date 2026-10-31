@@ -19,6 +19,7 @@ build/
 out/
 
 # Local development
+/.local-backups/
 .claude/
 .githooks/
 docs/

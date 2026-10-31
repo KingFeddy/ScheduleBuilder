@@ -9,6 +9,25 @@ from pathlib import Path
 HISTORY_PATH = Path(__file__).resolve().parents[1] / 'data' / 'course_offering_history.json'
 
 
+def classify_offering_terms(terms: list[str], recent_start: str) -> tuple[str, list[str]]:
+    """Recompute the pattern when a newly published term adds contrary evidence."""
+    recent = [term for term in terms if term >= recent_start]
+    counts = Counter(term[-2:] for term in recent)
+    if not recent:
+        category, seasons = 'inactive', []
+    elif counts['10'] >= 2 and not counts['90']:
+        category, seasons = ('spring_and_summer' if counts['50'] else 'spring_only'), ['10']
+    elif counts['90'] >= 2 and not counts['10']:
+        category, seasons = ('fall_and_summer' if counts['50'] else 'fall_only'), ['90']
+    elif counts['50'] >= 2 and not (counts['10'] or counts['90']):
+        category, seasons = 'summer_only', []
+    elif counts['10'] and counts['90']:
+        category, seasons = 'fall_and_spring', ['10', '90']
+    else:
+        category, seasons = 'insufficient_pattern', ['10', '90']
+    return category, seasons
+
+
 def classify_history(snapshots: list[dict], *, baseline_start: str, recent_start: str, latest_term: str) -> dict:
     bounds = (baseline_start, recent_start, latest_term)
     if any(len(term) != 6 or not term.isdigit() or term[-2:] not in {'10', '50', '90'} for term in bounds):
@@ -37,20 +56,7 @@ def classify_history(snapshots: list[dict], *, baseline_start: str, recent_start
             titles[code] = row['title']
     courses = {}
     for code, terms in sorted(observed.items()):
-        recent = [term for term in terms if term >= recent_start]
-        counts = Counter(term[-2:] for term in recent)
-        if not recent:
-            category, seasons = 'inactive', []
-        elif counts['10'] >= 2 and not counts['90']:
-            category, seasons = ('spring_and_summer' if counts['50'] else 'spring_only'), ['10']
-        elif counts['90'] >= 2 and not counts['10']:
-            category, seasons = ('fall_and_summer' if counts['50'] else 'fall_only'), ['90']
-        elif counts['50'] >= 2 and not (counts['10'] or counts['90']):
-            category, seasons = 'summer_only', []
-        elif counts['10'] and counts['90']:
-            category, seasons = 'fall_and_spring', ['10', '90']
-        else:
-            category, seasons = 'insufficient_pattern', ['10', '90']
+        category, seasons = classify_offering_terms(terms, recent_start)
         courses[code] = {'title': titles[code], 'observed_terms': terms, 'last_offered': terms[-1],
                          'category': category, 'planning_seasons': seasons}
     return {'format': 1, 'source': 'NJIT Banner complete public section inventories',

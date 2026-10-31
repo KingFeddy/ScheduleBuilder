@@ -25,10 +25,10 @@ test('searches courses, submits filters, and renders timed and async meetings', 
   await page.getByRole('button', { name: 'Solve', exact: true }).click()
 
   await expect(page.getByText('Schedule 1 / 1', { exact: true })).toBeVisible()
-  expect(api.requests('GET', '/api/courses').every((r) => new URL(r.url()).searchParams.get('term') === '202690')).toBe(true)
+  expect(api.requests('GET', '/api/courses').every((r) => new URL(r.url()).searchParams.get('term') === '202710')).toBe(true)
   expect(api.requests('POST', '/api/schedule/solve').map((r) => r.postDataJSON())).toEqual([{
     course_codes: ['CS280', 'HUM101'],
-    term: '202690',
+    term: '202710',
     options: {
       earliest_start: '08:00', latest_end: '20:00',
       minimize_gaps: true, hide_full_sections: true,

@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DATABASE_URL:       str
     SUPABASE_URL:       str
     SUPABASE_ANON_KEY:  str
-    CURRENT_TERM:       TermCode = "202690"
+    CURRENT_TERM:       TermCode = "202710"
     CATALOG_SUBJECTS:    str = DEFAULT_CATALOG_SUBJECTS
     GER_SUBJECTS:        str = DEFAULT_GER_SUBJECTS
     APP_ENV:            str = "development"

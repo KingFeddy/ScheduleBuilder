@@ -6,7 +6,7 @@ import pytest
 from src.schemas.plan import StillNeededItem, ParseValidationError, ParsedDegreeValidated, PlanPreferences
 from src.services import offering_history
 from src.services.course_offerings import common_offering_seasons, unavailable_offering_reason
-from src.services.offering_history import classify_history
+from src.services.offering_history import classify_history, classify_offering_terms
 from src.services.plan import select_best_option, generate_plan
 from tests.plan.test_structured_ordering import generate
 
@@ -48,6 +48,14 @@ def test_recent_patterns_distinguish_inactivity_summer_and_insufficient_evidence
     }
     assert history['courses']['CS400']['last_offered'] == '202290'
     assert history['courses']['CS500']['planning_seasons'] == ['10', '90']
+
+
+def test_newly_published_term_overrides_a_previous_seasonal_or_inactive_assumption():
+    prior = ['202390', '202490', '202590', '202690']
+    assert classify_offering_terms(prior, '202390') == ('fall_only', ['90'])
+    assert classify_offering_terms(prior + ['202710'], '202410') == ('fall_and_spring', ['10', '90'])
+    assert classify_offering_terms(['202290'], '202410') == ('inactive', [])
+    assert classify_offering_terms(['202290', '202710'], '202410') == ('insufficient_pattern', ['10', '90'])
 
 
 def test_missing_failed_duplicate_or_partial_inventory_cannot_imply_absence():
